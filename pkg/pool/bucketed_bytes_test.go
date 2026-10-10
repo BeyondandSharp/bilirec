@@ -28,6 +28,28 @@ func TestBucketedBytesPool_OversizedNotPooled(t *testing.T) {
 	}
 }
 
+func TestBucketedBytesPool_MaxRetainedBytesBudget(t *testing.T) {
+	const bucket = 512 * 1024
+	p := NewBucketedBytesPool(bucket,
+		WithPoolBoundedMode(true),
+		WithPoolBoundedCapacity(8),
+		WithPoolMaxRetainedBytes(bucket),
+	)
+
+	b1 := p.GetSized(bucket)
+	b2 := p.GetSized(bucket)
+	p.Put(b1)
+	p.Put(b2)
+
+	stats := p.Stats()
+	if stats.RetainedBytes != uint64(bucket) {
+		t.Fatalf("expected retained=%d, got %d", bucket, stats.RetainedBytes)
+	}
+	if stats.Misses != 1 {
+		t.Fatalf("expected budget-exceeding put to be rejected (misses=1), got %d", stats.Misses)
+	}
+}
+
 func TestBucketedBytesPool_BoundedPerBucket(t *testing.T) {
 	p := NewBucketedBytesPool(512*1024,
 		WithPoolBoundedMode(true),

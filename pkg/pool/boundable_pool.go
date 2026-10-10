@@ -58,3 +58,11 @@ func (p *boundablePool[T]) put(item T) {
 	}
 	p.soft.Put(item)
 }
+
+// queued reports how many items are currently parked in the bounded queue.
+func (p *boundablePool[T]) queued() int {
+	if p.mode != BufferPoolModeBounded {
+		return 0
+	}
+	return len(p.bounded)
+}

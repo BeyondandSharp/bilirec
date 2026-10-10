@@ -24,15 +24,18 @@ type BucketedBytesPool struct {
 	bucketSizes []int
 	slots       []*boundablePool[[]byte]
 
+	maxRetainedBytes int
+
 	hits      atomic.Uint64
 	misses    atomic.Uint64
 	oversized atomic.Uint64
 }
 
 type BucketedBytesPoolStats struct {
-	Hits      uint64
-	Misses    uint64
-	Oversized uint64
+	Hits          uint64
+	Misses        uint64
+	Oversized     uint64
+	RetainedBytes uint64
 }
 
 func NewBucketedBytesPool(baseSize int, opts ...BucketedBytesPoolOption) *BucketedBytesPool {
@@ -42,8 +45,9 @@ func NewBucketedBytesPool(baseSize int, opts ...BucketedBytesPoolOption) *Bucket
 	})
 	buckets := computeBucketSizes(baseSize)
 	p := &BucketedBytesPool{
-		bucketSizes: buckets,
-		slots:       make([]*boundablePool[[]byte], len(buckets)),
+		bucketSizes:      buckets,
+		slots:            make([]*boundablePool[[]byte], len(buckets)),
+		maxRetainedBytes: cfg.MaxRetainedBytes,
 	}
 	for i, bucketSize := range buckets {
 		size := bucketSize
@@ -74,6 +78,15 @@ func (p *BucketedBytesPool) GetSized(size int) []byte {
 	return p.slots[idx].get()[:size]
 }
 
+// retainedBytes derives the total bytes currently parked in bounded slots.
+func (p *BucketedBytesPool) retainedBytes() uint64 {
+	var total uint64
+	for i, slot := range p.slots {
+		total += uint64(slot.queued()) * uint64(p.bucketSizes[i])
+	}
+	return total
+}
+
 func (p *BucketedBytesPool) Put(buf []byte) {
 	if buf == nil {
 		return
@@ -81,6 +94,10 @@ func (p *BucketedBytesPool) Put(buf []byte) {
 	c := cap(buf)
 	for i, size := range p.bucketSizes {
 		if c == size {
+			if p.maxRetainedBytes > 0 && int(p.retainedBytes())+size > p.maxRetainedBytes {
+				p.misses.Add(1)
+				return
+			}
 			p.slots[i].put(buf[:size])
 			return
 		}
@@ -90,9 +107,10 @@ func (p *BucketedBytesPool) Put(buf []byte) {
 
 func (p *BucketedBytesPool) Stats() BucketedBytesPoolStats {
 	return BucketedBytesPoolStats{
-		Hits:      p.hits.Load(),
-		Misses:    p.misses.Load(),
-		Oversized: p.oversized.Load(),
+		Hits:          p.hits.Load(),
+		Misses:        p.misses.Load(),
+		Oversized:     p.oversized.Load(),
+		RetainedBytes: p.retainedBytes(),
 	}
 }
 
