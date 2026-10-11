@@ -20,6 +20,7 @@ const (
 	defaultReadStreamChanBufferSizeHigh                  = 48
 	defaultLiveStreamWriterBytesPoolSizeHigh             = 1024 * 1024
 	defaultSkipSmallFlushThreshold                       = 1 * 1024 * 1024
+	minSkipSmallFlushThreshold                           = 1024
 	defaultDanmakuWriterBufferSize                       = 256 * 1024 // 256KB: absorb busy-room bursts without mid-interval flush
 	defaultDanmakuWriterMinPeriodicFlushBytes            = 16 * 1024  // skip tiny periodic flushes that contend with video I/O
 	defaultDanmakuWriterFlushPeriodSecs                  = 15
@@ -126,10 +127,14 @@ func (g *GlobalReadOnly) LiveStreamWriterBytesPoolSizeHigh() int {
 }
 
 func (g *GlobalReadOnly) SkipSmallFlushThreshold() int {
-	if g.config.skipSmallFlushThreshold <= 0 {
+	if !g.config.skipSmallFlush {
+		return minSkipSmallFlushThreshold
+	}
+	t := g.config.skipSmallFlushThreshold
+	if t <= 0 {
 		return defaultSkipSmallFlushThreshold
 	}
-	return g.config.skipSmallFlushThreshold
+	return max(t, minSkipSmallFlushThreshold)
 }
 
 func (g *GlobalReadOnly) SkipSmallFlush() bool {

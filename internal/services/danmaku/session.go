@@ -11,6 +11,7 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/processors"
 	"github.com/bilirec/bilirec/pkg/backoff"
+	"github.com/bilirec/bilirec/pkg/ds"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 )
 
@@ -43,8 +44,12 @@ type session struct {
 
 	msgCh          chan []byte
 	rotateCh       chan rotateRequest
+	discardCh      chan struct{}
 	supervisorDone chan struct{}
 	done           chan struct{}
+
+	exiting         atomic.Bool
+	pendingDiscards ds.Set[string]
 
 	segmentStartNano atomic.Int64
 	dropped          atomic.Uint64
@@ -59,16 +64,18 @@ type session struct {
 func newSession(roomID int, meta RoomMeta, svc *Service, enc FormatEncoder, recCtx context.Context) *session {
 	ctx, cancel := context.WithCancel(recCtx)
 	s := &session{
-		roomID:         roomID,
-		meta:           meta,
-		svc:            svc,
-		encoder:        enc,
-		ctx:            ctx,
-		cancel:         cancel,
-		msgCh:          make(chan []byte, config.ReadOnly.DanmakuChanBufferSize()),
-		rotateCh:       make(chan rotateRequest, 1),
-		supervisorDone: make(chan struct{}),
-		done:           make(chan struct{}),
+		roomID:          roomID,
+		meta:            meta,
+		svc:             svc,
+		encoder:         enc,
+		ctx:             ctx,
+		cancel:          cancel,
+		msgCh:           make(chan []byte, config.ReadOnly.DanmakuChanBufferSize()),
+		rotateCh:        make(chan rotateRequest, 1),
+		discardCh:       make(chan struct{}, 1),
+		supervisorDone:  make(chan struct{}),
+		done:            make(chan struct{}),
+		pendingDiscards: ds.NewSyncedSet[string](),
 	}
 	return s
 }
@@ -274,16 +281,26 @@ func (s *session) writeLoop(videoPath string, segmentStart time.Time) {
 		select {
 		case frag, ok := <-s.msgCh:
 			if !ok {
-				s.finalizeSegment()
+				s.stopWriteLoop()
 				return
 			}
 			s.writeFragment(frag)
 		case req := <-s.rotateCh:
-			if s.drainPending() {
-				s.finalizeSegment()
+			if s.handleRotate(req) {
 				return
 			}
-			s.rotateSegment(req)
+		case <-s.discardCh:
+			// A Discard is always sent after the Rotate for the same video,
+			// so take that rotation first or the sidecar would be opened
+			// after its discard has already been applied.
+			select {
+			case req := <-s.rotateCh:
+				if s.handleRotate(req) {
+					return
+				}
+			default:
+			}
+			s.applyDiscards()
 		}
 	}
 }
@@ -298,6 +315,7 @@ func (s *session) openSegment(req rotateRequest) {
 	writerPipeline := pipeline.New(
 		processors.NewBufferedStreamWriter(
 			p,
+			processors.WithSkipSmallFlushThreshold(0),
 			processors.WithBufferSize(config.ReadOnly.DanmakuWriterBufferSize()),
 			processors.WithFlushPeriod(time.Duration(config.ReadOnly.DanmakuWriterFlushPeriodSecs())*time.Second),
 			processors.WithSyncPeriod(time.Duration(config.ReadOnly.DanmakuWriterSyncPeriodSecs())*time.Second),
@@ -376,7 +394,79 @@ func (s *session) drainPending() bool {
 	}
 }
 
+func (s *session) stopWriteLoop() {
+	s.finalizeSegment()
+	s.exiting.Store(true)
+	s.applyDiscards()
+}
+
+// handleRotate rotates to the requested segment. Returns true when the
+// session ended while draining and the write loop must stop.
+func (s *session) handleRotate(req rotateRequest) bool {
+	if s.drainPending() {
+		s.stopWriteLoop()
+		return true
+	}
+	s.rotateSegment(req)
+	return false
+}
+
 func (s *session) rotateSegment(req rotateRequest) {
 	s.finalizeSegment()
 	s.openSegment(req)
+	// Applied after opening so a discard that targets the new segment hits it.
+	s.applyDiscards()
+}
+
+func (s *session) queueDiscard(videoPath string) {
+	s.pendingDiscards.Add(videoPath)
+	select {
+	case s.discardCh <- struct{}{}:
+	default:
+	}
+}
+
+func (s *session) applyDiscards() {
+	for {
+		paths := s.pendingDiscards.ToSlice()
+		if len(paths) == 0 {
+			return
+		}
+		for _, path := range paths {
+			if !s.pendingDiscards.Remove(path) {
+				continue
+			}
+			s.applyOneDiscard(path)
+		}
+	}
+}
+
+func (s *session) applyOneDiscard(videoPath string) {
+	if s.writer != nil && PathForVideo(videoPath, s.encoder.Ext()) == s.curPath {
+		s.abandonCurrentSidecar()
+		return
+	}
+	s.removeSidecarFile(videoPath)
+}
+
+func (s *session) abandonCurrentSidecar() {
+	if s.writer == nil {
+		return
+	}
+	path := s.curPath
+	s.writer.Close()
+	s.writer = nil
+	s.curPath = ""
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Warnf("房间 %d 删除弹幕文件失败：%s err=%v", s.roomID, path, err)
+	} else {
+		log.Infof("房间 %d 已丢弃弹幕文件（视频分段未保留）：%s", s.roomID, path)
+	}
+}
+
+func (s *session) removeSidecarFile(videoPath string) {
+	p := PathForVideo(videoPath, s.encoder.Ext())
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		log.Warnf("房间 %d 删除弹幕文件失败：%s err=%v", s.roomID, p, err)
+	}
 }

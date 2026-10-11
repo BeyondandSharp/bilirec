@@ -64,20 +64,20 @@ const (
 )
 
 type BufferedStreamWriterProcessor struct {
-	file                    atomic.Pointer[os.File]
-	path                    string
-	bufferSize              int
-	chanBufferSize          int
-	syncPeriod              time.Duration
-	coldCacheReleasePeriod  time.Duration
-	flushPeriod             time.Duration
-	sdcardProtection        bool
-	skipSmallFlushThreshold int
-	dropFilePageCache       bool
-	sequentialWrite         bool
-	writer                  *rw.FlushLockedBufferedWriter
-	logger                  logger.Logger
-	locker                  tryLocker
+	file                       atomic.Pointer[os.File]
+	path                       string
+	bufferSize                 int
+	chanBufferSize             int
+	syncPeriod                 time.Duration
+	coldCacheReleasePeriod     time.Duration
+	flushPeriod                time.Duration
+	skipSmallFlushThreshold    int
+	skipSmallFlushThresholdSet bool
+	dropFilePageCache          bool
+	sequentialWrite            bool
+	writer                     *rw.FlushLockedBufferedWriter
+	logger                     logger.Logger
+	locker                     tryLocker
 
 	dataCh          chan []byte
 	stopCh          chan struct{} // Signal to stop periodicIOWorker
@@ -138,12 +138,11 @@ func NewBufferedStreamWriter(path string, opts ...BufferedStreamWriterOptions) *
 		chanBufferSize:          defaultChanBufferSize,
 		syncPeriod:              45 * time.Second,
 		flushPeriod:             defaultFlushPeriod,
-		sdcardProtection:        false,
 		skipSmallFlushThreshold: defaultSkipSmallFlushThreshold,
 		sequentialWrite:         false,
 	}
 	processor.applyOptions(opts...)
-	if processor.skipSmallFlushThreshold <= 0 {
+	if !processor.skipSmallFlushThresholdSet && processor.skipSmallFlushThreshold <= 0 {
 		processor.skipSmallFlushThreshold = defaultSkipSmallFlushThreshold
 	}
 	if processor.bytesPool == nil {
@@ -165,18 +164,13 @@ func NewBufferedStreamWriter(path string, opts ...BufferedStreamWriterOptions) *
 }
 
 func (w *BufferedStreamWriterProcessor) Open(ctx context.Context, log logger.Logger) error {
-	// File creation is delayed when SD card protection is enabled. We keep
-	// small writes in memory until the total queued bytes reach skipSmallFlushThreshold.
-	if !w.sdcardProtection {
-		file, err := os.Create(w.path)
-		if err != nil {
-			return err
-		}
-		w.file.Store(file)
-		w.writer = rw.NewFlushLockedBufferedWriter(file, w.bufferSize, w.locker)
-	} else {
+	// When skipSmallFlushThreshold > 0, keep writes in memory until pending bytes
+	// reach the threshold (1 MB by default, 1 KB when SKIP_SMALL_FLUSH=false).
+	if w.deferredFileCreation() {
 		w.pendingChunks = make([][]byte, 0, 16)
 		w.pendingBytes = 0
+	} else if err := w.createFileAndWriter(); err != nil {
+		return err
 	}
 
 	w.logger = log.With("file", w.path)
@@ -259,7 +253,7 @@ func (w *BufferedStreamWriterProcessor) Close() error {
 	}
 	w.wait.Wait()
 
-	if w.sdcardProtection && w.file.Load() == nil {
+	if w.deferredFileCreation() && w.file.Load() == nil {
 		threshold := w.skipSmallFlushThreshold
 		switch {
 		case w.pendingBytes == 0:
@@ -365,8 +359,12 @@ func (w *BufferedStreamWriterProcessor) writePeriodicallyWithTimer() {
 	}
 }
 
+func (w *BufferedStreamWriterProcessor) deferredFileCreation() bool {
+	return w.skipSmallFlushThreshold > 0
+}
+
 func (w *BufferedStreamWriterProcessor) handleDataChunk(data []byte) {
-	if w.sdcardProtection && w.file.Load() == nil {
+	if w.deferredFileCreation() && w.file.Load() == nil {
 		threshold := w.skipSmallFlushThreshold
 		w.pendingChunks = append(w.pendingChunks, data)
 		w.pendingBytes += len(data)
@@ -605,12 +603,6 @@ func (p *BufferedStreamWriterProcessor) applyOptions(opts ...BufferedStreamWrite
 	}
 }
 
-func WithSDCardProtection(enabled bool) BufferedStreamWriterOptions {
-	return func(p *BufferedStreamWriterProcessor) {
-		p.sdcardProtection = enabled
-	}
-}
-
 func WithDropFilePageCache(enabled bool) BufferedStreamWriterOptions {
 	return func(p *BufferedStreamWriterProcessor) {
 		p.dropFilePageCache = enabled
@@ -620,6 +612,7 @@ func WithDropFilePageCache(enabled bool) BufferedStreamWriterOptions {
 func WithSkipSmallFlushThreshold(threshold int) BufferedStreamWriterOptions {
 	return func(p *BufferedStreamWriterProcessor) {
 		p.skipSmallFlushThreshold = threshold
+		p.skipSmallFlushThresholdSet = true
 	}
 }
 

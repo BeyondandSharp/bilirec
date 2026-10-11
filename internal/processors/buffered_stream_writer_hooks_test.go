@@ -21,6 +21,7 @@ func TestBufferedStreamWriter_BytesWrittenOnWriteOnly(t *testing.T) {
 		processors.WithBufferSize(64*1024),
 		processors.WithChanBufferSize(1),
 		processors.WithBytesPool(pool.NewBucketedBytesPool(16*1024)),
+		processors.WithSkipSmallFlushThreshold(0),
 		processors.WithOnBytesWritten(func(n int) { written += n }),
 	)
 	pipe := pipeline.New(writerInfo)
@@ -56,6 +57,7 @@ func TestBufferedStreamWriter_EnqueueWaitHook(t *testing.T) {
 		processors.WithBufferSize(64*1024),
 		processors.WithChanBufferSize(1),
 		processors.WithBytesPool(pool.NewBucketedBytesPool(16*1024)),
+		processors.WithSkipSmallFlushThreshold(0),
 		processors.WithOnEnqueueWait(func(ev processors.EnqueueWaitEvent) {
 			waits++
 			if ev.Bytes <= 0 {

@@ -20,8 +20,9 @@ func ensureBenchmarkConfig() {
 		if config.ReadOnly != nil {
 			return
 		}
-		// Benchmarks measure full write path; disable SD-card deferred file creation.
-		_ = os.Setenv("SKIP_SMALL_FLUSH", "false")
+		// Benchmarks/strategy tests need a low commit threshold so small fixtures still create files.
+		_ = os.Setenv("SKIP_SMALL_FLUSH", "true")
+		_ = os.Setenv("SKIP_SMALL_FLUSH_THRESHOLD", "1024")
 		logger.SetLevel(logger.ErrorLevel)
 		app := fx.New(
 			config.Module,

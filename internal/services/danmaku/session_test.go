@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -299,6 +300,234 @@ func TestSessionChannelBlockRespectsCancel(t *testing.T) {
 	}
 	if got := sess.dropped.Load(); got != 0 {
 		t.Errorf("dropped = %d, want 0", got)
+	}
+}
+
+func waitUntilFileExists(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("file did not appear: %s", path)
+}
+
+func waitUntilFileContains(t *testing.T, path string, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && strings.Contains(string(data), want) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("file %s did not contain %q within %s", path, want, timeout)
+}
+
+func waitUntilNoFile(t *testing.T, path string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("file still exists: %s", path)
+}
+
+func TestSessionDiscardCurrent(t *testing.T) {
+	svc := newTestService()
+	sess, dir := newTestSession(svc, "jsonl")
+	svc.sessions.Store(sess.roomID, sess)
+	base := filepath.Join(dir, t.Name())
+	videoPath0 := filepath.Join(base, "rec-0.flv")
+	videoPath1 := filepath.Join(base, "rec-1.flv")
+	defer os.RemoveAll(base)
+
+	go sess.writeLoop(videoPath0, time.Now())
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "分段零弹幕")
+	sidecar0 := PathForVideo(videoPath0, ".jsonl")
+	waitUntilFileExists(t, sidecar0, 5*time.Second)
+
+	svc.Discard(sess.roomID, videoPath0)
+	waitUntilNoFile(t, sidecar0, 5*time.Second)
+
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "应被丢弃")
+	time.Sleep(50 * time.Millisecond)
+	if _, err := os.Stat(sidecar0); !os.IsNotExist(err) {
+		t.Fatalf("expected no sidecar after discard, stat err=%v", err)
+	}
+
+	newStart := time.Now()
+	sess.rotateCh <- rotateRequest{videoPath: videoPath1, segmentStart: newStart}
+	deadline := time.Now().Add(5 * time.Second)
+	for sess.segmentStartNano.Load() != newStart.UnixNano() {
+		if time.Now().After(deadline) {
+			t.Fatal("rotation was not processed in time")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "分段一弹幕")
+	close(sess.msgCh)
+	select {
+	case <-sess.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writeLoop did not finish")
+	}
+
+	sidecar1 := PathForVideo(videoPath1, ".jsonl")
+	content1 := readFile(t, sidecar1)
+	if !strings.Contains(content1, "分段一弹幕") {
+		t.Errorf("segment 1 file wrong:\n%s", content1)
+	}
+}
+
+func TestSessionDiscardPreviousAfterRotate(t *testing.T) {
+	svc := newTestService()
+	sess, dir := newTestSession(svc, "jsonl")
+	svc.sessions.Store(sess.roomID, sess)
+	base := filepath.Join(dir, t.Name())
+	videoPath0 := filepath.Join(base, "rec-0.flv")
+	videoPath1 := filepath.Join(base, "rec-1.flv")
+	defer os.RemoveAll(base)
+
+	go sess.writeLoop(videoPath0, time.Now())
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "分段零弹幕")
+	sidecar0 := PathForVideo(videoPath0, ".jsonl")
+	waitUntilFileExists(t, sidecar0, 5*time.Second)
+
+	newStart := time.Now()
+	sess.rotateCh <- rotateRequest{videoPath: videoPath1, segmentStart: newStart}
+	deadline := time.Now().Add(5 * time.Second)
+	for sess.segmentStartNano.Load() != newStart.UnixNano() {
+		if time.Now().After(deadline) {
+			t.Fatal("rotation was not processed in time")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	sidecar1 := PathForVideo(videoPath1, ".jsonl")
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "分段一弹幕")
+
+	svc.Discard(sess.roomID, videoPath0)
+	waitUntilNoFile(t, sidecar0, 5*time.Second)
+	waitUntilFileExists(t, sidecar1, 5*time.Second)
+
+	close(sess.msgCh)
+	select {
+	case <-sess.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writeLoop did not finish")
+	}
+
+	content1 := readFile(t, sidecar1)
+	if !strings.Contains(content1, "分段一弹幕") {
+		t.Errorf("segment 1 should remain:\n%s", content1)
+	}
+}
+
+func TestSessionDiscardAfterExit(t *testing.T) {
+	svc := newTestService()
+	sess, dir := newTestSession(svc, "jsonl")
+	svc.sessions.Store(sess.roomID, sess)
+	base := filepath.Join(dir, t.Name())
+	videoPath := filepath.Join(base, "rec-0.flv")
+	defer os.RemoveAll(base)
+
+	go sess.writeLoop(videoPath, time.Now())
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "收尾前弹幕")
+	close(sess.msgCh)
+	select {
+	case <-sess.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writeLoop did not finish")
+	}
+
+	sidecar := PathForVideo(videoPath, ".jsonl")
+	waitUntilFileExists(t, sidecar, 5*time.Second)
+	svc.Discard(sess.roomID, videoPath)
+	waitUntilNoFile(t, sidecar, 5*time.Second)
+}
+
+func TestSessionDiscardNonMatchingPath(t *testing.T) {
+	svc := newTestService()
+	sess, dir := newTestSession(svc, "jsonl")
+	svc.sessions.Store(sess.roomID, sess)
+	base := filepath.Join(dir, t.Name())
+	videoPath := filepath.Join(base, "rec-0.flv")
+	defer os.RemoveAll(base)
+
+	go sess.writeLoop(videoPath, time.Now())
+	sess.msgCh <- makeFragment(t, svc, sess.encoder, "保留")
+	sidecar := PathForVideo(videoPath, ".jsonl")
+	waitUntilFileExists(t, sidecar, 5*time.Second)
+
+	svc.Discard(sess.roomID, filepath.Join(base, "other.flv"))
+	if _, err := os.Stat(sidecar); err != nil {
+		t.Fatalf("current sidecar should remain: %v", err)
+	}
+
+	close(sess.msgCh)
+	select {
+	case <-sess.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writeLoop did not finish")
+	}
+}
+
+// Discard may arrive before the writer has handled the Rotate for the same
+// video; the sidecar must not be left behind.
+func TestSessionDiscardBeforeRotateHandled(t *testing.T) {
+	svc := newTestService()
+	sess, dir := newTestSession(svc, "jsonl")
+	svc.sessions.Store(sess.roomID, sess)
+	base := filepath.Join(dir, t.Name())
+	defer os.RemoveAll(base)
+
+	videoPath0 := filepath.Join(base, "rec-0.flv")
+	go sess.writeLoop(videoPath0, time.Now())
+	waitUntilFileExists(t, PathForVideo(videoPath0, ".jsonl"), 5*time.Second)
+
+	for i := 1; i <= 20; i++ {
+		videoPath := filepath.Join(base, "rec-"+strconv.Itoa(i)+".flv")
+		svc.Rotate(sess.roomID, videoPath, time.Now())
+		svc.Discard(sess.roomID, videoPath)
+	}
+
+	close(sess.msgCh)
+	select {
+	case <-sess.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("writeLoop did not finish")
+	}
+
+	for i := 1; i <= 20; i++ {
+		sidecar := PathForVideo(filepath.Join(base, "rec-"+strconv.Itoa(i)+".flv"), ".jsonl")
+		if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
+			t.Errorf("sidecar %d should have been discarded, stat err=%v", i, err)
+		}
+	}
+}
+
+func TestServiceRotateLatestWins(t *testing.T) {
+	svc := newTestService()
+	sess, _ := newTestSession(svc, "jsonl")
+	svc.sessions.Store(sess.roomID, sess)
+
+	svc.Rotate(sess.roomID, "rec-1.flv", time.Now())
+	svc.Rotate(sess.roomID, "rec-2.flv", time.Now())
+
+	select {
+	case req := <-sess.rotateCh:
+		if req.videoPath != "rec-2.flv" {
+			t.Fatalf("expected the latest rotation to win, got %q", req.videoPath)
+		}
+	default:
+		t.Fatal("expected a pending rotation")
 	}
 }
 

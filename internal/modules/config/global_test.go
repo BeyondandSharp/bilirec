@@ -52,6 +52,43 @@ func TestServeCacheIdleReleaseSecs_ConfiguredValue(t *testing.T) {
 	}
 }
 
+func TestSkipSmallFlushThreshold(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      Config
+		expected int
+	}{
+		{
+			name:     "protection disabled uses 1KB floor",
+			cfg:      Config{skipSmallFlush: false, skipSmallFlushThreshold: 1 << 20},
+			expected: minSkipSmallFlushThreshold,
+		},
+		{
+			name:     "protection enabled invalid threshold uses default 1MB",
+			cfg:      Config{skipSmallFlush: true, skipSmallFlushThreshold: 0},
+			expected: defaultSkipSmallFlushThreshold,
+		},
+		{
+			name:     "protection enabled below floor clamps to 1KB",
+			cfg:      Config{skipSmallFlush: true, skipSmallFlushThreshold: 512},
+			expected: minSkipSmallFlushThreshold,
+		},
+		{
+			name:     "protection enabled large value preserved",
+			cfg:      Config{skipSmallFlush: true, skipSmallFlushThreshold: 2 << 20},
+			expected: 2 << 20,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := &GlobalReadOnly{config: &tt.cfg}
+			if got := g.SkipSmallFlushThreshold(); got != tt.expected {
+				t.Fatalf("expected %d, got %d", tt.expected, got)
+			}
+		})
+	}
+}
+
 func TestDropFilePageCache_DefaultEnabled(t *testing.T) {
 	g := &GlobalReadOnly{config: &Config{dropFilePageCache: true}}
 	if !g.DropFilePageCache() {

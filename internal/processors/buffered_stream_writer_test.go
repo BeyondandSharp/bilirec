@@ -414,7 +414,6 @@ func TestBufferedStreamWriter_SDCardProtection_SkipsFlushWhenUnderBufferSize(t *
 
 	writerInfo := processors.NewBufferedStreamWriter(testFile,
 		processors.WithBufferSize(bufferSize),
-		processors.WithSDCardProtection(true),
 		processors.WithSkipSmallFlushThreshold(bufferSize),
 	)
 	pipe := pipeline.New(writerInfo)
@@ -452,7 +451,6 @@ func TestBufferedStreamWriter_SDCardProtection_WritesNormallyWhenOverBufferSize(
 
 	writerInfo := processors.NewBufferedStreamWriter(testFile,
 		processors.WithBufferSize(bufferSize),
-		processors.WithSDCardProtection(true),
 		processors.WithSkipSmallFlushThreshold(bufferSize),
 	)
 	pipe := pipeline.New(writerInfo)
@@ -498,7 +496,6 @@ func TestBufferedStreamWriter_SDCardProtection_WritesAfterThresholdWithPeriodicF
 
 	writerInfo := processors.NewBufferedStreamWriter(testFile,
 		processors.WithBufferSize(bufferSize),
-		processors.WithSDCardProtection(true),
 		processors.WithSkipSmallFlushThreshold(threshold),
 		processors.WithChanBufferSize(4),
 		processors.WithFlushPeriod(10*time.Millisecond),
@@ -573,7 +570,6 @@ func TestBufferedStreamWriter_SDCardProtection_CreatesFileOnCloseAfterCreateFail
 
 	writerInfo := processors.NewBufferedStreamWriter(testFile,
 		processors.WithBufferSize(threshold),
-		processors.WithSDCardProtection(true),
 		processors.WithSkipSmallFlushThreshold(threshold),
 		processors.WithChanBufferSize(8),
 	)
@@ -624,7 +620,7 @@ func TestBufferedStreamWriter_NoSDCardProtection_AlwaysFlushes(t *testing.T) {
 
 	writerInfo := processors.NewBufferedStreamWriter(testFile,
 		processors.WithBufferSize(bufferSize),
-		// sdcardProtection defaults to false
+		processors.WithSkipSmallFlushThreshold(0),
 	)
 	pipe := pipeline.New(writerInfo)
 

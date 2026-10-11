@@ -198,7 +198,7 @@ func TestFlvPipeline_ResolutionChangeRotation(t *testing.T) {
 			processors.NewFlvStreamFixerWithFixer(sharedFixer),
 			processors.NewFlvHeaderSplitDetector(),
 			processors.NewFlvHeaderWriter(videoHdr, audioHdr),
-			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024)),
+			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024), processors.WithSkipSmallFlushThreshold(0)),
 		)
 		if err := p.Open(context.Background()); err != nil {
 			t.Fatalf("open pipeline: %v", err)
@@ -352,7 +352,7 @@ func runFLVHeaderRotationPipeline(t *testing.T, stream []byte, wantInjected []by
 			processors.NewFlvStreamFixerWithFixer(sharedFixer),
 			processors.NewFlvHeaderSplitDetector(),
 			processors.NewFlvHeaderWriter(videoHdr, audioHdr),
-			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024)),
+			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024), processors.WithSkipSmallFlushThreshold(0)),
 		)
 		if err := p.Open(context.Background()); err != nil {
 			t.Fatalf("open pipeline: %v", err)
@@ -456,7 +456,7 @@ func TestFlvPipeline_ResolutionChangeRotation_RealFixtures(t *testing.T) {
 			processors.NewFlvStreamFixerWithFixer(sharedFixer),
 			splitDetector,
 			processors.NewFlvHeaderWriter(videoHdr, audioHdr),
-			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024)),
+			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024), processors.WithSkipSmallFlushThreshold(0)),
 		)
 		if err := p.Open(context.Background()); err != nil {
 			t.Fatalf("open pipeline: %v", err)
@@ -637,7 +637,7 @@ func TestFlvPipeline_GenerateBeforeAfterArtifacts(t *testing.T) {
 			processors.NewFlvStreamFixerWithFixer(sharedFixer),
 			splitDetector,
 			processors.NewFlvHeaderWriter(videoHdr, audioHdr),
-			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024)),
+			processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024), processors.WithSkipSmallFlushThreshold(0)),
 		)
 		if openErr := p.Open(context.Background()); openErr != nil {
 			t.Fatalf("open pipeline: %v", openErr)
@@ -686,7 +686,7 @@ func TestFlvPipeline_GenerateBeforeAfterArtifacts(t *testing.T) {
 	noSplitPipe := pipeline.New(
 		processors.NewFlvStreamFixer(),
 		processors.NewFlvHeaderWriter(nil, nil),
-		processors.NewBufferedStreamWriter(noSplitPath, processors.WithBufferSize(4*1024*1024)),
+		processors.NewBufferedStreamWriter(noSplitPath, processors.WithBufferSize(4*1024*1024), processors.WithSkipSmallFlushThreshold(0)),
 	)
 	if openErr := noSplitPipe.Open(context.Background()); openErr != nil {
 		t.Fatalf("open no-split pipeline: %v", openErr)
@@ -737,7 +737,7 @@ func TestFlvPipeline_RealtimeFixerNoSplit_RealFixtures(t *testing.T) {
 	pipe := pipeline.New(
 		processors.NewFlvStreamFixer(),
 		processors.NewFlvHeaderWriter(nil, nil),
-		processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024)),
+		processors.NewBufferedStreamWriter(outPath, processors.WithBufferSize(4*1024*1024), processors.WithSkipSmallFlushThreshold(0)),
 	)
 	if err := pipe.Open(context.Background()); err != nil {
 		t.Fatalf("open pipeline: %v", err)

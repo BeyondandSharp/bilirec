@@ -225,10 +225,11 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 		}
 		info.SetOutputPath(outputPath)
 
+		segmentOpen := time.Now()
+
 		// 弹幕录制与视频管道完全解耦：仅在此非阻塞地启动/轮换，
-		// 失败或缺失不影响录播。userStart 仅在使用者发起的首次分段为 true，
-		// recovery 的首个分段走 Rotate（原弹幕 session 随 info.ctx 存活）。
-		// segmentStart 尽量贴近 pipe.Open 之后、首包写入之前，减少开录缓冲造成的偏移。
+		// 失败或缺失不影响录播。userStart 仅在使用者发起的首次分段为 true。
+		// 视频分段未保留时 finalize 会 Discard 对应 sidecar。
 		pipe, err := strategy.BuildPipeline(ctx, outputPath, state, hooks)
 		if err != nil {
 			r.m.RecordingPipelineError(roomId, metrics.ReasonOpen)
@@ -247,16 +248,14 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 			r.m.RecordingRotation(roomId)
 		}
 
-		segmentOpen := time.Now()
 		info.segmentOpenTime = segmentOpen
 		r.emitFileOpening(roomId, info, outputPath)
 
 		if info.startOptions.recordDanmaku {
-			segStart := segmentOpen
 			if segment == 0 && userStart {
-				r.dm.StartSession(roomId, info.ctx, outputPath, danmakuRoomMeta(info.room), segStart)
+				r.dm.StartSession(roomId, info.ctx, outputPath, danmakuRoomMeta(info.room), segmentOpen)
 			} else {
-				r.dm.Rotate(roomId, outputPath, segStart)
+				r.dm.Rotate(roomId, outputPath, segmentOpen)
 			}
 		}
 
@@ -490,21 +489,17 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 
 	defer r.writingFiles.Remove(filepath.Base(outputPath))
 
-	fileInfo, err := os.Stat(outputPath)
-	if err != nil && config.ReadOnly.SkipSmallFlush() && os.IsNotExist(err) {
+	_, err := os.Stat(outputPath)
+	if err != nil && os.IsNotExist(err) {
 		log.Debugf("文件因为过小被而没有写入，跳过收尾：%s", outputPath)
+		if info.startOptions.recordDanmaku {
+			r.dm.Discard(roomId, outputPath)
+		}
 		r.m.RecordingSegmentDiscarded(roomId, metrics.ReasonSkippedSmall)
 		return
 	} else if err != nil {
 		log.Errorf("获取房间 %d 录制文件状态失败：%v", roomId, err)
 		r.m.RecordingSegmentDiscarded(roomId, metrics.ReasonStatError)
-		return
-	} else if fileInfo.Size() < 1024 { // less than 1KB
-		log.Warnf("房间 %d 的录制文件过小（%d 字节），跳过收尾并删除文件", roomId, fileInfo.Size())
-		r.m.RecordingSegmentDiscarded(roomId, metrics.ReasonTiny)
-		if err := os.Remove(outputPath); err != nil {
-			log.Errorf("删除空文件 %s 失败：%v", outputPath, err)
-		}
 		return
 	}
 

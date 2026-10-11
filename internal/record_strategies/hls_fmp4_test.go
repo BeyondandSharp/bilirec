@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/bilirec/bilirec/internal/processors"
+	"github.com/bilirec/bilirec/pkg/pipeline"
 )
 
 func testInitSegment(brand string) []byte {
@@ -23,6 +24,10 @@ func testInitSegment(brand string) []byte {
 }
 
 func testMediaFragment() []byte {
+	return testMediaFragmentSeq(0)
+}
+
+func testMediaFragmentSeq(seq byte) []byte {
 	moof := make([]byte, 16)
 	moof[0] = 0x00
 	moof[1] = 0x00
@@ -33,8 +38,17 @@ func testMediaFragment() []byte {
 	moof[12] = 0x00
 	moof[13] = 0x00
 	moof[14] = 0x00
-	moof[15] = 0x08
+	moof[15] = seq
 	return moof
+}
+
+func ensureSegmentCommitted(ctx context.Context, pipe *pipeline.Pipe[[]byte]) {
+	const minBytes = 1024
+	for seq := 0; seq*16 < minBytes+16; seq++ {
+		if _, err := pipe.Process(ctx, testMediaFragmentSeq(byte(seq%256))); err != nil {
+			panic(err)
+		}
+	}
 }
 
 func fileStartsWithFtyp(path string) (bool, error) {
@@ -68,6 +82,7 @@ func TestHlsFmp4Strategy_SkipsDuplicateInitInSingleFile(t *testing.T) {
 			t.Fatalf("Process: %v", err)
 		}
 	}
+	ensureSegmentCommitted(ctx, pipe)
 	pipe.Close()
 
 	ok, err := fileStartsWithFtyp(outPath)
@@ -119,6 +134,7 @@ func TestHlsFmp4Strategy_RotatesOnChangedInitWithPendingReplay(t *testing.T) {
 	if !errors.Is(procErr, processors.ErrFmp4Discontinuity) {
 		t.Fatalf("expected discontinuity, got %v", procErr)
 	}
+	ensureSegmentCommitted(ctx, pipe0)
 	pipe0.Close()
 
 	handle := strategy.HandleErr(procErr)
@@ -141,6 +157,7 @@ func TestHlsFmp4Strategy_RotatesOnChangedInitWithPendingReplay(t *testing.T) {
 	if _, err := pipe1.Process(ctx, moof2); err != nil {
 		t.Fatalf("Process moof2: %v", err)
 	}
+	ensureSegmentCommitted(ctx, pipe1)
 	pipe1.Close()
 
 	ok0, err := fileStartsWithFtyp(seg0)

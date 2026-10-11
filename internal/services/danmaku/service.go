@@ -2,6 +2,7 @@ package danmaku
 
 import (
 	"context"
+	"os"
 	"sync"
 	"time"
 
@@ -17,8 +18,10 @@ import (
 var log = logger.Named("danmaku")
 
 // Service records live danmaku (chat) into per-segment sidecar files paired
-// with the recorder's video output. It is deliberately decoupled from the
-// video pipeline: no shared locks, no blocking calls, message loss is acceptable.
+// with the recorder's video output. Danmaku rotates when the video segment
+// starts; if the video file is never kept, Discard removes the sidecar. It is
+// deliberately decoupled from the video pipeline: no shared locks, no blocking
+// calls, message loss is acceptable.
 //
 // Constructing the service allocates nothing beyond an empty map; connection
 // loops, goroutines and the buffer pool only exist while a session runs.
@@ -139,18 +142,61 @@ func (s *Service) removeSession(roomID int, sess *session) {
 }
 
 // Rotate notifies the room's session that the video rotated to a new segment.
-// It never blocks; if the previous rotation is still pending the signal is
-// dropped and the session keeps writing to the old file.
+// It never blocks. If the previous rotation is still pending it is superseded
+// (latest wins), so the session never lingers on a segment the video already
+// left.
 func (s *Service) Rotate(roomID int, newVideoPath string, newSegmentStart time.Time) {
 	sess, ok := s.sessions.Load(roomID)
 	if !ok {
 		return
 	}
-	select {
-	case sess.rotateCh <- rotateRequest{videoPath: newVideoPath, segmentStart: newSegmentStart}:
-		s.metrics.DanmakuRotation(roomID)
-	default:
-		log.Warnf("房间 %d 弹幕分段轮换信号被丢弃（上一个轮换尚未处理）", roomID)
-		s.metrics.DanmakuRotationDropped(roomID)
+	req := rotateRequest{videoPath: newVideoPath, segmentStart: newSegmentStart}
+	for range 2 {
+		select {
+		case sess.rotateCh <- req:
+			s.metrics.DanmakuRotation(roomID)
+			return
+		default:
+		}
+		select {
+		case <-sess.rotateCh:
+			log.Warnf("房间 %d 上一个弹幕分段轮换尚未处理，已被新的轮换取代", roomID)
+			s.metrics.DanmakuRotationDropped(roomID)
+		default:
+		}
+	}
+	log.Warnf("房间 %d 弹幕分段轮换信号被丢弃", roomID)
+	s.metrics.DanmakuRotationDropped(roomID)
+}
+
+// Discard removes the sidecar for a video segment that was not kept on disk.
+// It never blocks the recorder.
+func (s *Service) Discard(roomID int, videoPath string) {
+	if videoPath == "" {
+		return
+	}
+	sess, ok := s.sessions.Load(roomID)
+	if !ok {
+		s.removeSidecarFile(videoPath)
+		return
+	}
+	// The session goroutine owns the sidecar files, so it decides whether this
+	// one is open, already closed or not opened yet.
+	sess.queueDiscard(videoPath)
+	if sess.exiting.Load() {
+		// Its final applyDiscards may already be done.
+		s.removeSidecarFile(videoPath)
+	}
+}
+
+func (s *Service) removeSidecarFile(videoPath string) {
+	enc, err := NewFormatEncoder(s.outputFormat)
+	if err != nil {
+		log.Errorf("弹幕输出格式无效，无法删除 sidecar：%v", err)
+		return
+	}
+	p := PathForVideo(videoPath, enc.Ext())
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		log.Warnf("删除弹幕文件失败：%s err=%v", p, err)
 	}
 }
