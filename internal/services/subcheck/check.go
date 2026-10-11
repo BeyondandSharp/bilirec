@@ -3,8 +3,10 @@ package subcheck
 import (
 	"context"
 	"errors"
+	"maps"
 	"math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/room"
 	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
+	"github.com/bilirec/bilirec/pkg/backoff"
 	"github.com/bilirec/bilirec/pkg/coordinator"
 	"github.com/bilirec/bilirec/pkg/db"
 	"github.com/bilirec/bilirec/pkg/fp"
@@ -29,12 +32,19 @@ var log = logger.Named("subcheck")
 
 const (
 	sessionKeysBucketName = "SubCheck_LiveStates"
-	maxAutoStartAttempts  = 5
+	// maxAutoStartAttempts counts the first try plus one retry per autoStartRetryDelays entry.
+	maxAutoStartAttempts = 6
+	autoStartRetryTick   = 500 * time.Millisecond
 )
+
+// autoStartRetryDelays is the wait before each fast retry after a failed auto-start.
+var autoStartRetryDelays = []time.Duration{time.Second, time.Second, 2 * time.Second, 3 * time.Second, 5 * time.Second}
 
 type autoStartRetry struct {
 	sessionKey string
 	attempts   int
+	dueAt      time.Time
+	delays     *backoff.Sequence
 }
 
 type Service struct {
@@ -141,6 +151,8 @@ func (s *Service) start(cfg *config.Config) error {
 
 	s.wg.Add(1)
 	go s.loop()
+	s.wg.Add(1)
+	go s.retryLoop()
 	return nil
 }
 
@@ -244,6 +256,10 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 		s.invalidateStaleRooms(rooms)
 	}
 
+	s.processRooms(shardRooms, roomInfos)
+}
+
+func (s *Service) processRooms(shardRooms map[int]*subscribe.RoomConfig, roomInfos map[int]*bilibili.LiveRoomInfoDetail) {
 	for roomID, cfg := range shardRooms {
 		info, ok := roomInfos[roomID]
 		if !ok || info == nil {
@@ -269,6 +285,9 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 
 		retry, isRetry := s.autoStartRetry.Load(roomID)
 		isRetry = isRetry && retry.sessionKey == currentSessionKey
+		if isRetry && time.Now().Before(retry.dueAt) {
+			continue // still backing off; retryLoop (or a later tick) retries once due
+		}
 		if !isRetry {
 			log.Debugf("new live session detected for room %d (%s), key: %s", roomID, info.Uname, currentSessionKey)
 			s.m.LiveSessionDetected(roomID)
@@ -314,7 +333,12 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 						attempts = retry.attempts + 1
 					}
 					if isTransientAutoStartError(err) && attempts < maxAutoStartAttempts {
-						s.autoStartRetry.Store(roomID, autoStartRetry{sessionKey: currentSessionKey, attempts: attempts})
+						if !isRetry {
+							retry = autoStartRetry{sessionKey: currentSessionKey, delays: backoff.NewSequence(autoStartRetryDelays...)}
+						}
+						retry.attempts = attempts
+						retry.dueAt = time.Now().Add(retry.delays.Next())
+						s.autoStartRetry.Store(roomID, retry)
 						markNow = false
 					}
 					if !isRetry {
@@ -331,6 +355,53 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 		if markNow {
 			s.autoStartRetry.Delete(roomID)
 			s.markSessionState(roomID, currentSessionKey)
+		}
+	}
+}
+
+// retryLoop re-runs auto-start for rooms whose backoff has elapsed, so a failed
+// start does not wait for the next full check cycle.
+func (s *Service) retryLoop() {
+	defer s.wg.Done()
+
+	ticker := time.NewTicker(autoStartRetryTick)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.retryDueRooms()
+		case <-s.ctx.Done():
+			return
+		}
+	}
+}
+
+func (s *Service) retryDueRooms() {
+	now := time.Now()
+	due := make(map[int]*subscribe.RoomConfig)
+	s.autoStartRetry.Range(func(roomID int, retry autoStartRetry) bool {
+		if retry.dueAt.After(now) {
+			return true
+		}
+		cfg, err := s.subSvc.GetConfig(roomID)
+		if err != nil { // unsubscribed meanwhile
+			s.autoStartRetry.Delete(roomID)
+			return true
+		}
+		due[roomID] = cfg
+		return true
+	})
+	if len(due) == 0 {
+		return
+	}
+
+	s.processRooms(due, s.getNotifyRoomInfos(slices.Collect(maps.Keys(due))))
+
+	// Rooms still due had no room info this round; wait the longest backoff instead of spinning.
+	for roomID := range due {
+		if retry, ok := s.autoStartRetry.Load(roomID); ok && !retry.dueAt.After(now) {
+			retry.dueAt = time.Now().Add(autoStartRetryDelays[len(autoStartRetryDelays)-1])
+			s.autoStartRetry.Store(roomID, retry)
 		}
 	}
 }

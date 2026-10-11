@@ -425,7 +425,7 @@ func TestAutoStartRetry_DoesNotMarkUntilLimit(t *testing.T) {
 			t.Fatalf("attempt %d should still retry", attempt)
 		}
 		if attempt == maxAutoStartAttempts && retrying {
-			t.Fatal("attempt 5 should stop retrying")
+			t.Fatal("attempt 6 should stop retrying")
 		}
 		if retrying {
 			service.autoStartRetry.Store(roomID, autoStartRetry{sessionKey: sessionKey, attempts: attempt})
