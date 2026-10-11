@@ -570,6 +570,14 @@ func runDanmakuConcurrentRecordTest(t *testing.T, concurrent int, recordDuration
 
 	totalDanmaku := 0
 	for _, rid := range started {
+		// A stream that drops early leaves a first segment too small to keep: the
+		// recorder deletes the video and discards its sidecar, then reconnects
+		// into a new segment. Nothing to finalize for the originally captured path.
+		if _, err := os.Stat(outputPaths[rid]); os.IsNotExist(err) {
+			t.Logf("room %d first segment was discarded as too small (stream dropped early); skip sidecar check: %s",
+				rid, outputPaths[rid])
+			continue
+		}
 		sidecarPath := danmaku.PathForVideo(outputPaths[rid], ".jsonl")
 		if !waitForFinalizedDanmakuJSONL(t, sidecarPath, 20*time.Second) {
 			t.Errorf("danmaku jsonl not finalized: room=%d path=%s", rid, sidecarPath)
