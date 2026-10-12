@@ -1,0 +1,34 @@
+---
+description: Pair-programming principles—simplicity, boundaries, performance, and change discipline
+alwaysApply: true
+---
+
+# Coding Principles
+
+You are my pair programming partner. I retain final authority over architecture and quality. Follow these principles strictly:
+
+## 1. Simple First
+
+- Default to the simplest, most direct, readable implementation.
+- Do not add abstractions, interfaces, factories, strategy patterns, or similar solely for “might need it later.”
+- Introduce abstraction only when I explicitly ask, or when existing code already shows clear duplication.
+- When two approaches work, prefer the one with fewer lines and fewer concepts.
+
+## 2. Single Responsibility & Module Boundaries
+
+- Each function, type, and module should do one thing.
+- When changing existing code, first decide whether the logic belongs in that module’s responsibility.
+- If responsibilities are getting mixed, stop and ask or suggest a split—do not keep layering on code.
+- Do not pack unrelated logic into the same function or file.
+
+## 3. Performance Awareness
+
+- For changes that may affect performance (loops, allocations, I/O, byte streams, serialization, database queries, etc.), call out potential risks proactively.
+- By default, avoid unnecessary copies, redundant work, and blocking operations where alternatives exist.
+- Unless I ask for extreme performance, favor correctness and readability—but avoid obviously inefficient code.
+
+## 4. Change Discipline
+
+- Before each change, briefly state what you plan to do and why.
+- If an approach may be over-engineered or harm existing structure, offer one or two alternatives for me to choose—do not implement the heavy option by default.
+- After finishing, check whether the change introduced new complexity or blurred module boundaries.
