@@ -1,6 +1,7 @@
 package file
 
 import (
+	"errors"
 	"io/fs"
 	"net/url"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/convert"
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/file"
+	"github.com/bilirec/bilirec/internal/services/media"
 	"github.com/bilirec/bilirec/internal/services/path"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/pkg/logger"
@@ -26,6 +28,7 @@ type Controller struct {
 	convertSvc  *convert.Service
 	recorderSvc *recorder.Service
 	pathSvc     *path.Service
+	mediaSvc    *media.Service
 }
 
 func NewController(
@@ -34,12 +37,14 @@ func NewController(
 	recorderSvc *recorder.Service,
 	pathSvc *path.Service,
 	convertSvc *convert.Service,
+	mediaSvc *media.Service,
 ) *Controller {
 	fc := &Controller{
 		fileSvc:     fileSvc,
 		recorderSvc: recorderSvc,
 		pathSvc:     pathSvc,
 		convertSvc:  convertSvc,
+		mediaSvc:    mediaSvc,
 	}
 	files := app.Group("/files")
 
@@ -47,7 +52,6 @@ func NewController(
 	files.Get("/playback/*", fc.playbackFile)
 	files.Get("/danmaku/*", fc.fetchDanmaku)
 	files.Get("/download/*", fc.downloadFile)
-	files.Get("/tempdownload", fc.presignedDownload)
 	files.Get("/disk-space", fc.getDiskSpace)
 	files.Post("/presigned/*", fc.createPresignedURL)
 
@@ -65,8 +69,10 @@ func NewController(
 // @Produce video/mp4
 // @Produce audio/mp4
 // @Param path path string true "Media file path"
+// @Param presigned query string true "Presigned URL token bound to the file path"
 // @Success 200 {file} binary "Media stream"
 // @Failure 400 {string} string "Bad request"
+// @Failure 401 {string} string "Missing presigned token"
 // @Failure 403 {string} string "Forbidden"
 // @Failure 404 {string} string "Not found"
 // @Failure 415 {string} string "Unsupported media type"
@@ -76,6 +82,9 @@ func (c *Controller) playbackFile(ctx fiber.Ctx) error {
 	path, err := url.PathUnescape(raw)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if err := c.mediaSvc.AuthorizeToken(ctx.Query("presigned"), path); err != nil {
+		return mediaTokenFiberError(err)
 	} else if c.recorderSvc.IsRecording(path) {
 		return fiber.NewError(fiber.StatusBadRequest, "无法播放正在录制的文件")
 	}
@@ -211,8 +220,10 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 // @Accept json
 // @Produce octet-stream
 // @Param path path string true "File path"
+// @Param presigned query string true "Presigned URL token bound to the file path"
 // @Success 200 {file} binary "File stream"
 // @Failure 400 {string} string "Bad request"
+// @Failure 401 {string} string "Missing presigned token"
 // @Failure 403 {string} string "Forbidden"
 // @Failure 404 {string} string "Not found"
 // @Router /files/download/{path} [get]
@@ -221,6 +232,9 @@ func (c *Controller) downloadFile(ctx fiber.Ctx) error {
 	path, err := url.PathUnescape(raw)
 	if err != nil {
 		return fiber.ErrBadRequest
+	}
+	if err := c.mediaSvc.AuthorizeToken(ctx.Query("presigned"), path); err != nil {
+		return mediaTokenFiberError(err)
 	}
 	if c.recorderSvc.IsRecording(path) {
 		return fiber.NewError(fiber.StatusBadRequest, "无法下载正在录制的文件")
@@ -236,48 +250,15 @@ func (c *Controller) downloadFile(ctx fiber.Ctx) error {
 	})
 }
 
-// @Summary Presigned download
-// @Description Download a file using a presigned token (no auth required)
-// @Tags files
-// @Accept json
-// @Produce octet-stream
-// @Param presigned query string true "Presigned URL token"
-// @Success 200 {file} binary "File stream"
-// @Failure 400 {string} string "Bad request"
-// @Failure 403 {string} string "Token expired"
-// @Failure 404 {string} string "Not found"
-// @Router /files/tempdownload [get]
-func (c *Controller) presignedDownload(ctx fiber.Ctx) error {
-	token := ctx.Query("presigned", "")
-	if token == "" {
-		return fiber.ErrBadRequest
-	}
-	relPath, err := c.pathSvc.ParsePresignedURLToken(token)
-	if err != nil {
-		if err == path.ErrTokenExpired {
-			return fiber.NewError(fiber.StatusForbidden, "Token 已过期")
-		}
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
-	}
-	fullPath, err := c.pathSvc.ValidatePath(relPath)
-	if err != nil {
-		log.Warnf("校验路径 %s 失败：%v", relPath, err)
-		return c.parseFiberError(err)
-	}
-	ctx.Attachment(fullPath) // set this because SendFile does not set the filename when using Download: true
-	return c.sendFileWithIdleCacheRelease(ctx, fullPath, fiber.SendFile{
-		ByteRange: true,
-	})
-}
-
 // @Summary Create presigned URL
-// @Description Create a presigned token for downloading a file. Accepts optional "ttl" query in seconds (default 3600).
+// @Description Create a presigned URL for a file. Accepts optional "ttl" query in seconds (default 3600) and "purpose" query ("download" default, or "playback").
 // @Tags files
 // @Security BearerAuth
 // @Accept json
 // @Produce json
 // @Param path path string true "File path"
 // @Param ttl query int false "TTL in seconds"
+// @Param purpose query string false "URL purpose: download (default), playback, or share. download and playback reuse a pooled URL until near expiry; share always signs a fresh link"
 // @Success 201 {object} PresignedURLResponse "Presigned URL response"
 // @Failure 400 {string} string "Bad request"
 // @Failure 403 {string} string "Forbidden"
@@ -285,16 +266,16 @@ func (c *Controller) presignedDownload(ctx fiber.Ctx) error {
 // @Router /files/presigned/{path} [post]
 func (c *Controller) createPresignedURL(ctx fiber.Ctx) error {
 	raw := ctx.Params("*", "/")
-	path, err := url.PathUnescape(raw)
+	relPath, err := url.PathUnescape(raw)
 	if err != nil {
 		return fiber.ErrBadRequest
-	} else if c.recorderSvc.IsRecording(path) {
+	} else if c.recorderSvc.IsRecording(relPath) {
 		return fiber.NewError(fiber.StatusBadRequest, "无法为正在录制的文件生成临时下载链接")
 	}
 
-	fullPath, err := c.pathSvc.ValidatePath(path)
+	fullPath, err := c.pathSvc.ValidatePath(relPath)
 	if err != nil {
-		log.Warnf("校验路径 %s 失败：%v", path, err)
+		log.Warnf("校验路径 %s 失败：%v", relPath, err)
 		return c.parseFiberError(err)
 	}
 
@@ -309,15 +290,19 @@ func (c *Controller) createPresignedURL(ctx fiber.Ctx) error {
 	}
 	ttl := time.Duration(ttlSeconds) * time.Second
 
-	url, err := c.pathSvc.GeneratePresignedURL(fullPath, ttl)
+	purpose := ctx.Query("purpose", path.PurposeDownload)
+	url, expiresIn, err := c.mediaSvc.PresignedURL(fullPath, purpose, ttl)
 	if err != nil {
-		log.Warnf("为路径 %s 生成预签名令牌失败：%v", path, err)
+		if errors.Is(err, media.ErrInvalidPurpose) {
+			return fiber.NewError(fiber.StatusBadRequest, "purpose 无效")
+		}
+		log.Warnf("为路径 %s 生成预签名令牌失败：%v", relPath, err)
 		return fiber.ErrInternalServerError
 	}
 
 	resp := &PresignedURLResponse{
 		URL:       url,
-		ExpiresIn: int(ttl.Seconds()),
+		ExpiresIn: int(expiresIn),
 	}
 	return ctx.Status(fiber.StatusCreated).JSON(resp)
 }
@@ -431,4 +416,20 @@ func (c *Controller) withRecordingStatus(items []file.Tree) []file.Tree {
 		}
 	}
 	return out
+}
+
+// mediaTokenFiberError maps media presigned token errors to HTTP responses.
+func mediaTokenFiberError(err error) error {
+	switch {
+	case errors.Is(err, media.ErrMissingToken):
+		return fiber.NewError(fiber.StatusUnauthorized, "缺少预签名 token")
+	case errors.Is(err, path.ErrTokenExpired):
+		return fiber.NewError(fiber.StatusForbidden, "token 已过期")
+	case errors.Is(err, path.ErrInvalidToken):
+		return fiber.NewError(fiber.StatusBadRequest, "无效 token")
+	case errors.Is(err, media.ErrPathMismatch):
+		return fiber.NewError(fiber.StatusForbidden, "预签名 token 与请求路径不符")
+	default:
+		return fiber.ErrInternalServerError
+	}
 }

@@ -21,6 +21,7 @@ import (
 	ex "github.com/bilirec/bilirec/internal/services/expose"
 	fi "github.com/bilirec/bilirec/internal/services/file"
 	ja "github.com/bilirec/bilirec/internal/services/janitor"
+	me "github.com/bilirec/bilirec/internal/services/media"
 	no "github.com/bilirec/bilirec/internal/services/notify"
 	pa "github.com/bilirec/bilirec/internal/services/path"
 	re "github.com/bilirec/bilirec/internal/services/recorder"
@@ -47,6 +48,7 @@ func MainModule() fx.Option {
 
 		fx.Provide(pa.NewService),
 		fx.Provide(co.NewService),
+		fx.Provide(me.NewService),
 		fx.Provide(dm.NewService),
 		fx.Provide(st.NewService),
 		fx.Provide(re.NewService),

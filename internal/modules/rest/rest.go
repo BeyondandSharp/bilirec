@@ -40,6 +40,7 @@ import (
 
 	jwt "github.com/gofiber/contrib/v3/jwt"
 	"github.com/gofiber/contrib/v3/swagger"
+	jwtlib "github.com/golang-jwt/jwt/v5"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/extractors"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -50,6 +51,11 @@ import (
 )
 
 const jwtTokenKey = "jwtToken"
+
+// sessionJwtIssuer identifies JWTs minted by /login. Presigned media tokens
+// share the signing secret but omit this claim, so the JWT middleware rejects
+// them as session cookies.
+const sessionJwtIssuer = "bilirec"
 
 const (
 	fileStreamCacheControl = "public, max-age=86400"
@@ -137,7 +143,10 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 			Next: func(c fiber.Ctx) bool {
 				// paths that don't require JWT authentication
 				exemptPaths := []string{
-					"/files/tempdownload",
+					// presigned-token routes: the token in the query authorizes the
+					// request, handlers verify the token via media.AuthorizeToken
+					"/files/playback",
+					"/files/download",
 					"/notify/sse",
 				}
 				// allow CORS preflight requests
@@ -154,6 +163,21 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 			},
 			Extractor:  extractors.FromCookie(jwtTokenKey),
 			SigningKey: jwt.SigningKey{Key: []byte(cfg.JwtSecret)},
+			SuccessHandler: func(c fiber.Ctx) error {
+				// Presigned media tokens are signed with the same secret but carry
+				// no issuer. Reject them here so a leaked media URL cannot act as
+				// a session cookie on API routes.
+				token := jwt.FromContext(c)
+				if token == nil {
+					return c.Status(fiber.StatusUnauthorized).SendString("JWT 无效或已过期")
+				}
+				claims, ok := token.Claims.(jwtlib.MapClaims)
+				iss, _ := claims["iss"].(string)
+				if !ok || iss != sessionJwtIssuer {
+					return c.Status(fiber.StatusUnauthorized).SendString("JWT 无效或已过期")
+				}
+				return c.Next()
+			},
 			ErrorHandler: func(c fiber.Ctx, err error) error {
 				if errors.Is(err, extractors.ErrNotFound) {
 					return c.Status(fiber.StatusUnauthorized).SendString(jwt.ErrMissingToken.Error())

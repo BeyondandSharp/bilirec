@@ -47,7 +47,7 @@ func loginHandler(cfg *config.Config) fiber.Handler {
 			"name": user,
 			"iat":  time.Now().Unix(),
 			"exp":  expire.Unix(),
-			"iss":  "bilirec",
+			"iss":  sessionJwtIssuer,
 			"role": role,
 		}
 

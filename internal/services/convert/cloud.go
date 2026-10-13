@@ -513,7 +513,7 @@ func (c *cloudConvertManager) getOrCreatePresignedURL(inputPath string) (url str
 		c.presignedUrlPool.Delete(inputPath)
 		c.logger.Debugf("presigned URL for %s expired or invalid, generating a new one", inputPath)
 	}
-	url, err = c.pathSvc.GeneratePresignedURL(inputPath, signeddownload.DefaultExpireAfter)
+	url, err = c.pathSvc.GeneratePresignedMediaURL(inputPath, path.PresignedRouteDownload, signeddownload.DefaultExpireAfter)
 	if err == nil {
 		if !utils.IsValidAbsoluteHTTPURL(url) {
 			c.logger.Errorf("PUBLIC_BASE_URL 为空或无效，CloudConvert 需要有效的绝对预签名 URL")
