@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -87,9 +88,9 @@ type Config struct {
 	CloudConvertThreshold int64
 	CloudConvertApiKey    string
 
-	PublicBaseUrl      string
-	FrontendURL        *url.URL
-	WebPushSubscriber  string
+	PublicBaseUrl     string
+	FrontendURLs      []string // CORS AllowOrigins (normalized origins)
+	WebPushSubscriber string
 	NotifySSEToken     string
 	WebhookURLs        string // newline-separated BililiveRecorder v2 webhook targets
 	Username           string
@@ -172,9 +173,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		return nil, viewerErr
 	}
 
-	// parse frontend url
-	url, err := url.Parse(utils.EmptyOrElse(os.Getenv("FRONTEND_URL"), "https://app.bilirec.org"))
-
+	frontendURLs, err := parseFrontendURLs()
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +239,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		DeleteSourceAfterConvert:           os.Getenv("DELETE_SOURCE_AFTER_CONVERT") == "true",
 		DanmakuOutputFormat:                strings.ToLower(strings.TrimSpace(utils.EmptyOrElse(os.Getenv("DANMAKU_OUTPUT_FORMAT"), "jsonl"))),
 		DanmakuOverflowPolicy:              strings.ToLower(strings.TrimSpace(utils.EmptyOrElse(os.Getenv("DANMAKU_OVERFLOW_POLICY"), "drop"))),
-		FrontendURL:                        url,
+		FrontendURLs:                       frontendURLs,
 		PublicBaseUrl:                      strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")),
 		WebPushSubscriber:                  utils.EmptyOrElse(os.Getenv("WEBPUSH_SUBSCRIBER"), "mailto:webpush@example.com"),
 		NotifySSEToken:                     strings.TrimSpace(os.Getenv("NOTIFY_SSE_TOKEN")),
@@ -374,6 +373,46 @@ func parseCommaSeparatedValues(raw string) []string {
 		vals = append(vals, v)
 	}
 	return vals
+}
+
+const defaultFrontendOrigin = "https://app.bilirec.org"
+
+func parseFrontendURLs() ([]string, error) {
+	primary := strings.TrimSpace(os.Getenv("FRONTEND_URLS"))
+	alias := strings.TrimSpace(os.Getenv("FRONTEND_URL"))
+
+	raw := primary
+	if raw == "" {
+		raw = alias
+	} else if alias != "" {
+		log.Warn("FRONTEND_URLS 已设置，忽略 FRONTEND_URL 别名")
+	}
+	if raw == "" {
+		raw = defaultFrontendOrigin
+	}
+
+	parts := utils.SplitAndTrim(raw, ",")
+	origins := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		if !utils.IsValidAbsoluteHTTPURL(part) {
+			return nil, fmt.Errorf("无效的前端 URL: %s", part)
+		}
+		parsed, err := url.Parse(part)
+		if err != nil {
+			return nil, fmt.Errorf("无效的前端 URL: %s", part)
+		}
+		origin := parsed.Scheme + "://" + parsed.Host
+		if _, ok := seen[origin]; ok {
+			continue
+		}
+		seen[origin] = struct{}{}
+		origins = append(origins, origin)
+	}
+	if len(origins) == 0 {
+		return nil, fmt.Errorf("无效的前端 URL: %s", raw)
+	}
+	return origins, nil
 }
 
 func resolveFRPToken(server, baseDomain string) string {

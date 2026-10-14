@@ -256,16 +256,12 @@ func startHttpServer(app *fiber.App, wg *sync.WaitGroup, addr string, cfg *confi
 }
 
 func restCORSConfig(cfg *config.Config) cors.Config {
+	origins := append([]string(nil), cfg.FrontendURLs...)
+	if !cfg.ProductionMode {
+		origins = append(origins, "http://localhost:3000", "http://127.0.0.1:3000")
+	}
 	return cors.Config{
-		AllowOrigins: utils.Ternary(
-			cfg.ProductionMode,
-			[]string{cfg.FrontendURL.String()},
-			[]string{
-				cfg.FrontendURL.String(),
-				"http://localhost:3000",
-				"http://127.0.0.1:3000",
-			},
-		),
+		AllowOrigins:        origins,
 		AllowCredentials:    true,
 		AllowPrivateNetwork: true,
 	}

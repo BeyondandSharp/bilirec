@@ -176,7 +176,7 @@ func TestRealInstanceConcurrentStartStop_Port8080_HighConcurrency(t *testing.T) 
 		Env: map[string]string{
 			"HOST":             testHost,
 			"PORT":             "8080",
-			"FRONTEND_URL":     frontendURL,
+			"FRONTEND_URLS":    frontendURL,
 			"OUTPUT_DIR":       filepath.Join(basePath, "records"),
 			"NOTIFY_SSE_TOKEN": "test-token",
 		},
@@ -270,7 +270,7 @@ func TestRealInstanceReproScript_PseudoStartReproduce(t *testing.T) {
 		Env: map[string]string{
 			"HOST":             testHost,
 			"PORT":             "8080",
-			"FRONTEND_URL":     frontendURL,
+			"FRONTEND_URLS":    frontendURL,
 			"OUTPUT_DIR":       filepath.Join(basePath, "records"),
 			"NOTIFY_SSE_TOKEN": "test-token",
 		},
@@ -432,7 +432,7 @@ func runRealInstanceCycles(t *testing.T, basePath string, opt cycleOptions) rest
 		Env: map[string]string{
 			"HOST":             testHost,
 			"PORT":             "8080",
-			"FRONTEND_URL":     frontendURL,
+			"FRONTEND_URLS":    frontendURL,
 			"OUTPUT_DIR":       filepath.Join(basePath, "records"),
 			"NOTIFY_SSE_TOKEN": "test-token",
 		},

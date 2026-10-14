@@ -181,7 +181,7 @@ func defaultAndroidEnv(basePath string) map[string]string {
 	return map[string]string{
 		"HOST":                                       "127.0.0.1",
 		"PORT":                                       "8080",
-		"FRONTEND_URL":                               "https://app.bilirec.org",
+		"FRONTEND_URLS":                              "https://app.bilirec.org",
 		"OUTPUT_DIR":                                 filepath.Join(basePath, "records"),
 		"SECRET_DIR":                                 filepath.Join(basePath, "secrets"),
 		"DATABASE_DIR":                               filepath.Join(basePath, "database"),
