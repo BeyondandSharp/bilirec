@@ -1,13 +1,11 @@
 package rest
 
 import (
-	"crypto/subtle"
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
 )
 
 type loginRequest struct {
@@ -57,15 +55,7 @@ func loginHandler(cfg *config.Config) fiber.Handler {
 			return fiber.ErrInternalServerError
 		}
 
-		c.Cookie(&fiber.Cookie{
-			Expires:  expire,
-			Name:     jwtTokenKey,
-			Value:    t,
-			Path:     "/",
-			HTTPOnly: cfg.ProductionMode,
-			Secure:   cfg.ProductionMode,
-			SameSite: "None",
-		})
+		setSessionCookie(c, cfg, t, expire)
 
 		return c.JSON(fiber.Map{
 			"user": user,
@@ -83,19 +73,7 @@ func loginHandler(cfg *config.Config) fiber.Handler {
 // @Router /logout [post]
 func logoutHandler(cfg *config.Config) fiber.Handler {
 	return func(c fiber.Ctx) error {
-		c.Cookie(&fiber.Cookie{
-			Name:     jwtTokenKey,
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Now().Add(-1 * time.Hour), // in the past
-			HTTPOnly: cfg.ProductionMode,
-			Secure:   cfg.ProductionMode,
-			SameSite: "None",
-		})
+		clearSessionCookie(c, cfg)
 		return c.SendStatus(fiber.StatusOK)
 	}
-}
-
-func compareUsernameAndPassword(cfg *config.Config, user, pass string) bool {
-	return subtle.ConstantTimeCompare([]byte(user), []byte(cfg.Username)) == 1 && bcrypt.CompareHashAndPassword([]byte(cfg.PasswordHash), []byte(pass)) == nil
 }

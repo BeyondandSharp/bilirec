@@ -161,7 +161,7 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 				}
 				return false
 			},
-			Extractor:  extractors.FromCookie(jwtTokenKey),
+			Extractor:  sessionJWTExtractor(),
 			SigningKey: jwt.SigningKey{Key: []byte(cfg.JwtSecret)},
 			SuccessHandler: func(c fiber.Ctx) error {
 				// Presigned media tokens are signed with the same secret but carry
