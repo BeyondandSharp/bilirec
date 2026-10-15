@@ -1,20 +1,19 @@
 package file
 
 import (
+	"sync"
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/pkg/filecache"
 )
 
-type serveCacheSession struct {
-	refCount int
-	timer    *time.Timer
-}
+const serveCacheFinalReleaseDelay = 5 * time.Minute
 
 // BeginServeCacheRelease pairs with the returned done callback around SendFile.
 // When DROP_FILE_PAGE_CACHE is enabled, drops page cache after the last active
-// serve ends and ServeCacheIdleReleaseSecs of idle (zero config uses default 60s).
+// serve ends and ServeCacheIdleReleaseSecs of idle (zero config uses default 60s),
+// then performs one final compensating release five minutes later.
 func (s *Service) BeginServeCacheRelease(fullPath string) (done func()) {
 	if config.ReadOnly == nil || !config.ReadOnly.DropFilePageCache() {
 		return func() {}
@@ -24,6 +23,11 @@ func (s *Service) BeginServeCacheRelease(fullPath string) (done func()) {
 	}
 
 	s.serveCacheMu.Lock()
+	if s.serveCacheStopped {
+		s.serveCacheMu.Unlock()
+		return func() {}
+	}
+
 	sess := s.serveCache[fullPath]
 	if sess == nil {
 		sess = &serveCacheSession{}
@@ -34,25 +38,37 @@ func (s *Service) BeginServeCacheRelease(fullPath string) (done func()) {
 		sess.timer = nil
 		log.Tracef("serve-cache-release: 取消待释放定时器 path=%s", fullPath)
 	}
+	sess.generation++
+	sess.attempts = 0
 	sess.refCount++
 	refCount := sess.refCount
 	s.serveCacheMu.Unlock()
 	log.Tracef("serve-cache-release: 开始服务 path=%s refCount=%d", fullPath, refCount)
 
+	var once sync.Once
 	return func() {
-		s.endServeCacheRelease(fullPath)
+		once.Do(func() {
+			s.endServeCacheRelease(fullPath, sess)
+		})
 	}
 }
 
-func (s *Service) endServeCacheRelease(fullPath string) {
+type serveCacheSession struct {
+	refCount   int
+	timer      *time.Timer
+	generation uint64
+	attempts   int
+}
+
+func (s *Service) endServeCacheRelease(fullPath string, sess *serveCacheSession) {
 	idleDelay := s.serveCacheIdleDelay()
 	if idleDelay <= 0 {
 		return
 	}
 
 	s.serveCacheMu.Lock()
-	sess := s.serveCache[fullPath]
-	if sess == nil {
+	active := s.serveCache[fullPath]
+	if s.serveCacheStopped || active != sess || sess.refCount <= 0 {
 		s.serveCacheMu.Unlock()
 		return
 	}
@@ -64,39 +80,53 @@ func (s *Service) endServeCacheRelease(fullPath string) {
 		return
 	}
 
-	path := fullPath
-	log.Tracef("serve-cache-release: 进入空闲释放窗口 path=%s idleDelay=%s", path, idleDelay)
-	sess.timer = time.AfterFunc(idleDelay, func() {
-		s.serveCacheMu.Lock()
-		defer s.serveCacheMu.Unlock()
-		active := s.serveCache[path]
-		if active == nil || active.refCount > 0 {
-			refCount := 0
-			if active != nil {
-				refCount = active.refCount
-			}
-			log.Tracef("serve-cache-release: 跳过释放 path=%s refCount=%d", path, refCount)
-			return
-		}
-		if active.timer != nil {
-			active.timer.Stop()
-			active.timer = nil
-		}
-		s.dropPageCacheLocked(path)
-		delete(s.serveCache, path)
-	})
+	generation := sess.generation
+	log.Tracef("serve-cache-release: 进入空闲释放窗口 path=%s idleDelay=%s generation=%d", fullPath, idleDelay, generation)
+	s.scheduleServeCacheReleaseLocked(fullPath, sess, generation, 1, idleDelay)
 	s.serveCacheMu.Unlock()
 }
 
-func (s *Service) dropPageCacheLocked(fullPath string) {
+func (s *Service) runServeCacheRelease(fullPath string, sess *serveCacheSession, generation uint64, attempt int) {
+	s.serveCacheMu.Lock()
+	active := s.serveCache[fullPath]
+	if s.serveCacheStopped || active != sess || sess.generation != generation || sess.refCount > 0 || sess.attempts != attempt-1 {
+		s.serveCacheMu.Unlock()
+		return
+	}
+	sess.timer = nil
+	sess.attempts = attempt
+	s.serveCacheMu.Unlock()
+
+	s.dropPageCache(fullPath, attempt)
+
+	s.serveCacheMu.Lock()
+	defer s.serveCacheMu.Unlock()
+	active = s.serveCache[fullPath]
+	if s.serveCacheStopped || active != sess || sess.generation != generation || sess.refCount > 0 || sess.attempts != attempt {
+		return
+	}
+	if attempt == 1 {
+		s.scheduleServeCacheReleaseLocked(fullPath, sess, generation, 2, s.serveCacheFinalDelay())
+		return
+	}
+	delete(s.serveCache, fullPath)
+}
+
+func (s *Service) scheduleServeCacheReleaseLocked(fullPath string, sess *serveCacheSession, generation uint64, attempt int, delay time.Duration) {
+	sess.timer = time.AfterFunc(delay, func() {
+		s.runServeCacheRelease(fullPath, sess, generation, attempt)
+	})
+}
+
+func (s *Service) dropPageCache(fullPath string, attempt int) {
 	fn := s.dropPageCacheFn
 	if fn == nil {
 		fn = filecache.DropFilePageCache
 	}
 	if err := fn(fullPath); err != nil {
-		log.Debugf("serve-cache-release: 释放 page cache 失败 path=%s err=%v", fullPath, err)
+		log.Debugf("serve-cache-release: 释放 page cache 失败 path=%s attempt=%d err=%v", fullPath, attempt, err)
 	} else {
-		log.Debugf("serve-cache-release: 释放 page cache 成功 path=%s", fullPath)
+		log.Debugf("serve-cache-release: 释放 page cache 成功 path=%s attempt=%d", fullPath, attempt)
 	}
 }
 
@@ -114,9 +144,17 @@ func (s *Service) serveCacheIdleDelay() time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
+func (s *Service) serveCacheFinalDelay() time.Duration {
+	if s.serveCacheIdleDelayOverride > 0 {
+		return s.serveCacheIdleDelayOverride
+	}
+	return serveCacheFinalReleaseDelay
+}
+
 func (s *Service) stopServeCacheRelease() {
 	s.serveCacheMu.Lock()
 	defer s.serveCacheMu.Unlock()
+	s.serveCacheStopped = true
 	for path, sess := range s.serveCache {
 		if sess.timer != nil {
 			sess.timer.Stop()

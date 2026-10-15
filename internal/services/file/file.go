@@ -30,6 +30,7 @@ type Service struct {
 
 	serveCacheMu                sync.Mutex
 	serveCache                  map[string]*serveCacheSession
+	serveCacheStopped           bool
 	dropPageCacheFn             func(string) error
 	serveCacheIdleDelayOverride time.Duration
 }
