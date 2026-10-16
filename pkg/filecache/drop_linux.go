@@ -25,3 +25,17 @@ func DropFilePageCache(path string) error {
 	defer f.Close()
 	return DropOpenFileCache(f)
 }
+
+// ReleaseFilePageCache writes back dirty data pages, then advises the kernel
+// to drop the page cache. FADV_DONTNEED leaves dirty pages resident.
+func ReleaseFilePageCache(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := unix.SyncFileRange(int(f.Fd()), 0, 0, syncFileRangeIntegrity); err != nil {
+		return err
+	}
+	return DropOpenFileCache(f)
+}
