@@ -20,7 +20,7 @@
 
 - slim 镜像只支持 native 录制；前端会自动探测 `GET /convert/providers`，没有转码后端时隐藏“转换任务”。
 - `latest` = `alpine` 变体；需要转码/外部下载器时使用 `-full` tag。
-- 镜像内已内置 `flvrepair`；完整 tag 列表与发布配置见 [docs/RELEASE-CI.md](docs/RELEASE-CI.md)。
+- 镜像内已内置 `flvrepair`。
 
 ## 快速开始（compose，前后端合一）
 
@@ -136,11 +136,8 @@ compose 默认把四个卷挂到上述路径；直接 `docker run` 时同样建�
 ## 文档
 
 - [docs/OPERATIONS-V2.md](docs/OPERATIONS-V2.md)：部署、配置/密钥、PUID/PGID、升级备份、排障
-- [docs/CONFIG-V2.md](docs/CONFIG-V2.md)：统一配置中心冻结契约（文件/优先级/API/默认文件名）
+- [docs/CONFIG-V2.md](docs/CONFIG-V2.md)：统一配置中心契约（文件/优先级/API/默认文件名）
 - [docs/FEATURES-V2.md](docs/FEATURES-V2.md)：分段、路径模板、过滤、封面、弹幕、FLV、B05 高级拉流
-- [docs/INTERFACES.md](docs/INTERFACES.md)：Rust 侧车与 Go 集成契约
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)：仓库结构、构建/测试、架构、镜像细节、验证
-- [docs/DECISIONS.md](docs/DECISIONS.md)、[docs/RELEASE-CI.md](docs/RELEASE-CI.md)：决策记录与镜像发布
 
 ## 许可证
 
