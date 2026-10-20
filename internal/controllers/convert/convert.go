@@ -27,10 +27,32 @@ func NewController(app *fiber.App, convertSvc *convert.Service, pathSvc *path.Se
 	}
 
 	converts := app.Group("/convert")
+	converts.Get("/providers", cc.listConvertProviders)
 	converts.Get("/tasks", cc.listConvertTasks)
 	converts.Delete("/tasks/:task_id", rest.AdminOnly, cc.cancelTask)
 	converts.Post("/tasks/*", rest.AdminOnly, cc.enqueueTask)
 	return cc
+}
+
+// ConvertProvidersResponse lists the available conversion backends.
+type ConvertProvidersResponse struct {
+	Providers []string `json:"providers"`
+	Enabled   bool     `json:"enabled"`
+}
+
+// @Summary List available convert providers
+// @Description Returns the conversion backends available in this build (empty when ffmpeg/cloudconvert are unavailable, e.g. slim image).
+// @Tags convert
+// @Security BearerAuth
+// @Produce json
+// @Success 200 {object} ConvertProvidersResponse
+// @Router /convert/providers [get]
+func (c *Controller) listConvertProviders(ctx fiber.Ctx) error {
+	providers := c.convertSvc.Providers()
+	return ctx.JSON(ConvertProvidersResponse{
+		Providers: providers,
+		Enabled:   len(providers) > 0,
+	})
 }
 
 // @Summary List in-progress convert tasks

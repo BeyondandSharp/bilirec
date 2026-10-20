@@ -148,3 +148,14 @@ docker load -i dist/local-alpine.tar
 docker compose -f deploy/docker-compose.alpine-slim.yml up -d
 # 或者让 compose 直接构建：docker compose -f deploy/docker-compose.alpine-slim.yml up -d --build
 ```
+
+### 转码菜单能力探测
+
+前端在登录后调用 `GET /convert/providers`：
+
+```json
+{"providers": [], "enabled": false}
+```
+
+`enabled=false`（例如 slim 镜像没有 ffmpeg/cloudconvert）时，“转换任务”导航项会自动隐藏；
+full 镜像返回 `{"providers":["ffmpeg"],"enabled":true}`。旧后端没有该接口时前端保持显示（兼容）。

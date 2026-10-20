@@ -81,6 +81,7 @@ make e2e     # 本地回放源端到端（离线，109 项检查）
 
 - **slim（默认）**：无 ffmpeg/streamlink。native 录制 FLV/HLS 正常，`flvrepair` 修复正常；
   `downloader=ffmpeg|streamlink` 不可用（回退 native），`CONVERT_TO_MP4` 转码不可用。
+  前端启动时查询 `GET /convert/providers`，没有可用转码后端（如 slim 镜像）时自动隐藏“转换任务”菜单。
 - **full（`--full`）**：额外包含 ffmpeg + streamlink，支持外部下载器与录制后 mp4/m4a 转换。
 - 前端镜像本身不依赖 ffmpeg/streamlink，`-full` 后缀仅用于命名对称，内容与 slim 相同。
 - `deploy/docker-compose.yml` 的 compose 部署默认 `WITH_EXTRA=1`（full，保持原有行为）；

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
@@ -148,6 +149,23 @@ func (s *Service) Enqueue(path, format string, deleteSource bool) (*TaskQueue, e
 		log.Warnf("%v", err)
 	}
 	return manager.Enqueue(path, outputFormat, format, deleteSource)
+}
+
+// Providers returns the sorted names of the available conversion providers
+// (for example "ffmpeg" or "cloudconvert"). An empty slice means conversion is
+// not available in this build (e.g. the slim image without ffmpeg).
+func (s *Service) Providers() []string {
+	providers := make([]string, 0, len(s.managers))
+	for name := range s.managers {
+		providers = append(providers, name)
+	}
+	sort.Strings(providers)
+	return providers
+}
+
+// HasConverters reports whether at least one conversion provider is available.
+func (s *Service) HasConverters() bool {
+	return len(s.managers) > 0
 }
 
 // IsInQueue checks if the given full path is already in the convert queue.

@@ -7,9 +7,10 @@ type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings'
 interface BottomNavProps {
   activeTab: AppTab
   onTabChange: (tab: AppTab) => void
+  showConverts?: boolean
 }
 
-export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
+export function BottomNav({ activeTab, onTabChange, showConverts = true }: BottomNavProps) {
   const { t } = useTranslation()
 
   return (
@@ -43,18 +44,20 @@ export function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
           </svg>
           <span className="text-xs font-medium">{t('nav.files')}</span>
         </button>
-        <button
-          onClick={() => onTabChange('converts')}
-          className={cn(
-            'flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors',
-            activeTab === 'converts' ? 'text-primary' : 'text-muted-foreground'
-          )}
-        >
-          <span className="w-6 h-6 flex items-center justify-center">
-            <SwapIcon size={18} weight="bold" />
-          </span>
-          <span className="text-xs font-medium">{t('nav.converts')}</span>
-        </button>
+        {showConverts && (
+          <button
+            onClick={() => onTabChange('converts')}
+            className={cn(
+              'flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors',
+              activeTab === 'converts' ? 'text-primary' : 'text-muted-foreground'
+            )}
+          >
+            <span className="w-6 h-6 flex items-center justify-center">
+              <SwapIcon size={18} weight="bold" />
+            </span>
+            <span className="text-xs font-medium">{t('nav.converts')}</span>
+          </button>
+        )}
         <button
           onClick={() => onTabChange('subscribe')}
           className={cn(

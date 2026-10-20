@@ -154,6 +154,11 @@ export interface StartRecordRequest {
   downloader?: DownloaderKind
 }
 
+export interface ConvertProviders {
+  providers: string[]
+  enabled: boolean
+}
+
 export interface ConvertQueue {
   provider?: 'ffmpeg' | 'cloudconvert'
   task_id: string

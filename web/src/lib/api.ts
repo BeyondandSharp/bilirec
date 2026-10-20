@@ -5,6 +5,7 @@ import type {
   RecordTask,
   StartRecordRequest,
   RecordInfo,
+  ConvertProviders,
   ConvertQueue,
   ShareFileInfo,
   RoomInfo,
@@ -479,6 +480,11 @@ class ApiClient {
     const url = `/files/${encodedPath}`;
     await this.client.delete(url);
     return;
+  }
+
+  async getConvertProviders(): Promise<ConvertProviders> {
+    const response = await this.client.get<ConvertProviders>("/convert/providers");
+    return response.data;
   }
 
   async getConvertTasks(): Promise<ConvertQueue[]> {

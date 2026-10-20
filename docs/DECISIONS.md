@@ -108,3 +108,11 @@ ffmpeg + streamlink. `WITH_EXTRA=1/0` is the Docker build arg; compose deploymen
 preserve previous behavior. Measured tar/image sizes: Debian slim 57MB/238MB vs full 131MB/525MB;
 Alpine slim 18MB/69MB vs full 98MB/390MB. Frontend images are identical in both variants (suffix is
 for naming symmetry). Slim images still record native FLV/HLS and run flvrepair.
+
+## D012 (2026-10-21, Lead) — hide convert UI when no conversion backend
+
+New `GET /convert/providers` returns `{providers: [...], enabled: bool}` from the convert service
+manager set. The web UI fetches it after login and hides the “转换任务” nav entry (sidebar + bottom
+nav) when `enabled=false`; deep links/`?tab=converts` fall back to files/records. Older backends
+without the endpoint keep the menu visible. This makes slim images (no ffmpeg/cloudconvert) stop
+offering a conversion menu that cannot work.

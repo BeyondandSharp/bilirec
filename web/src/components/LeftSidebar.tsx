@@ -10,9 +10,10 @@ type LeftSidebarProps = {
   activeTab: AppTab
   onTabChange: (t: AppTab) => void
   diskUsage?: DiskUsage | null
+  showConverts?: boolean
 }
 
-export function LeftSidebar({ activeTab, onTabChange, diskUsage }: LeftSidebarProps) {
+export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = true }: LeftSidebarProps) {
   const { t } = useTranslation()
 
   return (
@@ -51,19 +52,21 @@ export function LeftSidebar({ activeTab, onTabChange, diskUsage }: LeftSidebarPr
           <span>{t('nav.files')}</span>
         </button>
 
-        <button
-          onClick={() => onTabChange('converts')}
-          aria-pressed={activeTab === 'converts'}
-          className={cn(
-            'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full cursor-pointer',
-            activeTab === 'converts'
-              ? 'text-primary bg-primary/10'
-              : 'text-muted-foreground hover:text-primary hover:bg-secondary/10'
-          )}
-        >
-          <span className="shrink-0"><SwapIcon size={18} weight="bold" /></span>
-          <span>{t('nav.converts')}</span>
-        </button>
+        {showConverts && (
+          <button
+            onClick={() => onTabChange('converts')}
+            aria-pressed={activeTab === 'converts'}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full cursor-pointer',
+              activeTab === 'converts'
+                ? 'text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-primary hover:bg-secondary/10'
+            )}
+          >
+            <span className="shrink-0"><SwapIcon size={18} weight="bold" /></span>
+            <span>{t('nav.converts')}</span>
+          </button>
+        )}
 
         <button
           onClick={() => onTabChange('subscribe')}

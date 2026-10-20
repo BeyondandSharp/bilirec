@@ -29,6 +29,7 @@ import { useBilibiliAuth } from "@/hooks/use-bilibili-auth";
 import { useLiveNotifications } from "@/hooks/use-live-notifications";
 import { useDiskUsage } from "@/hooks/use-disk-usage";
 import { useAnalyticsSession } from "@/hooks/use-analytics-session";
+import { apiClient } from "@/lib/api";
 
 type AppTab = "records" | "files" | "converts" | "subscribe" | "settings";
 
@@ -63,6 +64,9 @@ function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isBilibiliDialogOpen, setIsBilibiliDialogOpen] = useState(false);
   const [isDocumentFullscreen, setIsDocumentFullscreen] = useState(false);
+  // null/true = assume available until the backend tells us otherwise (older
+  // backends have no /convert/providers endpoint). false hides the nav entry.
+  const [canConvert, setCanConvert] = useState(true);
 
   const auth = useAuthSession({
     onVersion: setServerVersion,
@@ -88,9 +92,34 @@ function App() {
   };
 
   const handleTabChange = (tab: AppTab) => {
+    if (tab === "converts" && !canConvert) return;
     if (tab !== "subscribe") setPinnedRoomId(null);
     setActiveTab(tab);
   };
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let cancelled = false;
+    apiClient
+      .getConvertProviders()
+      .then((providers) => {
+        if (!cancelled) setCanConvert(providers.enabled !== false);
+      })
+      .catch(() => {
+        // Older backend without the endpoint: keep conversion visible.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!canConvert && activeTab === "converts") {
+      setActiveTab(VIEWER_MODE_ENABLED ? "files" : "records");
+    }
+  }, [canConvert, activeTab]);
 
   useEffect(() => {
     if (isCheckingAuth || !isAuthenticated) {
@@ -254,6 +283,7 @@ function App() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
             diskUsage={diskUsage}
+            showConverts={canConvert}
           />
 
           <div className="flex-1">
@@ -266,7 +296,7 @@ function App() {
                 transition={{ duration: 0.2 }}
                 className="h-full"
               >
-                {activeTab === "records" ? (
+                {activeTab === "converts" && !canConvert ? null : activeTab === "records" ? (
                   <RecordsView />
                 ) : activeTab === "files" ? (
                   <FilesView />
@@ -282,7 +312,7 @@ function App() {
           </div>
         </div>
 
-        <BottomNav activeTab={activeTab} onTabChange={handleTabChange} />
+        <BottomNav activeTab={activeTab} onTabChange={handleTabChange} showConverts={canConvert} />
         <NetworkStatusToaster />
         <Toaster richColors position="top-center" />
       </div>
