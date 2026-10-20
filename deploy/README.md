@@ -118,23 +118,19 @@ without building (`docker build --check -f deploy/Dockerfile .` on BuildKit
 
 ## 一键构建（推荐，输出 tar）
 
-仓库根目录的 `build.sh` 把镜像导出为 docker-loadable tar（不留在本机 images）：
+仓库根目录的 `build.sh` / `build-alpine.sh` 把镜像导出为 docker-loadable tar（不留在本机 images）。
+默认 **slim**（无 ffmpeg/streamlink），`--full` 构建带 ffmpeg+streamlink 的 full 镜像（tag `-full`）：
 
 ```bash
-./build.sh                     # dist/local.tar：后端 + 前端（同源 nginx 代理，80 端口）
-./build.sh --backend           # dist/local-backend.tar：仅后端
-./build.sh --frontend          # dist/local-frontend.tar：仅 nginx 前端
-./build.sh --frontend-static   # 前端静态文件 -> ./dist（无镜像）
-./build.sh --all               # 全部 tar + dist 静态文件
+./build.sh                     # dist/local.tar（slim）
+./build.sh --full              # dist/local-full.tar
+./build.sh --backend / --frontend / --frontend-static / --all [--full]
+
+./build-alpine.sh              # dist/local-alpine.tar（slim, musl）
+./build-alpine.sh --full       # dist/local-alpine-full.tar
+./build-alpine.sh --all [--full]
 ```
 
-有选择参数时不会额外产出 `local.tar`；`--all` 才会。all-in-one 镜像内 nginx 监听 80，
-把非静态请求代理到容器内 `127.0.0.1:8080` 的 bilirec，所以前端与 API 同源。
-使用：`docker load -i dist/local.tar && docker run --rm -p 8080:80 -v bilirec-data:/data local`。
-
-### Alpine/musl 版本
-
-`build-alpine.sh` 与 `build.sh` 参数一致，产出 `dist/local-alpine.tar`、
-`dist/local-backend-alpine.tar`、`dist/local-frontend-alpine.tar`（选择参数时同样不产 all-in-one）。
-Alpine 镜像里 Go 为静态二进制，Rust `flvrepair` 用 musl 目标重编译，ffmpeg/streamlink/nginx
-用 apk 原生包；实测 apk ffmpeg 比复制 129MB 静态 ffmpeg 小约 4MB，因此 Alpine 用 apk。
+full 镜像内有 ffmpeg（Alpine 用 apk 版本；Debian 用静态 129MB 版本）与 streamlink；
+slim 只有 native 录制，`downloader=ffmpeg|streamlink` 与 `CONVERT_TO_MP4` 不可用。
+`deploy/docker-compose.yml` 默认 `WITH_EXTRA=1`（full），设置 `WITH_EXTRA=0` 可构建 slim。

@@ -86,6 +86,7 @@ FROM ${FFMPEG_IMAGE} AS ffmpeg-static
 FROM ${RUNTIME_IMAGE} AS runtime
 
 ARG STREAMLINK_VERSION=8.6.2
+ARG WITH_EXTRA=0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -95,9 +96,11 @@ RUN apt-get update \
         nginx \
         tzdata \
     && rm -rf /var/lib/apt/lists/* \
-    && python3 -m pip install --no-cache-dir --break-system-packages \
-        "streamlink==${STREAMLINK_VERSION}" \
-    && streamlink --version \
+    && if [ "$WITH_EXTRA" = "1" ]; then \
+         python3 -m pip install --no-cache-dir --break-system-packages \
+           "streamlink==${STREAMLINK_VERSION}" \
+         && streamlink --version; \
+       fi \
     && rm -f /etc/nginx/sites-enabled/default
 
 COPY deploy/combined/nginx.conf /etc/nginx/conf.d/bilirec.conf
@@ -109,8 +112,11 @@ COPY --from=web-build /web/dist /app/web
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
 COPY --from=rust-build /out/flvrepair /usr/local/bin/flvrepair
-COPY --from=ffmpeg-static /ffmpeg /usr/local/bin/ffmpeg
-RUN chmod 0755 /usr/local/bin/ffmpeg && ffmpeg -version >/dev/null \
+RUN --mount=type=bind,from=ffmpeg-static,source=/ffmpeg,target=/tmp/ffmpeg \
+    if [ "$WITH_EXTRA" = "1" ]; then \
+      install -m 0755 /tmp/ffmpeg /usr/local/bin/ffmpeg \
+      && ffmpeg -version >/dev/null; \
+    fi \
     && ln -sfn /app/docs /usr/local/bin/docs
 
 # Same defaults as the backend-only image; the frontend is served on :80 and

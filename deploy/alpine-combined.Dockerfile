@@ -76,13 +76,16 @@ RUN cargo build --locked --manifest-path rust/Cargo.toml --workspace --release \
 # ---------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE} AS runtime
 
+ARG WITH_EXTRA=0
+
 RUN apk add --no-cache \
         bash \
         ca-certificates \
-        ffmpeg \
         nginx \
-        streamlink \
         tzdata \
+    && if [ "$WITH_EXTRA" = "1" ]; then \
+         apk add --no-cache ffmpeg streamlink; \
+       fi \
     && rm -f /etc/nginx/http.d/default.conf \
     && mkdir -p /app/web /app/docs /data/records /data/database /data/secrets
 
@@ -96,8 +99,9 @@ COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
 COPY --from=rust-build /out/flvrepair /usr/local/bin/flvrepair
 RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair \
     && ln -sfn /app/docs /usr/local/bin/docs \
-    && ffmpeg -version >/dev/null \
-    && streamlink --version >/dev/null
+    && if [ "$WITH_EXTRA" = "1" ]; then \
+         ffmpeg -version >/dev/null && streamlink --version >/dev/null; \
+       fi
 
 ENV PORT=8080 \
     HOST=0.0.0.0 \

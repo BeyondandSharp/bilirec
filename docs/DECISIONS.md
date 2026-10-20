@@ -98,3 +98,13 @@ Rust `flvrepair` is rebuilt for musl (the Debian glibc binary is not usable on A
 ffmpeg/streamlink/nginx come from apk (native musl). Measured Alpine ffmpeg: apk stack ~243MiB vs
 129MB static binary stack ~248MiB, so apk is used. `streamlink` is 8.6.2 (pip) on Debian and 8.4
 (apk) on Alpine.
+
+## D011 (2026-10-21, Lead) — slim/full image variants (`--full`)
+
+Default `build.sh` / `build-alpine.sh` images are now **slim**: no ffmpeg and no streamlink
+(native recording only; external downloaders and `CONVERT_TO_MP4` unavailable). `--full` builds
+full variants with the `-full` tag suffix (`local-full`, `local-backend-full`, ...), keeping
+ffmpeg + streamlink. `WITH_EXTRA=1/0` is the Docker build arg; compose deployments default to 1 to
+preserve previous behavior. Measured tar/image sizes: Debian slim 57MB/238MB vs full 131MB/525MB;
+Alpine slim 18MB/69MB vs full 98MB/390MB. Frontend images are identical in both variants (suffix is
+for naming symmetry). Slim images still record native FLV/HLS and run flvrepair.

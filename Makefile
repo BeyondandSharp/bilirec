@@ -2,7 +2,7 @@ SHELL := /bin/bash
 export PATH := /usr/local/go/bin:/root/.cargo/bin:$(PATH)
 export BILIBILI_LOGIN_MODE ?= anonymous
 
-.PHONY: all fmt fmt-go fmt-rust lint lint-go lint-rust test test-go test-rust build build-go build-rust dev e2e image images images-alpine clean
+.PHONY: all fmt fmt-go fmt-rust lint lint-go lint-rust test test-go test-rust build build-go build-rust dev e2e image images images-full images-alpine images-alpine-full clean
 
 all: build
 
@@ -58,8 +58,14 @@ image:
 images:
 	./build.sh --all
 
+images-full:
+	./build.sh --all --full
+
 images-alpine:
 	./build-alpine.sh --all
+
+images-alpine-full:
+	./build-alpine.sh --all --full
 
 clean:
 	rm -rf dist rust/target

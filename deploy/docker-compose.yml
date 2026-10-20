@@ -20,6 +20,9 @@ services:
       args:
         GOPROXY_URL: ${GOPROXY_URL:-https://goproxy.cn,direct}
         STREAMLINK_VERSION: ${STREAMLINK_VERSION:-8.6.2}
+        # Compose deployments keep external downloaders/conversion by default;
+        # set WITH_EXTRA=0 for a slim (native-only) image.
+        WITH_EXTRA: ${WITH_EXTRA:-1}
     image: bilirec-rust:${BILIREC_TAG:-dev}
     container_name: bilirec
     init: true

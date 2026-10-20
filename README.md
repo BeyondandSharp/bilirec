@@ -52,46 +52,56 @@ make e2e     # 本地回放源端到端（离线，109 项检查）
 
 ## 一键构建镜像（导出 tar，不落本机 images）
 
-```bash
-./build.sh                     # Debian 版 all-in-one -> dist/local.tar
-./build.sh --backend           # -> dist/local-backend.tar
-./build.sh --frontend          # -> dist/local-frontend.tar
-./build.sh --frontend-static   # 前端静态文件 -> ./dist
-./build.sh --all               # 全部 Debian 产物
+默认构建 **slim** 镜像（**不含 ffmpeg/streamlink**，只支持 native 录制）；
+加 `--full` 构建全功能镜像（带 ffmpeg + streamlink，支持外部下载器与 mp4 转换），tag 加 `-full` 后缀。
+两种脚本都通过 `docker buildx build --output type=docker,dest=...` 直接导出 docker-loadable tar，
+**不会留在本机 `docker images`**；有任一选择参数时不产出 all-in-one。
 
-./build-alpine.sh              # Alpine/musl all-in-one -> dist/local-alpine.tar
-./build-alpine.sh --backend    # -> dist/local-backend-alpine.tar
-./build-alpine.sh --frontend   # -> dist/local-frontend-alpine.tar
-./build-alpine.sh --frontend-static / --all
+```bash
+./build.sh                     # slim all-in-one -> dist/local.tar
+./build.sh --full              # full all-in-one -> dist/local-full.tar
+./build.sh --backend           # slim backend   -> dist/local-backend.tar
+./build.sh --backend --full    # full backend   -> dist/local-backend-full.tar
+./build.sh --frontend          # slim frontend  -> dist/local-frontend.tar
+./build.sh --all               # 全部 slim tar + ./dist 静态文件
+./build.sh --all --full        # 全部 full tar + ./dist 静态文件
+
+./build-alpine.sh              # Alpine slim all-in-one -> dist/local-alpine.tar
+./build-alpine.sh --full       # Alpine full all-in-one -> dist/local-alpine-full.tar
+./build-alpine.sh --all        # 全部 Alpine slim 产物
+./build-alpine.sh --all --full # 全部 Alpine full 产物
 ```
 
-两种脚本都通过 `docker buildx build --output type=docker,dest=...` 直接导出
-docker-loadable tar，**不会留在本机 `docker images`**；有任一选择参数时不产出 all-in-one。
+| 产物 | Debian slim | Debian full | Alpine slim | Alpine full |
+|---|---|---|---|---|
+| all-in-one tar | `local.tar` 57MB | `local-full.tar` 131MB | `local-alpine.tar` 18MB | `local-alpine-full.tar` 98MB |
+| all-in-one 镜像 | 238MB | 525MB | 69MB | 390MB |
+| backend tar / 镜像 | 53MB / 220MB | 127MB / 507MB | 16MB / 60MB | 97MB / 383MB |
+| frontend tar / 镜像 | 21MB / 76MB | 21MB / 76MB | 29MB / 105MB | 29MB / 105MB |
 
-| 产物 | Debian（静态 ffmpeg） | Alpine（apk ffmpeg） |
-|---|---|---|
-| all-in-one | `local.tar` 131MB / 镜像 525MB | `local-alpine.tar` 98MB / 镜像 390MB |
-| backend | 127MB / 507MB | 97MB / 383MB |
-| frontend | 21MB / 76MB | 29MB / 105MB |
+- **slim（默认）**：无 ffmpeg/streamlink。native 录制 FLV/HLS 正常，`flvrepair` 修复正常；
+  `downloader=ffmpeg|streamlink` 不可用（回退 native），`CONVERT_TO_MP4` 转码不可用。
+- **full（`--full`）**：额外包含 ffmpeg + streamlink，支持外部下载器与录制后 mp4/m4a 转换。
+- 前端镜像本身不依赖 ffmpeg/streamlink，`-full` 后缀仅用于命名对称，内容与 slim 相同。
+- `deploy/docker-compose.yml` 的 compose 部署默认 `WITH_EXTRA=1`（full，保持原有行为）；
+  想要 slim 构建传 `WITH_EXTRA=0`。
 
 **ffmpeg 选择**
-- Debian：不再安装 apt `ffmpeg`（会拉 LLVM/mesa/x265 等约 450MB 依赖），改为复制
-  `mwader/static-ffmpeg:7.1` 的静态 `ffmpeg`（129MB）；镜像从 958MB 降到 525MB。
-  静态构建不含 `ffprobe`（仅测试代码可选使用，运行时不需要）。
-- Alpine：实测 `apk add ffmpeg` 整套约 243MiB，复制 129MB 静态二进制约 248MiB，
-  **apk 更小且原生 musl**，因此 Alpine 镜像使用 apk 的 ffmpeg/streamlink/nginx。
+- Debian full：复制 `mwader/static-ffmpeg:7.1` 的静态 `ffmpeg`（129MB），不装 apt ffmpeg
+  （避免拉 LLVM/mesa/x265 约 450MB 依赖）。静态构建**不含 `ffprobe`**；转码仍可用（校验走 moov 扫描），
+  但 `NO_CONVERT_IF_INVALID=true` 时缺少 ffprobe 会阻止转码。
+- Alpine full：实测 `apk add ffmpeg` 整套约 243MiB，复制 129MB 静态二进制约 248MiB，**apk 更小且原生 musl**，
+  因此用 apk 的 ffmpeg（自带 ffprobe）+ streamlink（8.4）。
 
 **musl 说明**
-- `flvrepair`（Rust）在 Alpine 镜像里用 `rust:1-alpine` 重新编译为 musl 目标；
-  Debian 构建出的 glibc 二进制**不能**在 Alpine 运行。
-- `bilirec`（Go）为 `CGO_ENABLED=0` 静态二进制，无 libc 依赖。
-- Alpine 的 `ffmpeg` / `streamlink`（8.4）/ `nginx` 均为 apk 原生 musl 包；无需 glibc 兼容层。
-- `streamlink` 版本：Debian 镜像为 pip 8.6.2，Alpine 镜像为 apk 8.4。
+- `flvrepair`（Rust）在 Alpine 镜像里用 `rust:1-alpine` 重新编译为 musl 目标；Debian 的 glibc 版本不能在 Alpine 运行。
+- `bilirec`（Go）为 `CGO_ENABLED=0` 静态二进制；Alpine 的 nginx/ffmpeg/streamlink（full）均为 apk 原生 musl 包。
+- `streamlink`：Debian full 为 pip 8.6.2，Alpine full 为 apk 8.4。
 
 使用：
 
 ```bash
-docker load -i dist/local.tar        # 或 dist/local-alpine.tar
+docker load -i dist/local.tar        # 或 dist/local-full.tar / dist/local-alpine-full.tar
 docker run --rm -p 8080:80 -v bilirec-data:/data local
 # 打开 http://localhost:8080
 ```

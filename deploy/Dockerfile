@@ -86,19 +86,24 @@ FROM ${FFMPEG_IMAGE} AS ffmpeg-static
 FROM ${RUNTIME_IMAGE} AS runtime
 
 ARG STREAMLINK_VERSION=8.6.2
+# 0 = slim image (native recording only, no ffmpeg/streamlink);
+# 1 = full image (external ffmpeg/streamlink downloaders + mp4 conversion).
+ARG WITH_EXTRA=0
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ffmpeg is the external downloader fallback and the streamlink remux stage;
-# streamlink is the hybrid downloader. tzdata keeps the Go logger configurable.
+# tzdata keeps the Go logger configurable. ffmpeg/streamlink are optional and
+# only installed in the `full` variant.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         tzdata \
     && rm -rf /var/lib/apt/lists/* \
-    && python3 -m pip install --no-cache-dir --break-system-packages \
-        "streamlink==${STREAMLINK_VERSION}" \
-    && streamlink --version
+    && if [ "$WITH_EXTRA" = "1" ]; then \
+         python3 -m pip install --no-cache-dir --break-system-packages \
+           "streamlink==${STREAMLINK_VERSION}" \
+         && streamlink --version; \
+       fi
 
 # Non-root runtime user. /data holds records/database/secrets volumes.
 RUN groupadd --gid 10001 bilirec \
@@ -110,9 +115,12 @@ RUN groupadd --gid 10001 bilirec \
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
 COPY --from=rust-build /out/flvrepair /usr/local/bin/flvrepair
-COPY --from=ffmpeg-static /ffmpeg /usr/local/bin/ffmpeg
-RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair /usr/local/bin/ffmpeg \
-    && ffmpeg -version >/dev/null \
+RUN --mount=type=bind,from=ffmpeg-static,source=/ffmpeg,target=/tmp/ffmpeg \
+    if [ "$WITH_EXTRA" = "1" ]; then \
+      install -m 0755 /tmp/ffmpeg /usr/local/bin/ffmpeg \
+      && ffmpeg -version >/dev/null; \
+    fi \
+    && chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair \
     && ln -sfn /app/docs /usr/local/bin/docs
 
 # Defaults reproduce native v0.3.1 behavior (docs/INTERFACES.md §2.3).

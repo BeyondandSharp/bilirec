@@ -2,17 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Alpine/musl build script (sibling of build.sh; same flags, different
-# Dockerfiles). Images are exported as docker-loadable tar files under ./dist/
-# and are not loaded into the local Docker image store.
+# Dockerfiles; images are exported as docker-loadable tar files under ./dist/).
+# Default images are "slim": no ffmpeg/streamlink (native recording only).
+# Pass --full to include the apk ffmpeg + streamlink packages; full images use
+# the `-full` tag suffix.
 #
-#   ./build-alpine.sh                     all-in-one -> dist/local-alpine.tar
-#   ./build-alpine.sh --backend           backend-only -> dist/local-backend-alpine.tar
-#   ./build-alpine.sh --frontend          frontend-only -> dist/local-frontend-alpine.tar
+#   ./build-alpine.sh                     slim all-in-one -> dist/local-alpine.tar
+#   ./build-alpine.sh --full              full all-in-one -> dist/local-alpine-full.tar
+#   ./build-alpine.sh --backend           slim backend   -> dist/local-backend-alpine.tar
+#   ./build-alpine.sh --backend --full    full backend   -> dist/local-backend-alpine-full.tar
+#   ./build-alpine.sh --frontend          slim frontend  -> dist/local-frontend-alpine.tar
+#   ./build-alpine.sh --frontend --full   full frontend  -> dist/local-frontend-alpine-full.tar
 #   ./build-alpine.sh --frontend-static   frontend static files into ./dist (no image)
-#   ./build-alpine.sh --all               all three alpine tars + ./dist static files
-#
-# ffmpeg in the alpine images comes from `apk add ffmpeg` (musl-native). It was
-# measured against copying the 129MB static ffmpeg binary: apk is ~4MB smaller.
+#   ./build-alpine.sh --all               all three slim tars + ./dist static files
+#   ./build-alpine.sh --all --full        all three full tars + ./dist static files
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,13 +24,14 @@ cd "$ROOT"
 OUT_DIR="$ROOT/dist"
 
 usage() {
-    sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 backend=0
 frontend=0
 static=0
 all=0
+full=0
 selective=0
 
 for arg in "$@"; do
@@ -36,6 +40,7 @@ for arg in "$@"; do
         --frontend) frontend=1; selective=1 ;;
         --frontend-static) static=1; selective=1 ;;
         --all) all=1 ;;
+        --full) full=1 ;;
         -h|--help) usage; exit 0 ;;
         *)
             echo "未知参数：$arg" >&2
@@ -44,6 +49,12 @@ for arg in "$@"; do
             exit 2 ;;
     esac
 done
+
+if [[ $full -eq 1 ]]; then
+    extra=1
+else
+    extra=0
+fi
 
 if [[ $all -eq 1 ]]; then
     backend=1; frontend=1; static=1; combined=1
@@ -73,26 +84,32 @@ export_image() {
     if [[ $BUILDX -eq 1 ]]; then
         docker buildx build \
             --output "type=docker,dest=$out" \
+            --build-arg "WITH_EXTRA=$extra" \
             -t "$tag" \
             -f "$dockerfile" \
             "$ROOT"
     else
-        docker build -t "$tag" -f "$dockerfile" "$ROOT"
+        docker build --build-arg "WITH_EXTRA=$extra" -t "$tag" -f "$dockerfile" "$ROOT"
         docker save -o "$out" "$tag"
         docker rmi "$tag" >/dev/null
     fi
 }
 
 build_combined() {
-    export_image local-alpine deploy/alpine-combined.Dockerfile "$OUT_DIR/local-alpine.tar"
+    local sfx=""; [[ $extra -eq 1 ]] && sfx="-full"
+    export_image "local-alpine${sfx}" deploy/alpine-combined.Dockerfile "$OUT_DIR/local-alpine${sfx}.tar"
 }
 
 build_backend() {
-    export_image local-backend-alpine deploy/alpine.Dockerfile "$OUT_DIR/local-backend-alpine.tar"
+    local sfx=""; [[ $extra -eq 1 ]] && sfx="-full"
+    export_image "local-backend-alpine${sfx}" deploy/alpine.Dockerfile "$OUT_DIR/local-backend-alpine${sfx}.tar"
 }
 
 build_frontend() {
-    export_image local-frontend-alpine deploy/alpine-web.Dockerfile "$OUT_DIR/local-frontend-alpine.tar"
+    local sfx=""; [[ $extra -eq 1 ]] && sfx="-full"
+    # Frontend-only image has no ffmpeg/streamlink either way; suffix kept for
+    # naming symmetry.
+    export_image "local-frontend-alpine${sfx}" deploy/alpine-web.Dockerfile "$OUT_DIR/local-frontend-alpine${sfx}.tar"
 }
 
 build_frontend_static() {
@@ -118,16 +135,25 @@ build_frontend_static() {
 [[ $static   -eq 1 ]] && build_frontend_static
 [[ $combined -eq 1 ]] && build_combined
 
+kind="slim（无 ffmpeg/streamlink）"
+[[ $extra -eq 1 ]] && kind="full（含 apk ffmpeg/streamlink）"
 echo
-echo "完成（镜像已导出为 tar，不会留在本机 docker images 中）："
-[[ $combined -eq 1 ]] && echo "  $OUT_DIR/local-alpine.tar           (backend + frontend, musl)"
-[[ $backend  -eq 1 ]] && echo "  $OUT_DIR/local-backend-alpine.tar   (backend only, musl)"
-[[ $frontend -eq 1 ]] && echo "  $OUT_DIR/local-frontend-alpine.tar  (frontend only)"
-[[ $static   -eq 1 ]] && echo "  静态文件: $OUT_DIR/"
+echo "完成：$kind，镜像已导出为 tar，不会留在本机 docker images 中。"
 if [[ $combined -eq 1 ]]; then
+    [[ $extra -eq 1 ]] && f="-full" || f=""
+    echo "  $OUT_DIR/local-alpine${f}.tar           (backend + frontend, musl)"
     echo
     echo "使用 all-in-one alpine 镜像："
-    echo "  docker load -i dist/local-alpine.tar"
-    echo "  docker run --rm -p 8080:80 -v bilirec-data:/data local-alpine"
-    echo "  打开 http://localhost:8080 ，登录页后端地址填 http://localhost:8080"
+    echo "  docker load -i dist/local-alpine${f}.tar"
+    echo "  docker run --rm -p 8080:80 -v bilirec-data:/data local-alpine${f}"
+    echo "  打开 http://localhost:8080"
 fi
+if [[ $backend -eq 1 ]]; then
+    [[ $extra -eq 1 ]] && f="-full" || f=""
+    echo "  $OUT_DIR/local-backend-alpine${f}.tar   (backend only, musl)"
+fi
+if [[ $frontend -eq 1 ]]; then
+    [[ $extra -eq 1 ]] && f="-full" || f=""
+    echo "  $OUT_DIR/local-frontend-alpine${f}.tar  (frontend only)"
+fi
+[[ $static -eq 1 ]] && echo "  静态文件: $OUT_DIR/"
