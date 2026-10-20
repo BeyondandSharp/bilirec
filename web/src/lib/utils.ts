@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { i18n } from '@/i18n'
+import { getDateLocale, normalizeLanguage } from '@/lib/language'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -135,7 +136,7 @@ export function getLiveTimeMeta(liveTime?: string): LiveTimeMeta | null {
   const startedAt = new Date(liveTime)
   if (Number.isNaN(startedAt.getTime())) return null
 
-  const title = startedAt.toLocaleString(i18n.resolvedLanguage === 'zh-CN' ? 'zh-CN' : 'zh-TW', {
+  const title = startedAt.toLocaleString(getDateLocale(normalizeLanguage(i18n.resolvedLanguage)), {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

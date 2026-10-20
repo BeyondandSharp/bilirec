@@ -116,3 +116,18 @@ manager set. The web UI fetches it after login and hides the “转换任务” 
 nav) when `enabled=false`; deep links/`?tab=converts` fall back to files/records. Older backends
 without the endpoint keep the menu visible. This makes slim images (no ffmpeg/cloudconvert) stop
 offering a conversion menu that cannot work.
+
+## D013 (2026-10-21, Lead) — CONFIG-V2 配置中心/部署面与 README 拆分
+
+统一配置中心落地（契约：docs/CONFIG-V2.md；实现：T-A/T-B/T-C/T-D）：`config.json`（0644，非敏感）+
+`secrets.json`（0600，仅 6 个敏感键）+ `.env` 回退，优先级为系统环境变量 > 配置文件 > `.env` > 内置默认，
+来源通过 `GET /config.sources` 暴露；`/config`+`/config/secrets` API 支持读写/清除/重置、环境锁定与
+`restart_required`；FEATURES-V2 全局特性覆盖从 `settings.db` 迁移到 `config.json`（旧数据启动时幂等导入），
+默认文件名改为 `{roomid}-{uname}/{date}_{time}_{title}`（显式空字符串保留旧命名）。
+部署面：四个 Dockerfile 增加 `ARG VERSION`（注入 `pkg/updatecheck`）、`CONFIG_FILE`/`SECRETS_FILE` 与
+PUID/PGID 入口（Debian gosu / Alpine su-exec，combined 镜像 nginx 保持 root、bilirec 子进程降权），
+compose 增加 `config:/app/config` 卷，数据目录统一在 `/app/{records,database,secrets,config}`。
+文档按 CONFIG-V2 §9 拆分：根 README 只保留部署/服务内容（镜像 tag、compose、config/secrets、PUID/PGID、
+卷/端口、运维链接、许可），构建/测试/架构/验证移到 `docs/DEVELOPMENT.md`；`docs/OPERATIONS-V2.md`
+按配置中心/生效语义/目录/PUID/API/升级排障重写。理由：面向使用者的根 README 不应包含开发指令，配置/密钥
+需要可持久化且可热更新的统一入口，容器需要可配置 uid/gid 以便宿主机卷权限。

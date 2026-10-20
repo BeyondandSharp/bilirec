@@ -123,7 +123,7 @@ func failureResult(current string, err error) Result {
 	formatted := formatCheckError(err)
 	return Result{
 		Current:        current,
-		URL:            releasePageURL,
+		URL:            resolveReleaseURL(),
 		Error:          formatted.Message,
 		ErrorCode:      formatted.Code,
 		RetryAfterSecs: formatted.RetryAfterSecs,

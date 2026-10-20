@@ -233,6 +233,91 @@ export interface SettingsResponse {
   overrides: Partial<GlobalSettings>
   /** Defaults merged with overrides: the effective global settings. */
   values: GlobalSettings
+  /** Where each value came from (CONFIG-V2 §1): env|file|dotenv|default. */
+  sources?: Record<string, ConfigSource>
+  /** Absolute path of the managed config file. */
+  config_file?: string
+  /** Absolute path of the managed secrets file. */
+  secrets_file?: string
+  /** Keys whose new value only applies after a backend restart. */
+  restart_required?: string[]
+}
+
+/** Source of a managed config value (CONFIG-V2 §1). */
+export type ConfigSource = 'env' | 'file' | 'secret-file' | 'dotenv' | 'default'
+
+/** Three-language metadata string provided by the backend config schema. */
+export interface LocalizedText {
+  'zh-CN': string
+  'zh-TW': string
+  en: string
+}
+
+export type ConfigFieldKind =
+  | 'number'
+  | 'bool'
+  | 'string'
+  | 'textarea'
+  | 'enum'
+  | 'csv'
+  | 'duration'
+  | 'secret'
+
+/** One managed env key as described by GET /config schema (CONFIG-V2 §5). */
+export interface ConfigField {
+  key: string
+  kind: ConfigFieldKind
+  default?: string
+  min?: number | null
+  max?: number | null
+  enum?: string[] | null
+  restart_required?: boolean
+  sensitive?: boolean
+  /** Tool dependency (e.g. "ffmpeg"); the field is disabled when unavailable. */
+  requires?: string
+  disabled_reason?: string
+  label: LocalizedText
+  description: LocalizedText
+}
+
+export interface ConfigGroup {
+  id: string
+  label: LocalizedText
+  description: LocalizedText
+  fields: ConfigField[]
+}
+
+export interface ConfigSchema {
+  groups: ConfigGroup[]
+}
+
+/** Response of GET/PUT /config (CONFIG-V2 §4). */
+export interface SystemConfigResponse {
+  config_file?: string
+  secrets_file?: string
+  schema: ConfigSchema
+  values: Record<string, string>
+  overrides: Record<string, string>
+  defaults: Record<string, string>
+  sources: Record<string, ConfigSource>
+  restart_required: string[]
+}
+
+/** GET /config/secrets: only whether each secret is set, never its value. */
+export interface SecretStatusResponse {
+  set: Record<string, boolean>
+  /**
+   * Sensitive-field metadata (3-language labels). The backend may return it as
+   * a `schema.groups` document or as a flat `fields` array; both are handled.
+   */
+  schema?: ConfigSchema
+  fields?: ConfigField[]
+}
+
+/** PUT /config and PUT /config/secrets body. */
+export interface ConfigUpdateRequest {
+  values: Record<string, string>
+  clear?: string[]
 }
 
 /**

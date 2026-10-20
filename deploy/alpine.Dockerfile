@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv  (SECRET_DIR is a directory path, not a secret value)
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Alpine/musl backend-only image (Go static binary + Rust musl binary +
@@ -18,6 +19,8 @@ FROM ${GO_IMAGE} AS go-build
 
 ARG GOPROXY_URL=https://goproxy.cn,direct
 ARG SWAG_VERSION=v1.16.6
+# Version embedded in pkg/updatecheck (CI passes VERSION; local builds default dev).
+ARG VERSION=dev
 
 ENV GOPROXY=${GOPROXY_URL} \
     GOSUMDB=off \
@@ -40,7 +43,9 @@ RUN mkdir -p docs \
     && "$(go env GOPATH)/bin/swag" init -g internal/modules/rest/rest.go -o docs \
     && test -s docs/swagger.json
 
-RUN go build -trimpath -ldflags="-s -w" -o /out/bilirec ./cmd/backend
+RUN go build -trimpath \
+    -ldflags="-s -w -X 'github.com/bilirec/bilirec/pkg/updatecheck.currentVersionInjected=${VERSION}'" \
+    -o /out/bilirec ./cmd/backend
 
 # ---------------------------------------------------------------------------
 # 2. Rust sidecar for musl (host target of rust:alpine is x86_64-unknown-linux-musl)
@@ -63,15 +68,18 @@ ARG WITH_EXTRA=0
 
 RUN apk add --no-cache \
         ca-certificates \
+        su-exec \
         tzdata \
     && if [ "$WITH_EXTRA" = "1" ]; then \
          apk add --no-cache ffmpeg streamlink; \
        fi \
     && addgroup -g 10001 bilirec \
     && adduser -D -u 10001 -G bilirec -h /app bilirec \
-    && mkdir -p /app/docs /app/records /app/database /app/secrets \
+    && mkdir -p /app/config /app/docs /app/records /app/database /app/secrets \
     && chown -R bilirec:bilirec /app
 
+COPY deploy/entrypoint/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
 COPY --from=rust-build /out/flvrepair /usr/local/bin/flvrepair
@@ -80,6 +88,13 @@ RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair \
     && if [ "$WITH_EXTRA" = "1" ]; then \
          ffmpeg -version >/dev/null && streamlink --version >/dev/null; \
        fi
+
+# CONFIG-V2: config/secrets files (mounted via the `config` volume) and the
+# entrypoint PUID/PGID defaults (see docs/CONFIG-V2.md §1/§7).
+ENV CONFIG_FILE=/app/config/config.json \
+    SECRETS_FILE=/app/config/secrets.json \
+    PUID=10001 \
+    PGID=10001
 
 ENV PORT=8080 \
     DOWNLOADER=auto \
@@ -103,5 +118,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD wget -q -O /dev/null http://127.0.0.1:8080/version || exit 1
 
 STOPSIGNAL SIGTERM
-USER bilirec:bilirec
-ENTRYPOINT ["/usr/local/bin/bilirec"]
+# CONFIG-V2 §7: the entrypoint adjusts the bilirec user/group to PUID/PGID,
+# chowns the runtime dirs and drops privileges via su-exec.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "backend"]
+CMD ["/usr/local/bin/bilirec"]

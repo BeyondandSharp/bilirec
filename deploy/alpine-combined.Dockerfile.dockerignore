@@ -43,3 +43,8 @@ rust/target
 **/*.log
 **/*.tmp
 **/.DS_Store
+
+# CONFIG-V2 local config/secrets (runtime files/mounts, never baked in)
+config.json
+secrets.json
+config/

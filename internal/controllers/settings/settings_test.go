@@ -24,7 +24,7 @@ const testSettingsJWTSecret = "settings-test-secret"
 func newTestSettingsService(t *testing.T) *settingssvc.Service {
 	t.Helper()
 	lc := fxtest.NewLifecycle(t)
-	svc := settingssvc.NewService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil)
+	svc := settingssvc.NewService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil, nil)
 	lc.RequireStart()
 	t.Cleanup(lc.RequireStop)
 	return svc
@@ -219,7 +219,7 @@ func TestSettingsAPIPersistenceAcrossRestart(t *testing.T) {
 
 	open := func() (*settingssvc.Service, func()) {
 		lc := fxtest.NewLifecycle(t)
-		svc := settingssvc.NewService(lc, &config.Config{DatabaseDir: dir}, nil)
+		svc := settingssvc.NewService(lc, &config.Config{DatabaseDir: dir}, nil, nil)
 		lc.RequireStart()
 		stopped := false
 		stop := func() {

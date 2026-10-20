@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { isAxiosError } from 'axios'
 import { InfoIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -18,7 +17,10 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { LoadingScreen } from '@/components/LoadingScreen'
 import { SettingsFieldControl } from '@/components/settings/SettingsFieldControl'
+import { SecretsSection } from '@/components/settings/SecretsSection'
+import { SystemConfigSection } from '@/components/settings/SystemConfigSection'
 import { apiClient } from '@/lib/api'
+import { getServerErrorMessage } from '@/lib/api-error'
 import { useRole } from '@/lib/role-context'
 import {
   cloneSettings,
@@ -27,27 +29,6 @@ import {
   SETTINGS_SECTIONS,
 } from '@/lib/settings-schema'
 import type { GlobalSettings, SettingsResponse } from '@/lib/types'
-
-/** Extract a human-readable message from an API failure (server 400s carry Chinese text). */
-function getServerErrorMessage(error: unknown, fallback: string): string {
-  if (isAxiosError(error)) {
-    const data = error.response?.data
-    if (typeof data === 'string' && data.trim()) {
-      return data.trim()
-    }
-    if (data && typeof data === 'object') {
-      const record = data as Record<string, unknown>
-      const message = record.message ?? record.error ?? record.msg
-      if (typeof message === 'string' && message.trim()) {
-        return message.trim()
-      }
-    }
-    if (error.response?.status) {
-      return `${fallback} (HTTP ${error.response.status})`
-    }
-  }
-  return fallback
-}
 
 /**
  * Global settings tab (FEATURES-V2 §7, R17): load `GET /settings`, edit and
@@ -158,24 +139,10 @@ export function SettingsView() {
           <div className="min-w-0">
             <h2 className="text-xl font-bold">{t('settingsView.title')}</h2>
             <p className="text-sm text-muted-foreground">{t('settingsView.description')}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {!isReadOnly && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsResetDialogOpen(true)}
-                  disabled={actionsDisabled || !data}
-                >
-                  {isResetting ? t('settingsView.resetting') : t('settingsView.reset')}
-                </Button>
-                <Button
-                  onClick={() => void handleSave()}
-                  disabled={actionsDisabled || !draft || !isDirty}
-                >
-                  {isSaving ? t('settingsView.saving') : t('settingsView.save')}
-                </Button>
-              </>
+            {data?.config_file && (
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                {t('settingsView.system.configFile')}: {data.config_file}
+              </p>
             )}
           </div>
         </div>
@@ -218,36 +185,69 @@ export function SettingsView() {
             <AlertDescription>{t('settingsView.loadFailed')}</AlertDescription>
           </Alert>
         ) : (
-          SETTINGS_SECTIONS.map((section) => (
-            <section
-              key={section.id}
-              aria-labelledby={`settings-section-${section.id}`}
-              className="rounded-xl border border-border bg-card p-4 shadow-sm"
-            >
-              <div className="mb-3 space-y-1">
-                <h3 id={`settings-section-${section.id}`} className="font-semibold">
-                  {t(section.titleKey)}
-                </h3>
-                {section.descriptionKey && (
-                  <p className="text-sm text-muted-foreground">{t(section.descriptionKey)}</p>
+          <>
+            <section aria-labelledby="settings-recording-title" className="space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <h3 id="settings-recording-title" className="font-semibold">
+                    {t('settingsView.recordingTitle')}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">{t('settingsView.description')}</p>
+                </div>
+                {!isReadOnly && (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsResetDialogOpen(true)}
+                      disabled={actionsDisabled || !data}
+                    >
+                      {isResetting ? t('settingsView.resetting') : t('settingsView.reset')}
+                    </Button>
+                    <Button
+                      onClick={() => void handleSave()}
+                      disabled={actionsDisabled || !draft || !isDirty}
+                    >
+                      {isSaving ? t('settingsView.saving') : t('settingsView.save')}
+                    </Button>
+                  </div>
                 )}
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {section.fields.map((field) => (
-                  <SettingsFieldControl
-                    key={field.path}
-                    id={`settings-${field.path.split('.').join('-')}`}
-                    field={field}
-                    value={getSettingByPath(draft, field.path)}
-                    fallbackValue={getSettingByPath(data.defaults, field.path)}
-                    disabled={isReadOnly || isBusy}
-                    className={field.fullWidth ? 'sm:col-span-2' : undefined}
-                    onChange={(value) => updateField(field.path, value)}
-                  />
-                ))}
-              </div>
+
+              {SETTINGS_SECTIONS.map((section) => (
+                <section
+                  key={section.id}
+                  aria-labelledby={`settings-section-${section.id}`}
+                  className="rounded-xl border border-border bg-card p-4 shadow-sm"
+                >
+                  <div className="mb-3 space-y-1">
+                    <h4 id={`settings-section-${section.id}`} className="font-semibold">
+                      {t(section.titleKey)}
+                    </h4>
+                    {section.descriptionKey && (
+                      <p className="text-sm text-muted-foreground">{t(section.descriptionKey)}</p>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {section.fields.map((field) => (
+                      <SettingsFieldControl
+                        key={field.path}
+                        id={`settings-${field.path.split('.').join('-')}`}
+                        field={field}
+                        value={getSettingByPath(draft, field.path)}
+                        fallbackValue={getSettingByPath(data.defaults, field.path)}
+                        disabled={isReadOnly || isBusy}
+                        className={field.fullWidth ? 'sm:col-span-2' : undefined}
+                        onChange={(value) => updateField(field.path, value)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
             </section>
-          ))
+
+            <SystemConfigSection />
+            <SecretsSection />
+          </>
         )}
       </div>
 

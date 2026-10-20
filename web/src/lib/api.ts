@@ -25,7 +25,10 @@ import type {
   BilibiliAuthInitResponse,
   ServerVersionResult,
   GlobalSettings,
-  SettingsResponse
+  SettingsResponse,
+  ConfigUpdateRequest,
+  SecretStatusResponse,
+  SystemConfigResponse
 } from "./types";
 import { sharedStore } from "./shared-store";
 import {
@@ -601,6 +604,39 @@ class ApiClient {
   /** Clear all persisted global overrides (back to env defaults). */
   async resetSettings(): Promise<void> {
     await this.client.post('/settings/reset');
+  }
+
+  /** Managed environment config with backend-provided schema metadata (CONFIG-V2 §4). */
+  async getConfig(): Promise<SystemConfigResponse> {
+    const response = await this.client.get<SystemConfigResponse>('/config');
+    return response.data;
+  }
+
+  /** Update managed config values (env-locked keys are rejected by the backend). */
+  async updateConfig(payload: ConfigUpdateRequest): Promise<SystemConfigResponse> {
+    const response = await this.client.put<SystemConfigResponse>('/config', payload);
+    return response.data;
+  }
+
+  /** Remove managed non-secret keys from the config file (unknown keys preserved). */
+  async resetConfig(): Promise<void> {
+    await this.client.post('/config/reset');
+  }
+
+  /** Which secrets are currently set; secret values are never returned. */
+  async getSecretStatus(): Promise<SecretStatusResponse> {
+    const response = await this.client.get<SecretStatusResponse>('/config/secrets');
+    return response.data;
+  }
+
+  /** Write secrets (write-only) and clear selected ones. */
+  async updateSecrets(payload: ConfigUpdateRequest): Promise<void> {
+    await this.client.put('/config/secrets', payload);
+  }
+
+  /** Remove all managed secrets from the secrets file. */
+  async resetSecrets(): Promise<void> {
+    await this.client.post('/config/secrets/reset');
   }
 
   async getWebPushPublicKey(): Promise<WebPushPublicKeyResponse> {

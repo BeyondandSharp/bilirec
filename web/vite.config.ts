@@ -30,9 +30,9 @@ export default defineConfig({
       scope: '/',
       injectRegister: false,
       manifest: {
-        name: 'Bilibili 錄製管理系統',
-        short_name: '錄製管理',
-        description: '管理 Bilibili 直播錄製任務',
+        name: 'Bilirec',
+        short_name: 'Bilirec',
+        description: 'Bilibili live recording manager',
         start_url: '/',
         display: 'standalone',
         background_color: '#f2f4f6',

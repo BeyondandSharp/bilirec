@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv  (SECRET_DIR is a directory path, not a secret value)
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # All-in-one local image: bilirec backend + flvrepair sidecar + the React
@@ -41,6 +42,8 @@ FROM ${GO_IMAGE} AS go-build
 
 ARG GOPROXY_URL=https://goproxy.cn,direct
 ARG SWAG_VERSION=v1.16.6
+# Version embedded in pkg/updatecheck (CI passes VERSION; local builds default dev).
+ARG VERSION=dev
 
 ENV GOPROXY=${GOPROXY_URL} \
     GOSUMDB=off \
@@ -61,7 +64,9 @@ RUN mkdir -p docs \
     && "$(go env GOPATH)/bin/swag" init -g internal/modules/rest/rest.go -o docs \
     && test -s docs/swagger.json
 
-RUN go build -trimpath -ldflags="-s -w" -o /out/bilirec ./cmd/backend
+RUN go build -trimpath \
+    -ldflags="-s -w -X 'github.com/bilirec/bilirec/pkg/updatecheck.currentVersionInjected=${VERSION}'" \
+    -o /out/bilirec ./cmd/backend
 
 # ---------------------------------------------------------------------------
 # 3. Rust FLV repair sidecar
@@ -93,6 +98,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        gosu \
         nginx \
         tzdata \
     && rm -rf /var/lib/apt/lists/* \
@@ -101,12 +107,16 @@ RUN apt-get update \
            "streamlink==${STREAMLINK_VERSION}" \
          && streamlink --version; \
        fi \
-    && rm -f /etc/nginx/sites-enabled/default
+    && rm -f /etc/nginx/sites-enabled/default \
+    && groupadd --gid 10001 bilirec \
+    && useradd --uid 10001 --gid 10001 --home-dir /app --no-create-home \
+        --shell /usr/sbin/nologin bilirec
 
 COPY deploy/combined/nginx.conf /etc/nginx/conf.d/bilirec.conf
-COPY deploy/combined/entrypoint.sh /usr/local/bin/bilirec-combined-entrypoint
-RUN chmod 0755 /usr/local/bin/bilirec-combined-entrypoint \
-    && mkdir -p /app/web /app/docs /app/records /app/database /app/secrets
+COPY deploy/entrypoint/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh \
+    && mkdir -p /app/config /app/web /app/docs /app/records /app/database /app/secrets \
+    && chown -R bilirec:bilirec /app
 
 COPY --from=web-build /web/dist /app/web
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
@@ -118,6 +128,13 @@ RUN --mount=type=bind,from=ffmpeg-static,source=/ffmpeg,target=/tmp/ffmpeg \
       && ffmpeg -version >/dev/null; \
     fi \
     && ln -sfn /app/docs /usr/local/bin/docs
+
+# CONFIG-V2: config/secrets files (mounted via the `config` volume) and the
+# entrypoint PUID/PGID defaults (see docs/CONFIG-V2.md §1/§7).
+ENV CONFIG_FILE=/app/config/config.json \
+    SECRETS_FILE=/app/config/secrets.json \
+    PUID=10001 \
+    PGID=10001
 
 # Same defaults as the backend-only image; the frontend is served on :80 and
 # nginx proxies everything that is not a static file to 127.0.0.1:8080.
@@ -144,4 +161,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
     CMD ["python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1/', timeout=4); r=urllib.request.urlopen('http://127.0.0.1/version', timeout=4); sys.exit(0 if r.status == 200 else 1)"]
 
 STOPSIGNAL SIGTERM
-ENTRYPOINT ["/usr/local/bin/bilirec-combined-entrypoint"]
+# CONFIG-V2 §7: nginx keeps running as root, bilirec is dropped to PUID:PGID by
+# the entrypoint; SIGTERM/SIGINT are forwarded to both children.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh", "combined"]

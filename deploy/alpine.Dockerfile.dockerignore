@@ -27,7 +27,17 @@ scripts
 backups
 dist
 docs
-deploy
+# deploy/ is not needed in the backend build context, except the unified
+# entrypoint script copied into the runtime stage.
+deploy/README.md
+deploy/upstream.Dockerfile
+deploy/*.Dockerfile
+deploy/*.dockerignore
+deploy/docker-compose*.yml
+deploy/.env
+deploy/.env.example
+deploy/web
+deploy/combined
 
 # dependency/build caches and local data
 **/node_modules
@@ -39,3 +49,8 @@ rust/target
 **/*.log
 **/*.tmp
 **/.DS_Store
+
+# CONFIG-V2 local config/secrets (runtime files/mounts, never baked in)
+config.json
+secrets.json
+config/

@@ -12,6 +12,7 @@ import (
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/internal/modules/configfile"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/services/convert"
 	"github.com/bilirec/bilirec/internal/services/cover"
@@ -116,6 +117,7 @@ func newSubcheckIntegrationSession(t *testing.T) *subcheckIntegrationSession {
 		fx.Provide(danmaku.NewService),
 		fx.Provide(cover.NewService),
 		fx.Provide(repair.NewService),
+		fx.Provide(func() *configfile.Store { return nil }),
 		fx.Provide(settings.NewService),
 		fx.Provide(recorder.NewService),
 		fx.Provide(NewService),

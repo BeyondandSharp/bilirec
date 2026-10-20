@@ -30,6 +30,7 @@ import { useLiveNotifications } from "@/hooks/use-live-notifications";
 import { useDiskUsage } from "@/hooks/use-disk-usage";
 import { useAnalyticsSession } from "@/hooks/use-analytics-session";
 import { apiClient } from "@/lib/api";
+import { ConvertCapabilityContext } from "@/lib/convert-capability";
 
 type AppTab = "records" | "files" | "converts" | "subscribe" | "settings";
 
@@ -67,6 +68,7 @@ function App() {
   // null/true = assume available until the backend tells us otherwise (older
   // backends have no /convert/providers endpoint). false hides the nav entry.
   const [canConvert, setCanConvert] = useState(true);
+  const [convertProviders, setConvertProviders] = useState<string[]>([]);
 
   const auth = useAuthSession({
     onVersion: setServerVersion,
@@ -104,7 +106,10 @@ function App() {
     apiClient
       .getConvertProviders()
       .then((providers) => {
-        if (!cancelled) setCanConvert(providers.enabled !== false);
+        if (!cancelled) {
+          setCanConvert(providers.enabled !== false);
+          setConvertProviders(providers.providers ?? []);
+        }
       })
       .catch(() => {
         // Older backend without the endpoint: keep conversion visible.
@@ -233,6 +238,7 @@ function App() {
   }
 
   return (
+    <ConvertCapabilityContext.Provider value={{ canConvert, providers: convertProviders }}>
     <RoleContext.Provider value={{ role: userRole, userName, isReadOnly }}>
       <div className="min-h-screen bg-background overflow-x-hidden">
         <AppHeader
@@ -317,6 +323,7 @@ function App() {
         <Toaster richColors position="top-center" />
       </div>
     </RoleContext.Provider>
+    </ConvertCapabilityContext.Provider>
   );
 }
 

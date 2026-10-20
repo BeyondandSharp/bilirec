@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/controllers/auth"
+	configapi "github.com/bilirec/bilirec/internal/controllers/config"
 	"github.com/bilirec/bilirec/internal/controllers/convert"
 	"github.com/bilirec/bilirec/internal/controllers/file"
 	nc "github.com/bilirec/bilirec/internal/controllers/notify"
@@ -14,6 +15,7 @@ import (
 	cs "github.com/bilirec/bilirec/internal/controllers/settings"
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/internal/modules/configfile"
 	"github.com/bilirec/bilirec/internal/modules/logging"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/modules/rest"
@@ -42,8 +44,13 @@ import (
 	"go.uber.org/zap"
 )
 
-func MainModule() fx.Option {
+func MainModule(stores ...*configfile.Store) fx.Option {
+	var store *configfile.Store
+	if len(stores) > 0 {
+		store = stores[0]
+	}
 	return fx.Module("main",
+		fx.Provide(func() *configfile.Store { return store }),
 		config.Module,
 		bilibili.Module,
 		rest.Module,
@@ -73,6 +80,7 @@ func MainModule() fx.Option {
 
 		fx.Invoke(room.NewController),
 		fx.Invoke(cs.NewController),
+		fx.Invoke(configapi.NewController),
 		fx.Invoke(nc.NewController),
 		fx.Invoke(record.NewController),
 		fx.Invoke(file.NewController),
@@ -86,9 +94,9 @@ func noQrCodePrompt() bool {
 	return loginMode == "controller" || loginMode == "anonymous"
 }
 
-func NewApp() *fx.App {
+func NewApp(stores ...*configfile.Store) *fx.App {
 	return fx.New(
-		MainModule(),
+		MainModule(stores...),
 		fx.StartTimeout(
 			utils.Ternary(
 				noQrCodePrompt(),
@@ -101,9 +109,9 @@ func NewApp() *fx.App {
 	)
 }
 
-func NewAndroidApp() *fx.App {
+func NewAndroidApp(stores ...*configfile.Store) *fx.App {
 	return fx.New(
-		MainModule(),
+		MainModule(stores...),
 		fx.StartTimeout(10*time.Second),
 		fx.StopTimeout(10*time.Second),
 		fx.WithLogger(fxZapLogger),

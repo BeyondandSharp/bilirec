@@ -26,3 +26,8 @@ backups/
 .vscode/
 tmp*/*
 .tmp*/*
+
+# CONFIG-V2 local config/secrets files (runtime/mounted, never committed)
+/config.json
+/secrets.json
+/config/

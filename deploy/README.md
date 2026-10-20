@@ -2,7 +2,8 @@
 
 Multi-stage image for `bilirec` + the Rust `flvrepair` sidecar, based on
 `docs/INTERFACES.md` §2.3 (env contract), `docs/FEATURES-V2.md` §1.1 (new env
-defaults) and §5 (build).
+defaults), §5 (build) and `docs/CONFIG-V2.md` §1/§7/§8 (config center, PUID/PGID,
+VERSION).
 
 ## Build
 
@@ -27,8 +28,18 @@ Stages: `go-build` (Go backend **with generated swagger docs**), `rust-build`
 (`cargo build --release`, binary `flvrepair`), `runtime` (Debian/Python slim +
 `ffmpeg` + `streamlink`; both binaries on `PATH`; non-root uid/gid 10001).
 
-Build args (mirrors): `GO_IMAGE`, `RUST_IMAGE`, `RUNTIME_IMAGE`,
-`GOPROXY_URL`, `SWAG_VERSION`, `STREAMLINK_VERSION`.
+Build args: `GO_IMAGE`, `RUST_IMAGE`, `RUNTIME_IMAGE`, `FFMPEG_IMAGE`,
+`GOPROXY_URL`, `SWAG_VERSION`, `STREAMLINK_VERSION`, `WITH_EXTRA` (`0` = slim,
+`1` = full ffmpeg/streamlink) and `VERSION` (default `dev`; embedded into
+`pkg/updatecheck.currentVersionInjected`). Example:
+
+```bash
+docker build --build-arg VERSION=v0.4.0 -f deploy/Dockerfile -t bilirec-rust:v0.4.0 .
+```
+
+`./build.sh` / `./build-alpine.sh` pass `VERSION` from the environment or
+`git describe --tags --always --dirty`; the Forgejo release workflow passes the
+release tag automatically.
 
 ## Configuration (`.env`)
 
@@ -61,15 +72,73 @@ setting changes apply to new sessions only. See
 [`docs/OPERATIONS-V2.md`](../docs/OPERATIONS-V2.md) for precedence, API examples
 and troubleshooting.
 
-## Run
+## Config center: `config.json` + `secrets.json` (CONFIG-V2 §1)
+
+Runtime settings can live in flat JSON files instead of (or in addition to) the
+environment:
+
+| File | Container path | Mode | Contents |
+|---|---|---|---|
+| `CONFIG_FILE` | `/app/config/config.json` | `0644` | non-secret `{"ENV_KEY":"value"}` map |
+| `SECRETS_FILE` | `/app/config/secrets.json` | `0600` | only `PASSWORD`, `VIEWER_PASSWORD`, `JWT_SECRET`, `CLOUDCONVERT_API_KEY`, `FRP_TOKEN`, `NOTIFY_SSE_TOKEN` |
+
+- compose mounts the named `config` volume at `/app/config`; standalone runs use
+  `-v bilirec-config:/app/config`. Values in a mounted `config.json`/`secrets.json`
+  are applied on startup.
+- precedence: **system env > config/secrets file > `.env` > built-in default**
+  (FEATURES-V2 room overrides still win per session). See
+  `docs/CONFIG-V2.md` for the full contract and `docs/OPERATIONS-V2.md` for
+  day-2 operations.
+- `deploy/config.example.json` is a minimal non-secret example.
+- config/secrets files are never baked into the image; the container never
+  auto-writes `.env`. The entrypoint chowns `/app/config` (and `/app/secrets`,
+  which is the `SECRET_DIR` for Bilibili cookies) to `PUID:PGID`.
+- HTTP API: `GET/PUT /config`, `GET/PUT /config/secrets`, `POST
+  /config/reset`, `POST /config/secrets/reset` (admin write, admin+viewer read).
+
+## PUID / PGID (backend + combined images, CONFIG-V2 §7)
+
+`PUID`/`PGID` default to `10001`. The POSIX-sh entrypoint
+(`deploy/entrypoint/docker-entrypoint.sh`, used by both Debian and Alpine and by
+the backend-only and combined images):
+
+1. validates that both values are numeric and fails with a clear message if the
+   requested id is already used by another user/group;
+2. adjusts the `bilirec` user/group ids (`usermod`/`groupmod` on Debian,
+   `adduser`/`addgroup` on Alpine);
+3. creates and chowns `/app/config`, `/app/secrets`, `/app/database`,
+   `/app/records` (records recursively only when its top-level owner differs, so
+   large recording trees stay cheap);
+4. drops privileges via `gosu` (Debian) / `su-exec` (Alpine). Backend images exec
+   `bilirec` as `PUID:PGID`; combined images keep nginx running as root and run
+   the bilirec child as `PUID:PGID`, forwarding SIGTERM/SIGINT to both.
 
 ```bash
-docker run --rm -p 8080:8080 \
+docker run --rm -p 8080:8080 -e PUID=1234 -e PGID=2345 \
+  -v bilirec-config:/app/config \
   -v bilirec-records:/app/records \
   -v bilirec-database:/app/database \
   -v bilirec-secrets:/app/secrets \
   bilirec-rust:dev
 ```
+
+The frontend nginx-only image is unaffected (it keeps its default nginx user).
+
+## Run
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e PUID=10001 -e PGID=10001 \
+  -v bilirec-config:/app/config \
+  -v bilirec-records:/app/records \
+  -v bilirec-database:/app/database \
+  -v bilirec-secrets:/app/secrets \
+  bilirec-rust:dev
+```
+
+`/version` is the health endpoint; the image has a `HEALTHCHECK` that polls it.
+To mount existing files directly instead of the `config` volume, override
+`CONFIG_FILE`/`SECRETS_FILE` (e.g. `-v $PWD/config.json:/app/config/config.json`).
 
 Defaults keep native v0.3.1 behavior (`DOWNLOADER=auto`, `FLV_REPAIR=auto`);
 override `DOWNLOADER=ffmpeg|streamlink`, `FLV_REPAIR=on|off`, etc. per
@@ -104,6 +173,9 @@ Notes:
 
 - The database volume must persist across upgrades — it holds the bbolt
   `settings.db` (global overrides) and `subscribes.db` (room overrides).
+- The `config` volume holds `config.json` (0644) and `secrets.json` (0600); back
+  it up before upgrades. PUID/PGID changes re-chown config/secrets/database and
+  records top-level automatically.
 - `docker compose up` without `--build` reuses the previous image tag; use
   `build` (or `up --build`) to pick up source changes.
 - With API auth enabled, uncomment `USERNAME`/`PASSWORD` in `deploy/.env`

@@ -334,3 +334,27 @@ func TestRotateFilePathPathTemplateRejectsTraversal(t *testing.T) {
 		t.Fatal("expected traversal template to be rejected")
 	}
 }
+
+func TestRotateFilePathDefaultPathTemplate(t *testing.T) {
+	root := t.TempDir()
+	r := &Service{cfg: &config.Config{OutputDir: root}}
+	info := &Info{
+		room:     &bilibili.LiveRoomInfoDetail{RoomID: 42, Uname: "主播", Title: "标题"},
+		fileTime: time.Date(2026, 3, 9, 14, 5, 7, 0, time.Local),
+		effective: settings.Effective{
+			FilenameTemplate: settings.DefaultFilenameTemplate,
+		},
+	}
+	path, err := r.rotateFilePath(info, 0, ".flv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join("42-主播", "20260309_140507_标题.flv")
+	if rel != want {
+		t.Fatalf("default path template rel = %q, want %q", rel, want)
+	}
+}

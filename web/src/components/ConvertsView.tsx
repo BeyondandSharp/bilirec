@@ -9,8 +9,13 @@ import { LoadingScreen } from './LoadingScreen'
 import { SwapIcon } from '@phosphor-icons/react'
 import { usePageVisibility } from '@/hooks/use-visibility'
 import { useTranslation } from 'react-i18next'
+import { useConvertCapability } from '@/lib/convert-capability'
+
 export function ConvertsView() {
   const { t } = useTranslation()
+  const { canConvert } = useConvertCapability()
+  // No backend conversion provider: the nav entry is hidden and deep links fall
+  // back, so this view should never mount — guard anyway (CONFIG-V2 §6).
   const [tasks, setTasks] = useState<ConvertQueue[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -58,6 +63,10 @@ export function ConvertsView() {
       scrollContainerRef.current.scrollTop = scrollPositionRef.current
     }
   }, [tasks])
+
+  if (!canConvert) {
+    return null
+  }
 
   return (
     <div className="flex flex-col h-full">

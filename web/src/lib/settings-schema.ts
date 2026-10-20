@@ -56,7 +56,7 @@ export const FALLBACK_GLOBAL_SETTINGS: GlobalSettings = {
   segment_size_mb: 2048,
   segment_by_title: false,
   min_file_size_mb: 0,
-  filename_template: '',
+  filename_template: '{roomid}-{uname}/{date}_{time}_{title}',
   title_filter_patterns: '',
   save_stream_cover: false,
   danmaku_types: {
@@ -222,9 +222,10 @@ export const SETTINGS_SECTIONS: SettingsSectionDescriptor[] = [
       },
       {
         // Relative path template under OUTPUT_DIR: '/' creates subdirectories
-        // (FEATURES-V2 §3.2, amended 2026-10-20). Absolute paths, '..' segments
-        // and backslashes are rejected by the server with a 400 message that
-        // the settings page renders as-is.
+        // (CONFIG-V2 §3). Default is '{roomid}-{uname}/{date}_{time}_{title}';
+        // explicit empty string keeps the legacy naming. Absolute paths, '..'
+        // segments and backslashes are rejected by the server with a 400
+        // message that the settings page renders as-is.
         path: 'filename_template',
         kind: 'string',
         labelKey: 'settingsView.fields.filenameTemplate',

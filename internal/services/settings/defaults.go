@@ -8,6 +8,10 @@ import (
 	"github.com/bilirec/bilirec/internal/services/naming"
 )
 
+// DefaultFilenameTemplate is the CONFIG-V2 §3 default path template (relative to
+// OUTPUT_DIR; "/" creates subdirectories).
+const DefaultFilenameTemplate = "{roomid}-{uname}/{date}_{time}_{title}"
+
 // builtinDefaults returns the built-in defaults used when an env value is
 // invalid and as the base for every merged value. They reproduce the pre-v2
 // recording behavior (all new features off/inherit, metadata kept, current
@@ -19,8 +23,10 @@ func builtinDefaults() GlobalSettings {
 		SegmentSizeMB:  2048,
 		SegmentByTitle: false,
 
-		MinFileSizeMB:       0,
-		FilenameTemplate:    "",
+		MinFileSizeMB: 0,
+		// CONFIG-V2 §3: default path template relative to OUTPUT_DIR. An
+		// explicit empty value keeps the legacy v0.2.0 naming.
+		FilenameTemplate:    DefaultFilenameTemplate,
 		TitleFilterPatterns: "",
 		SaveStreamCover:     false,
 
@@ -51,7 +57,17 @@ func loadDefaultsFromEnv() GlobalSettings {
 	d.SegmentByTitle = envBool("SEGMENT_BY_TITLE", d.SegmentByTitle)
 
 	d.MinFileSizeMB = envInt("MIN_FILE_SIZE_MB", d.MinFileSizeMB, 0, 1024)
-	d.FilenameTemplate = envString("FILENAME_TEMPLATE", d.FilenameTemplate, validFilenameTemplate)
+	// FILENAME_TEMPLATE distinguishes "unset" (new path-template default) from
+	// an explicit empty string (legacy naming, docs/CONFIG-V2.md §3).
+	if raw, ok := envRaw("FILENAME_TEMPLATE"); ok {
+		if raw == "" {
+			d.FilenameTemplate = ""
+		} else if validFilenameTemplate(raw) {
+			d.FilenameTemplate = raw
+		} else {
+			log.Warnf("环境变量 FILENAME_TEMPLATE 无效（%q），使用默认值 %q", raw, DefaultFilenameTemplate)
+		}
+	}
 	d.TitleFilterPatterns = envString("TITLE_FILTER_PATTERNS", d.TitleFilterPatterns, validTitleFilterPatterns)
 	d.SaveStreamCover = envBool("SAVE_STREAM_COVER", d.SaveStreamCover)
 

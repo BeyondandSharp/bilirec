@@ -49,7 +49,7 @@ func TestCached_BeforeCheck(t *testing.T) {
 	if res.Checked {
 		t.Fatal("expected checked false before Check()")
 	}
-	if res.URL != releasePageURL {
+	if res.URL != DefaultReleaseURL {
 		t.Fatalf("expected releases URL, got %q", res.URL)
 	}
 }

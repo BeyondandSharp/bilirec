@@ -123,7 +123,22 @@ Coverage (no network):
 - **auth matrix**: restart with `USERNAME`/`PASSWORD` + `VIEWER_*`: `/version`
   public, protected endpoints 401 without a cookie, wrong password 401,
   admin/viewer login (`POST /login` sets the JWT cookie), viewer GET 200 but
-  PUT/reset 403, admin PUT/reset 200.
+  PUT/reset 403, admin PUT/reset 200 (both FEATURES-V2 `/settings` and
+  CONFIG-V2 `/config` + `/config/secrets`).
+- **CONFIG-V2 config center**: `/config` schema/values/overrides/defaults/
+  sources/restart_required shape (features group + secret keys excluded, 3-language
+  labels), `/config` round-trip → `config.json` (0644) with unknown-key
+  preservation/clear/reset, 7 invalid-payload 400 cases (unknown/bootstrap/
+  secret/feature key, env-locked key, bad number, bad bool); `/config/secrets`
+  write-only round-trip with `secrets.json` 0600, no value leakage, clear/reset
+  and 400 cases; convert providers shape + `requires:"ffmpeg"` `disabled_reason`.
+- **CONFIG-V2 precedence matrix**: `env > config.json > .env > default` for a
+  non-secret key (3 restart instances), secret `env > secrets.json > .env`
+  proven by a JWT cookie that becomes invalid after removing the secret-file
+  value, startup secret migration `config.json → secrets.json`, and the default
+  `FILENAME_TEMPLATE={roomid}-{uname}/{date}_{time}_{title}` (CONFIG-V2 §3).
+- PUID/PGID cannot be exercised offline without Docker; it is verified by the
+  Docker/PUID task and deploy scripts (see `deploy/README.md`).
 - SKIP lines are limited to the opt-in live test and (only if the documented
   developer escape hatch is set) the settings sections.
 

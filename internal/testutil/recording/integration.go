@@ -22,6 +22,7 @@ import (
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/internal/modules/configfile"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/services/convert"
 	"github.com/bilirec/bilirec/internal/services/cover"
@@ -94,6 +95,7 @@ func NewSession(t *testing.T) *Session {
 		fx.Provide(cover.NewService),
 		fx.Provide(repair.NewService),
 		fx.Provide(subscribe.NewService),
+		fx.Provide(func() *configfile.Store { return nil }),
 		fx.Provide(settings.NewService),
 		fx.Provide(recorder.NewService),
 		fx.Populate(&biliClient, &recorderService, &roomService, &danmakuService, &metricsExporter),

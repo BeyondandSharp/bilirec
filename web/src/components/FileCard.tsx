@@ -20,6 +20,7 @@ import { apiClient } from '@/lib/api'
 import { toast } from 'sonner'
 import { cn } from '../lib/utils';
 import { useRole } from '@/lib/role-context'
+import { useConvertCapability } from '@/lib/convert-capability'
 import { useTranslation } from 'react-i18next'
 
 interface FileCardProps {
@@ -42,6 +43,7 @@ export function FileCard({
 }: FileCardProps) {
   const { t } = useTranslation()
   const { isReadOnly } = useRole()
+  const { canConvert: convertCapability } = useConvertCapability()
   const [isDownloading, setIsDownloading] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isConverting, setIsConverting] = useState(false)
@@ -57,7 +59,7 @@ export function FileCard({
   const canPlayback = isMp4 || isM4a
   const isDanmakuSidecar = isDanmakuSidecarFile(name)
   const isRecordingMedia = isRecordingMediaFilename(name)
-  const canConvert = isConvertibleVideoFile(name)
+  const canConvertFile = isConvertibleVideoFile(name)
 
   const isRecording = 'is_recording' in file ? !!(file as any).is_recording : false
 
@@ -162,7 +164,7 @@ export function FileCard({
   const [shareTtl, setShareTtl] = useState<string>('3600')
 
   const openConvertDialog = () => {
-    if (isDir || !canConvert) {
+    if (!convertCapability || isDir || !canConvertFile) {
       toast.error(t('fileCard.convertNotSupported'))
       return
     }
@@ -411,7 +413,7 @@ export function FileCard({
 
               {/* Desktop actions: share, convert (ts/fmp4/flv) & delete on sm+ */}
               <div className="hidden sm:flex items-center gap-2">
-                {canConvert && !isReadOnly && (
+                {convertCapability && canConvertFile && !isReadOnly && (
                   <Button
                     size="icon"
                     variant="outline"
@@ -480,7 +482,7 @@ export function FileCard({
                         {isSharing ? t('fileCard.shareGeneratingLong') : t('fileCard.share')}
                       </DropdownMenuItem>
                     )}
-                    {canConvert && !isReadOnly && (
+                    {convertCapability && canConvertFile && !isReadOnly && (
                       <DropdownMenuItem onSelect={() => { openConvertDialog(); }} disabled={isConverting || isDownloading || isDeleting || isRecording}>
                         {isConverting ? t('fileCard.converting') : t('fileCard.convert')}
                       </DropdownMenuItem>
@@ -496,8 +498,8 @@ export function FileCard({
 
             </div>
 
-            {/* Convert confirmation dialog */}
-            <Dialog open={isConvertDialogOpen} onOpenChange={setIsConvertDialogOpen}>
+            {/* Convert confirmation dialog (only when a backend provider exists) */}
+            {convertCapability && (<Dialog open={isConvertDialogOpen} onOpenChange={setIsConvertDialogOpen}>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{t('fileCard.convertConfirmTitle')}</DialogTitle>
@@ -532,7 +534,7 @@ export function FileCard({
                   <Button onClick={confirmConvert} disabled={isConverting}>{isConverting ? t('fileCard.convertRunning', { format: convertFormat.toUpperCase() }) : t('fileCard.confirmConvert', { format: convertFormat.toUpperCase() })}</Button>
                 </DialogFooter>
               </DialogContent>
-            </Dialog>
+            </Dialog>)}
 
             {/* Share confirmation dialog */}
             <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>

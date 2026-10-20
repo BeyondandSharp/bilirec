@@ -83,5 +83,13 @@ func (c *Controller) resetSettings(ctx fiber.Ctx) error {
 
 func (c *Controller) response() SettingsResponse {
 	defaults, overrides, values := c.svc.Get()
-	return SettingsResponse{Defaults: defaults, Overrides: overrides, Values: values}
+	return SettingsResponse{
+		Defaults:        defaults,
+		Overrides:       overrides,
+		Values:          values,
+		Sources:         c.svc.Sources(),
+		ConfigFile:      c.svc.ConfigFile(),
+		SecretsFile:     c.svc.SecretsFile(),
+		RestartRequired: c.svc.RestartRequired(),
+	}
 }

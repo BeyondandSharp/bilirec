@@ -2,6 +2,7 @@ package settings
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -16,7 +17,12 @@ import (
 func clearSettingsEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range envVars {
-		t.Setenv(key, "")
+		if old, ok := os.LookupEnv(key); ok {
+			t.Cleanup(func() { _ = os.Setenv(key, old) })
+		} else {
+			t.Cleanup(func() { _ = os.Unsetenv(key) })
+		}
+		_ = os.Unsetenv(key)
 	}
 }
 
@@ -28,7 +34,7 @@ func TestBuiltinDefaultsReproduceCurrentBehavior(t *testing.T) {
 	if got.SegmentMode != "off" || got.SegmentMinutes != 120 || got.SegmentSizeMB != 2048 {
 		t.Fatalf("unexpected segmentation defaults: %+v", got)
 	}
-	if got.SegmentByTitle || got.MinFileSizeMB != 0 || got.FilenameTemplate != "" ||
+	if got.SegmentByTitle || got.MinFileSizeMB != 0 || got.FilenameTemplate != DefaultFilenameTemplate ||
 		got.TitleFilterPatterns != "" || got.SaveStreamCover {
 		t.Fatalf("unexpected naming/filter/cover defaults: %+v", got)
 	}
@@ -207,7 +213,7 @@ func newTestSettingsService(t *testing.T, roomCfgs roomConfigSource) *Service {
 	t.Helper()
 	lc := fxtest.NewLifecycle(t)
 	cfg := &config.Config{DatabaseDir: t.TempDir()}
-	svc := newService(lc, cfg, roomCfgs)
+	svc := newService(lc, cfg, roomCfgs, nil)
 	lc.RequireStart()
 	t.Cleanup(lc.RequireStop)
 	return svc
@@ -219,7 +225,7 @@ func TestPersistenceAndReset(t *testing.T) {
 
 	openSvc := func() (*Service, func()) {
 		lc := fxtest.NewLifecycle(t)
-		svc := newService(lc, cfg, nil)
+		svc := newService(lc, cfg, nil, nil)
 		lc.RequireStart()
 		stopped := false
 		stop := func() {
@@ -437,7 +443,7 @@ func TestServiceWithoutDatabaseStillUpdatesInMemory(t *testing.T) {
 	// newService without lifecycle start has no bucket; Update must still apply
 	// in memory (used by unit tests and as a safe fallback).
 	lc := fxtest.NewLifecycle(t)
-	svc := newService(lc, &config.Config{DatabaseDir: filepath.Join(t.TempDir(), "db")}, nil)
+	svc := newService(lc, &config.Config{DatabaseDir: filepath.Join(t.TempDir(), "db")}, nil, nil)
 	minutes := 90
 	if err := svc.Update(GlobalSettingsPatch{SegmentMinutes: &minutes}); err != nil {
 		t.Fatal(err)

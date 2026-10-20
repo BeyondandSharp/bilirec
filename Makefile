@@ -36,9 +36,15 @@ test-rust:
 
 build: build-go build-rust
 
+# Version embedded for the update check (docs/CONFIG-V2.md §8): release
+# images pass ARG VERSION, local builds use `git describe`. Outside a git
+# checkout the value is empty, which keeps the update check disabled.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+UPDATE_CHECK_LDFLAGS := -X 'github.com/bilirec/bilirec/pkg/updatecheck.currentVersionInjected=$(VERSION)'
+
 build-go:
 	mkdir -p dist
-	CGO_ENABLED=0 go build -o dist/bilirec ./cmd/backend
+	CGO_ENABLED=0 go build -ldflags "$(UPDATE_CHECK_LDFLAGS)" -o dist/bilirec ./cmd/backend
 
 build-rust:
 	cargo build --manifest-path rust/Cargo.toml --workspace --release

@@ -2,7 +2,9 @@ import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { resources } from "@/i18n/resources";
 import {
+  DEFAULT_LANGUAGE,
   detectBrowserLanguage,
+  normalizeLanguage,
   SUPPORTED_LANGUAGES,
   type AppLanguage
 } from "@/lib/language";
@@ -10,7 +12,7 @@ import {
 void i18n.use(initReactI18next).init({
   resources,
   lng: detectBrowserLanguage(),
-  fallbackLng: "zh-TW",
+  fallbackLng: DEFAULT_LANGUAGE,
   supportedLngs: [...SUPPORTED_LANGUAGES],
   defaultNS: "common",
   ns: ["common"],
@@ -20,7 +22,7 @@ void i18n.use(initReactI18next).init({
 });
 
 export function getCurrentLanguage(): AppLanguage {
-  return i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "zh-TW";
+  return normalizeLanguage(i18n.resolvedLanguage ?? i18n.language);
 }
 
 export { i18n };

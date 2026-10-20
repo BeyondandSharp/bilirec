@@ -20,6 +20,8 @@ services:
       args:
         GOPROXY_URL: ${GOPROXY_URL:-https://goproxy.cn,direct}
         STREAMLINK_VERSION: ${STREAMLINK_VERSION:-8.6.2}
+        # Image version reported by /version (CONFIG-V2 §8); CI passes the tag.
+        VERSION: ${BILIREC_VERSION:-dev}
         # Compose deployments keep external downloaders/conversion by default;
         # set WITH_EXTRA=0 for a slim (native-only) image.
         WITH_EXTRA: ${WITH_EXTRA:-1}
@@ -52,6 +54,13 @@ services:
       FLV_REPAIR_BIN: ${FLV_REPAIR_BIN:-/usr/local/bin/flvrepair}
       FLV_REPAIR_MODE: ${FLV_REPAIR_MODE:-best-effort}
       FLV_REPAIR_MAX_BUFFER_MB: ${FLV_REPAIR_MAX_BUFFER_MB:-64}
+      # CONFIG-V2 config center: CONFIG_FILE/SECRETS_FILE live on the `config`
+      # volume; the entrypoint adjusts the container user to PUID/PGID
+      # (default 10001) and chowns config/secrets/database/records.
+      CONFIG_FILE: /app/config/config.json
+      SECRETS_FILE: /app/config/secrets.json
+      PUID: ${PUID:-10001}
+      PGID: ${PGID:-10001}
       # CORS origins allowed to call the API. The `web` service below serves the
       # frontend on WEB_PORT; add more origins comma-separated behind a proxy.
       FRONTEND_URLS: ${FRONTEND_URLS:-http://localhost:8081}
@@ -66,6 +75,8 @@ services:
       # PASSWORD: ${PASSWORD:-}
       # JWT_SECRET: ${JWT_SECRET:-}
     volumes:
+      # CONFIG-V2: config.json + secrets.json live in this volume.
+      - config:/app/config
       # Defaults are the upstream bilirec ones: relative to WORKDIR /app
       # (records/, database/, secrets/).
       - records:/app/records
@@ -98,6 +109,7 @@ services:
       - bilirec
 
 volumes:
+  config:
   records:
   database:
   secrets:

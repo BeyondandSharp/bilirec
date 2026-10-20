@@ -12,11 +12,6 @@ import (
 	"github.com/tcnksm/go-latest"
 )
 
-const (
-	githubOwner      = "bilirec"
-	githubRepository = "bilirec"
-)
-
 // currentVersionInjected is set at build time for production releases.
 var currentVersionInjected = ""
 
@@ -53,13 +48,15 @@ func Cached() Result {
 // It ignores CHECK_UPDATE and updates the package-level cache.
 func Check() (Result, error) {
 	current := Current()
+	releaseURL := resolveReleaseURL()
 	if current == "" {
-		res := Result{Current: "", URL: releasePageURL}
+		res := Result{Current: "", URL: releaseURL}
 		setCache(res)
 		return res, nil
 	}
 
 	target := strings.TrimPrefix(strings.TrimSpace(current), "v")
+	githubOwner, githubRepository := resolveRepo()
 	githubTag := &latest.GithubTag{
 		Owner:             githubOwner,
 		Repository:        githubRepository,
@@ -88,7 +85,7 @@ func Check() (Result, error) {
 		Latest:   latestTag,
 		Outdated: checkRes.Outdated,
 		Checked:  true,
-		URL:      releasePageURL,
+		URL:      releaseURL,
 	}
 	setCache(res)
 	return res, nil
@@ -118,7 +115,7 @@ func shouldCheck() bool {
 }
 
 func checkUpdateEnabled() bool {
-	v, ok := os.LookupEnv("CHECK_UPDATE")
+	v, ok := os.LookupEnv(EnvCheckUpdate)
 	if !ok {
 		return runtime.GOOS != "android"
 	}
@@ -146,6 +143,6 @@ func snapshotLocked() Result {
 	}
 	return Result{
 		Current: Current(),
-		URL:     releasePageURL,
+		URL:     resolveReleaseURL(),
 	}
 }

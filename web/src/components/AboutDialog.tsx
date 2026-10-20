@@ -27,9 +27,11 @@ import {
 } from "@/lib/analytics";
 import type { ServerVersionResult } from "@/lib/types";
 
-const CHANGELOG_URL = "https://github.com/bilirec/bilirec/releases";
+import { REPO_CHANGELOG_URL, REPO_ISSUES_URL } from "@/lib/repo";
+
+const CHANGELOG_URL = REPO_CHANGELOG_URL;
 const DOCS_URL = "https://www.bilirec.org";
-const ISSUES_URL = "https://github.com/bilirec/bilirec/issues";
+const ISSUES_URL = REPO_ISSUES_URL;
 const QQ_GROUP_URL = "https://qm.qq.com/q/oMTN3EsGBy";
 
 interface AboutDialogProps {

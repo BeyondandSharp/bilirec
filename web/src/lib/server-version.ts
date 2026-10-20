@@ -3,11 +3,12 @@ import { toast } from "sonner";
 import { apiClient, parseVersionError } from "@/lib/api";
 import { storage } from "@/lib/storage";
 import type { ServerVersionResult } from "@/lib/types";
+import { REPO_LATEST_RELEASE_URL } from "@/lib/repo";
 
 export const VERSION_LAST_CHECK_KEY = "bilirec-version-last-check";
 export const AUTO_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-const DEFAULT_RELEASE_URL = "https://github.com/bilirec/bilirec/releases/latest";
+const DEFAULT_RELEASE_URL = REPO_LATEST_RELEASE_URL;
 
 export interface VersionCheckRecord {
   at: number;

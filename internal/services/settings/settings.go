@@ -1,7 +1,8 @@
 // Package settings implements the persisted recording settings introduced by
 // docs/FEATURES-V2.md §1: env-seeded defaults, persisted global overrides in
-// bbolt (DATABASE_DIR/settings.db, bucket Settings, key global), and an
-// immutable per-session Effective snapshot that merges room overrides.
+// config.json (CONFIG-V2 §1; legacy DATABASE_DIR/settings.db overrides are
+// migrated on startup), and an immutable per-session Effective snapshot that
+// merges room overrides.
 package settings
 
 import (
@@ -16,6 +17,7 @@ import (
 	"sync/atomic"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/internal/modules/configfile"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
 	"github.com/bilirec/bilirec/pkg/db"
 	"github.com/bilirec/bilirec/pkg/logger"
@@ -129,6 +131,7 @@ type roomConfigSource interface {
 type Service struct {
 	cfg      *config.Config
 	roomCfgs roomConfigSource
+	store    *configfile.Store
 
 	mu        sync.RWMutex
 	defaults  GlobalSettings
@@ -144,20 +147,21 @@ type Service struct {
 
 // NewService is the fx provider. The service opens DATABASE_DIR/settings.db on
 // fx start and seeds defaults from the environment.
-func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service) *Service {
+func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service, store *configfile.Store) *Service {
 	// Keep a nil *subscribe.Service from becoming a non-nil interface value
 	// (tests provide nil when room overrides are not exercised).
 	var roomCfgs roomConfigSource
 	if subSvc != nil {
 		roomCfgs = subSvc
 	}
-	return newService(lc, cfg, roomCfgs)
+	return newService(lc, cfg, roomCfgs, store)
 }
 
-func newService(lc fx.Lifecycle, cfg *config.Config, roomCfgs roomConfigSource) *Service {
+func newService(lc fx.Lifecycle, cfg *config.Config, roomCfgs roomConfigSource, store *configfile.Store) *Service {
 	s := &Service{
 		cfg:      cfg,
 		roomCfgs: roomCfgs,
+		store:    store,
 		defaults: loadDefaultsFromEnv(),
 	}
 	s.values = applyPatch(s.defaults, GlobalSettingsPatch{})
@@ -185,12 +189,23 @@ func (s *Service) start() error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	patch, err := s.loadOverridesLocked()
+	legacyPatch, err := s.loadOverridesLocked()
 	if err != nil {
 		log.Warnf("设置数据库内容无效，使用默认设置：%v", err)
-		patch = GlobalSettingsPatch{}
+		legacyPatch = GlobalSettingsPatch{}
 	}
-	s.patch = patch
+	if s.store != nil {
+		// Startup migration (docs/CONFIG-V2.md §1): import legacy settings.db
+		// overrides into config.json for feature keys the file does not have
+		// yet, then read the overrides from config.json (idempotent; the old
+		// settings.db is kept untouched).
+		if err := s.store.ImportMissingConfig(envMapFromPatch(legacyPatch)); err != nil {
+			log.Warnf("迁移设置数据库到 config.json 失败：%v", err)
+		}
+		s.patch = patchFromStore(s.store)
+	} else {
+		s.patch = legacyPatch
+	}
 	s.recomputeLocked()
 	return nil
 }
@@ -273,7 +288,11 @@ func (s *Service) Update(patch GlobalSettingsPatch) error {
 		return err
 	}
 
-	if s.bucket != nil {
+	if s.store != nil {
+		if err := s.store.SetConfig(envMapFromPatch(merged), nil); err != nil {
+			return fmt.Errorf("settings：保存设置失败：%w", err)
+		}
+	} else if s.bucket != nil {
 		if err := s.persistLocked(merged); err != nil {
 			return fmt.Errorf("settings：保存设置失败：%w", err)
 		}
@@ -298,7 +317,11 @@ func (s *Service) persistLocked(patch GlobalSettingsPatch) error {
 func (s *Service) Reset() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.bucket != nil {
+	if s.store != nil {
+		if err := s.store.ResetConfig(configfile.FeatureKeys); err != nil {
+			return fmt.Errorf("settings：重置设置失败：%w", err)
+		}
+	} else if s.bucket != nil {
 		if err := s.bucket.Delete([]byte(settingsGlobalKey)); err != nil {
 			return fmt.Errorf("settings：重置设置失败：%w", err)
 		}

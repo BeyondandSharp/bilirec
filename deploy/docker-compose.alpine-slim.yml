@@ -32,6 +32,7 @@ services:
       args:
         # 0 = slim（不带 ffmpeg/streamlink）；本示例固定为 0。
         WITH_EXTRA: "0"
+        VERSION: ${BILIREC_VERSION:-dev}
     image: local-alpine:latest
     container_name: bilirec-alpine-slim
     init: true
@@ -44,6 +45,11 @@ services:
       - "${ALPINE_API_PORT:-8081}:8080"
     environment:
       TZ: "Asia/Shanghai"
+      # CONFIG-V2：配置文件放 config 卷；entrypoint 按 PUID/PGID 调整用户并 chown。
+      CONFIG_FILE: /app/config/config.json
+      SECRETS_FILE: /app/config/secrets.json
+      PUID: ${PUID:-10001}
+      PGID: ${PGID:-10001}
       # native 录制（镜像内没有 ffmpeg/streamlink，外部下载器会回退 native）
       DOWNLOADER: native
       FLV_REPAIR: auto
@@ -56,11 +62,13 @@ services:
       # PASSWORD: ${PASSWORD:-}
       # JWT_SECRET: ${JWT_SECRET:-}
     volumes:
+      - config:/app/config
       - records:/app/records
       - database:/app/database
       - secrets:/app/secrets
 
 volumes:
+  config:
   records:
   database:
   secrets:

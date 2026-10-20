@@ -1,0 +1,10 @@
+{
+  "PORT": "8080",
+  "TZ": "Asia/Shanghai",
+  "BILIBILI_LOGIN_MODE": "anonymous",
+  "OUTPUT_DIR": "records",
+  "DATABASE_DIR": "database",
+  "SECRET_DIR": "secrets",
+  "DOWNLOADER": "auto",
+  "FLV_REPAIR": "auto"
+}

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { DiskUsageDisplay } from "@/components/DiskUsageDisplay";
 import { useLanguage } from "@/hooks/use-language";
-import type { AppLanguage } from "@/lib/language";
+import { LANGUAGE_LABEL_KEYS, SUPPORTED_LANGUAGES } from "@/lib/language";
 import type {
   BilibiliAuthStatus,
   DiskUsage,
@@ -80,7 +80,7 @@ function LanguageMenuItems() {
   return (
     <>
       <DropdownMenuLabel>{t("actions.language")}</DropdownMenuLabel>
-      {(["zh-TW", "zh-CN"] as AppLanguage[]).map((lang) => (
+      {SUPPORTED_LANGUAGES.map((lang) => (
         <DropdownMenuItem
           key={lang}
           onSelect={() => void setLanguage(lang)}
@@ -93,7 +93,7 @@ function LanguageMenuItems() {
           <span className="w-4 shrink-0">
             {language === lang && <CheckIcon size={14} weight="bold" />}
           </span>
-          {lang === "zh-TW" ? t("language.traditionalChinese") : t("language.simplifiedChinese")}
+          {t(LANGUAGE_LABEL_KEYS[lang])}
         </DropdownMenuItem>
       ))}
     </>

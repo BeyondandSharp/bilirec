@@ -497,6 +497,234 @@ print("null/absent clears selected overrides to inherit, siblings kept")
 PY
 }
 
+
+# ---------------------------------------------------------------------------
+# CONFIG-V2 helpers (/config, /config/secrets, convert providers)
+# ---------------------------------------------------------------------------
+FEATURE_ENV_KEYS='["SEGMENT_MODE","SEGMENT_MINUTES","SEGMENT_SIZE_MB","SEGMENT_BY_TITLE","MIN_FILE_SIZE_MB","FILENAME_TEMPLATE","TITLE_FILTER_PATTERNS","SAVE_STREAM_COVER","DANMAKU_RECORD_TYPES","DANMAKU_TRANSPORT","FLV_WRITE_METADATA","FLV_SPLIT_ON_SCRIPT_TAG","FLV_DISABLE_SPLIT_ON_ANNEXB","BILI_LIVE_API_HOST","BILI_LIVE_API_FALLBACK_HOST","BILI_CDN","BILI_CDN_FALLBACK","BILI_FORCE_SOURCE","BILI_REPLACE_CN01"]'
+SECRET_ENV_KEYS='["PASSWORD","VIEWER_PASSWORD","JWT_SECRET","CLOUDCONVERT_API_KEY","FRP_TOKEN","NOTIFY_SSE_TOKEN"]'
+
+# config_shape_ok <file> <config-path> <secrets-path>
+config_shape_ok() {
+  python3 - "$1" "$2" "$3" "$FEATURE_ENV_KEYS" "$SECRET_ENV_KEYS" <<'PY'
+import json
+import sys
+
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as exc:
+    sys.exit("invalid JSON: %s" % exc)
+features = set(json.loads(sys.argv[4]))
+secrets = set(json.loads(sys.argv[5]))
+errs = []
+for key in ("config_file", "secrets_file", "schema", "values", "overrides", "defaults", "sources", "restart_required"):
+    if key not in d:
+        errs.append("missing response key %s" % key)
+if d.get("config_file") != sys.argv[2]:
+    errs.append("config_file=%r want %r" % (d.get("config_file"), sys.argv[2]))
+if d.get("secrets_file") != sys.argv[3]:
+    errs.append("secrets_file=%r want %r" % (d.get("secrets_file"), sys.argv[3]))
+schema = d.get("schema") or {}
+groups = schema.get("groups")
+if not isinstance(groups, list) or len(groups) < 8:
+    errs.append("schema.groups=%r" % (groups,))
+field_keys = set()
+if isinstance(groups, list):
+    for group in groups:
+        if not isinstance(group, dict):
+            errs.append("non-object schema group")
+            continue
+        gid = group.get("id")
+        if gid == "features":
+            errs.append("features group must not appear in /config schema")
+        for lang in ("zh-CN", "zh-TW", "en"):
+            if not (group.get("label") or {}).get(lang):
+                errs.append("schema group %r missing label %s" % (gid, lang))
+        fields = group.get("fields")
+        if not isinstance(fields, list) or not fields:
+            errs.append("schema group %r has no fields" % (gid,))
+            continue
+        for field in fields:
+            key = field.get("key")
+            if not key:
+                errs.append("schema field without key in group %r" % (gid,))
+                continue
+            field_keys.add(key)
+            for lang in ("zh-CN", "zh-TW", "en"):
+                if not (field.get("label") or {}).get(lang):
+                    errs.append("field %s missing label %s" % (key, lang))
+            if field.get("sensitive"):
+                errs.append("sensitive field %s leaked into /config schema" % key)
+            if not isinstance(field.get("restart_required"), bool):
+                errs.append("field %s restart_required is not a bool" % key)
+values = d.get("values") or {}
+sources = d.get("sources") or {}
+if not isinstance(values, dict) or not values:
+    errs.append("/config values empty")
+if not isinstance(sources, dict):
+    errs.append("/config sources is not an object")
+for key in features:
+    if key in values or key in field_keys:
+        errs.append("FEATURES key %s leaked into /config" % key)
+for key in secrets:
+    if key in values or key in field_keys:
+        errs.append("secret key %s leaked into /config" % key)
+if not isinstance(d.get("restart_required"), list):
+    errs.append("restart_required is not a list")
+if errs:
+    sys.exit("; ".join(errs))
+print("%d schema groups / %d fields; paths match; feature+secret keys excluded" % (len(groups), len(field_keys)))
+PY
+}
+
+# config_expect <file> <expected-values-json> <expected-sources-json>
+config_expect() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+want_values = json.loads(sys.argv[2])
+want_sources = json.loads(sys.argv[3])
+errs = []
+values = d.get("values") or {}
+sources = d.get("sources") or {}
+for key, want in want_values.items():
+    if values.get(key) != want:
+        errs.append("values.%s=%r want %r" % (key, values.get(key), want))
+for key, want in want_sources.items():
+    if sources.get(key) != want:
+        errs.append("sources.%s=%r want %r" % (key, sources.get(key), want))
+allowed = {"env", "file", "secret-file", "dotenv", "default"}
+for key, source in sources.items():
+    if source not in allowed:
+        errs.append("sources.%s=%r not in %r" % (key, source, sorted(allowed)))
+if errs:
+    sys.exit("; ".join(errs))
+print("values/sources match (%s)" % sorted(want_values))
+PY
+}
+
+# secrets_state_ok <file> <expected-set-json>
+secrets_state_ok() {
+  python3 - "$1" "$2" "$SECRET_ENV_KEYS" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+want = json.loads(sys.argv[2])
+required = json.loads(sys.argv[3])
+errs = []
+state = d.get("set")
+if not isinstance(state, dict):
+    sys.exit("secrets.set is not an object")
+for key in required:
+    if key not in state:
+        errs.append("secrets.set missing %s" % key)
+for key, value in want.items():
+    if state.get(key) != value:
+        errs.append("set.%s=%r want %r" % (key, state.get(key), value))
+schema = d.get("schema") or {}
+groups = schema.get("groups")
+if not isinstance(groups, list) or not groups:
+    errs.append("secrets.schema.groups empty")
+if errs:
+    sys.exit("; ".join(errs))
+print("secret set flags match (%s); values never exposed" % sorted(want))
+PY
+}
+
+# providers_shape_ok <file> <expect-enabled: 0|1|any>
+providers_shape_ok() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+errs = []
+providers = d.get("providers")
+enabled = d.get("enabled")
+if not isinstance(providers, list):
+    errs.append("providers is not a list")
+if not isinstance(enabled, bool):
+    errs.append("enabled is not a bool")
+if isinstance(providers, list) and isinstance(enabled, bool) and enabled != bool(providers):
+    errs.append("enabled=%r inconsistent with providers=%r" % (enabled, providers))
+expect = sys.argv[2]
+if expect == "1" and enabled is not True:
+    errs.append("expected enabled=true, got %r" % (enabled,))
+if expect == "0" and enabled is not False:
+    errs.append("expected enabled=false, got %r" % (enabled,))
+if errs:
+    sys.exit("; ".join(errs))
+print("providers=%r enabled=%r" % (providers, enabled))
+PY
+}
+
+# schema_ffmpeg_ok <config-response-file> <disabled: 0|1>
+# When conversion is unavailable every requires:"ffmpeg" field must carry a
+# non-empty disabled_reason (CONFIG-V2 §4).
+schema_ffmpeg_ok() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+disabled = sys.argv[2] == "1"
+errs = []
+checked = 0
+for group in ((d.get("schema") or {}).get("groups") or []):
+    for field in group.get("fields") or []:
+        if field.get("requires") != "ffmpeg":
+            continue
+        checked += 1
+        reason = field.get("disabled_reason") or ""
+        if disabled and not reason:
+            errs.append("%s missing disabled_reason" % field.get("key"))
+        if not disabled and reason:
+            errs.append("%s unexpectedly disabled: %r" % (field.get("key"), reason))
+if checked == 0:
+    errs.append("no requires:ffmpeg fields in /config schema")
+if errs:
+    sys.exit("; ".join(errs))
+print("%d requires:ffmpeg fields, disabled=%s" % (checked, disabled))
+PY
+}
+
+# json_key_missing <file> <top-level-key>
+json_key_missing() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import sys
+
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as exc:
+    sys.exit("invalid JSON: %s" % exc)
+sys.exit(0 if sys.argv[2] not in d else 1)
+PY
+}
+
+# json_list_has <file> <list-key> <value>
+json_list_has() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json
+import sys
+
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as exc:
+    sys.exit("invalid JSON: %s" % exc)
+value = d.get(sys.argv[2])
+sys.exit(0 if isinstance(value, list) and sys.argv[3] in value else 1)
+PY
+}
+
+# file_mode_is <path> <octal-mode>
+file_mode_is() {
+  [ "$(stat -c '%a' "$1" 2>/dev/null)" = "$2" ]
+}
+
 # start_backend <pidfile> <logfile> <env...>
 start_backend() {
   local pidfile=$1 logfile=$2
@@ -881,6 +1109,10 @@ BASE_ENV=(
   "TZ=UTC"
   "USERNAME="
   "PASSWORD="
+  # CONFIG-V2: keep config/secrets files in the temp dir (native default would be
+  # ./config.json relative to the repo root).
+  "CONFIG_FILE=$WORK/backend/config/config.json"
+  "SECRETS_FILE=$WORK/backend/config/secrets.json"
 )
 if [[ -n "$E2E_DOWNLOADER" ]]; then
   BASE_ENV+=("DOWNLOADER=$E2E_DOWNLOADER")
@@ -933,6 +1165,11 @@ if [[ "$E2E_SKIP_SETTINGS_V2" != "1" ]]; then
     die "scripts/roomcfg_seed.go failed"
   fi
 fi
+
+# CONFIG-V2: pre-seed config.json with an unknown key to verify /config reset and
+# persistence preserve unknown keys; config/secrets live under the temp dir.
+mkdir -p "$WORK/backend/config"
+printf '{"MY_E2E_CUSTOM":"keep-me"}\n' >"$WORK/backend/config/config.json"
 
 start_backend "$BACKEND_PIDFILE" "$BACKEND_LOG" "${BASE_ENV[@]}" "${V2_ENV[@]}" "$ROOT/dist/bilirec"
 BACKEND_READY=0
@@ -1193,6 +1430,204 @@ PY
   fi
 fi
 
+
+# ---------------------------------------------------------------------------
+# 5c. CONFIG-V2 unified config API (/config, /config/secrets) + convert providers
+# ---------------------------------------------------------------------------
+say "CONFIG-V2 unified config API (/config, /config/secrets, convert providers)"
+BACKEND_CONFIG="$WORK/backend/config/config.json"
+BACKEND_SECRETS="$WORK/backend/config/secrets.json"
+AUTH="-"
+
+invalid_config_payload() { # <name> <json>
+  local name=$1 json=$2 body code
+  body=$(printf '%s' "$json" | mkbody "invalid-config-$name")
+  code=$(api PUT /config "$body")
+  expect_status 400 "$code" "PUT /config invalid payload ($name)"
+}
+
+code=$(api GET /config)
+expect_status 200 "$code" "GET /config (auth disabled)"
+if out=$(config_shape_ok "$API_BODY" "$BACKEND_CONFIG" "$BACKEND_SECRETS" 2>&1); then
+  pass "GET /config shape/schema: $out"
+else
+  fail "GET /config shape/schema: $out"
+fi
+
+code=$(api GET /config/secrets)
+expect_status 200 "$code" "GET /config/secrets (auth disabled)"
+if out=$(secrets_state_ok "$API_BODY" \
+    '{"PASSWORD":false,"VIEWER_PASSWORD":false,"JWT_SECRET":false,"CLOUDCONVERT_API_KEY":false,"FRP_TOKEN":false,"NOTIFY_SSE_TOKEN":false}' 2>&1); then
+  pass "GET /config/secrets initial state: $out"
+else
+  fail "GET /config/secrets initial state: $out"
+fi
+
+# --- /config key + value validation (all 400, nothing persisted) -----------
+invalid_config_payload unknown-key '{"values":{"NO_SUCH_KEY":"1"}}'
+invalid_config_payload bootstrap-key '{"values":{"PUID":"1234"}}'
+invalid_config_payload secret-key '{"values":{"JWT_SECRET":"x"}}'
+invalid_config_payload feature-key '{"values":{"SEGMENT_MODE":"time"}}'
+invalid_config_payload env-locked-key '{"values":{"PORT":"9090"}}'
+invalid_config_payload invalid-number '{"values":{"READ_STREAM_CHAN_BUFFER_SIZE":"0"}}'
+invalid_config_payload invalid-bool '{"values":{"CHECK_UPDATE":"yes"}}'
+
+# --- valid non-secret round-trip: persisted to config.json, source=file ----
+body=$(printf '%s' \
+  '{"values":{"DOWNLOADER":"ffmpeg","EXTERNAL_START_TIMEOUT_SECS":"25"}}' | mkbody config-put)
+code=$(api PUT /config "$body")
+expect_status 200 "$code" "PUT /config valid values (DOWNLOADER, EXTERNAL_START_TIMEOUT_SECS)"
+if out=$(config_expect "$API_BODY" \
+    '{"DOWNLOADER":"ffmpeg","EXTERNAL_START_TIMEOUT_SECS":"25"}' \
+    '{"DOWNLOADER":"file","EXTERNAL_START_TIMEOUT_SECS":"file"}' 2>&1); then
+  pass "PUT /config response: $out"
+else
+  fail "PUT /config response: $out"
+fi
+if json_list_has "$API_BODY" restart_required DOWNLOADER; then
+  pass "PUT /config restart_required contains DOWNLOADER"
+else
+  fail "PUT /config restart_required missing DOWNLOADER"
+fi
+if json_list_has "$API_BODY" restart_required EXTERNAL_START_TIMEOUT_SECS; then
+  pass "PUT /config restart_required contains EXTERNAL_START_TIMEOUT_SECS"
+else
+  fail "PUT /config restart_required missing EXTERNAL_START_TIMEOUT_SECS"
+fi
+json_assert "$BACKEND_CONFIG" DOWNLOADER '"ffmpeg"' "config.json persisted DOWNLOADER (0644 file, source=file)"
+json_assert "$BACKEND_CONFIG" EXTERNAL_START_TIMEOUT_SECS '"25"' "config.json persisted EXTERNAL_START_TIMEOUT_SECS"
+json_assert "$BACKEND_CONFIG" MY_E2E_CUSTOM '"keep-me"' "unknown config key preserved across writes"
+if file_mode_is "$BACKEND_CONFIG" 644; then
+  pass "config.json mode is 0644"
+else
+  fail "config.json mode is $(stat -c '%a' "$BACKEND_CONFIG" 2>/dev/null || echo missing) (want 0644)"
+fi
+
+code=$(api GET /config)
+expect_status 200 "$code" "GET /config (after PUT)"
+if out=$(config_expect "$API_BODY" \
+    '{"DOWNLOADER":"ffmpeg","EXTERNAL_START_TIMEOUT_SECS":"25"}' \
+    '{"DOWNLOADER":"file","EXTERNAL_START_TIMEOUT_SECS":"file"}' 2>&1); then
+  pass "GET /config persisted values: $out"
+else
+  fail "GET /config persisted values: $out"
+fi
+
+# --- clear a single override => env/.env/default again ----------------------
+body=$(printf '%s' '{"clear":["EXTERNAL_START_TIMEOUT_SECS"]}' | mkbody config-clear)
+code=$(api PUT /config "$body")
+expect_status 200 "$code" "PUT /config clear EXTERNAL_START_TIMEOUT_SECS"
+if out=$(config_expect "$API_BODY" \
+    '{"EXTERNAL_START_TIMEOUT_SECS":"20"}' \
+    '{"EXTERNAL_START_TIMEOUT_SECS":"default"}' 2>&1); then
+  pass "config clear falls back to default: $out"
+else
+  fail "config clear falls back to default: $out"
+fi
+if json_key_missing "$BACKEND_CONFIG" EXTERNAL_START_TIMEOUT_SECS; then
+  pass "config.json no longer contains cleared key"
+else
+  fail "config.json still contains cleared key"
+fi
+
+# --- reset removes managed keys, preserves unknown keys --------------------
+code=$(api POST /config/reset)
+expect_status 200 "$code" "POST /config/reset"
+code=$(api GET /config)
+expect_status 200 "$code" "GET /config (after reset)"
+if out=$(config_expect "$API_BODY" '{"DOWNLOADER":""}' '{"DOWNLOADER":"default"}' 2>&1); then
+  pass "config reset clears managed overrides: $out"
+else
+  fail "config reset clears managed overrides: $out"
+fi
+if json_key_missing "$BACKEND_CONFIG" DOWNLOADER; then
+  pass "config.json managed key removed by reset"
+else
+  fail "config.json managed key survived reset"
+fi
+json_assert "$BACKEND_CONFIG" MY_E2E_CUSTOM '"keep-me"' "config reset preserves unknown keys"
+
+# --- /config/secrets: write-only, 0600, clear/reset ------------------------
+body=$(printf '%s' '{"values":{"FRP_TOKEN":"e2e-secret-token"}}' | mkbody secret-put)
+code=$(api PUT /config/secrets "$body")
+expect_status 200 "$code" "PUT /config/secrets (FRP_TOKEN)"
+if out=$(secrets_state_ok "$API_BODY" '{"FRP_TOKEN":true}' 2>&1); then
+  pass "PUT /config/secrets response: $out"
+else
+  fail "PUT /config/secrets response: $out"
+fi
+if file_mode_is "$BACKEND_SECRETS" 600; then
+  pass "secrets.json mode is 0600"
+else
+  fail "secrets.json mode is $(stat -c '%a' "$BACKEND_SECRETS" 2>/dev/null || echo missing) (want 0600)"
+fi
+if grep -q 'e2e-secret-token' "$BACKEND_SECRETS" 2>/dev/null; then
+  pass "secrets.json persisted the secret value"
+else
+  fail "secrets.json missing the persisted secret value"
+fi
+if grep -q 'e2e-secret-token' "$API_BODY" 2>/dev/null; then
+  fail "secret value leaked into a /config/secrets response"
+else
+  pass "secret value never exposed by /config/secrets response"
+fi
+
+invalid_secret_payload() { # <name> <json>
+  local name=$1 json=$2 body code
+  body=$(printf '%s' "$json" | mkbody "invalid-secret-$name")
+  code=$(api PUT /config/secrets "$body")
+  expect_status 400 "$code" "PUT /config/secrets invalid payload ($name)"
+}
+invalid_secret_payload non-secret-key '{"values":{"HOST":"x"}}'
+invalid_secret_payload unknown-key '{"values":{"NO_SUCH_SECRET":"x"}}'
+invalid_secret_payload env-locked-key '{"values":{"JWT_SECRET":"x"}}'
+
+body=$(printf '%s' '{"clear":["FRP_TOKEN"]}' | mkbody secret-clear)
+code=$(api PUT /config/secrets "$body")
+expect_status 200 "$code" "PUT /config/secrets clear FRP_TOKEN"
+if out=$(secrets_state_ok "$API_BODY" '{"FRP_TOKEN":false}' 2>&1); then
+  pass "secrets clear: $out"
+else
+  fail "secrets clear: $out"
+fi
+if json_key_missing "$BACKEND_SECRETS" FRP_TOKEN; then
+  pass "secrets.json key removed by clear"
+else
+  fail "secrets.json key survived clear"
+fi
+code=$(api POST /config/secrets/reset)
+expect_status 200 "$code" "POST /config/secrets/reset"
+if out=$(secrets_state_ok "$API_BODY" \
+    '{"PASSWORD":false,"VIEWER_PASSWORD":false,"JWT_SECRET":false,"CLOUDCONVERT_API_KEY":false,"FRP_TOKEN":false,"NOTIFY_SSE_TOKEN":false}' 2>&1); then
+  pass "secrets reset: $out"
+else
+  fail "secrets reset: $out"
+fi
+
+# --- convert providers (host has ffmpeg) -----------------------------------
+code=$(api GET /convert/providers)
+expect_status 200 "$code" "GET /convert/providers"
+if command -v ffmpeg >/dev/null 2>&1; then
+  conv_expect=1
+else
+  conv_expect=0
+fi
+if out=$(providers_shape_ok "$API_BODY" "$conv_expect" 2>&1); then
+  pass "GET /convert/providers: $out"
+else
+  fail "GET /convert/providers: $out"
+fi
+if (( conv_expect == 1 )); then
+  json_assert "$API_BODY" providers.0 '"ffmpeg"' "convert providers include ffmpeg (host binary)"
+fi
+code=$(api GET /config)
+expect_status 200 "$code" "GET /config (schema requires:ffmpeg state)"
+if out=$(schema_ffmpeg_ok "$API_BODY" "$((1 - conv_expect))" 2>&1); then
+  pass "schema requires:ffmpeg disabled_reason: $out"
+else
+  fail "schema requires:ffmpeg disabled_reason: $out"
+fi
+
 # ---------------------------------------------------------------------------
 # 6. opt-in real live recording through the REST API
 # ---------------------------------------------------------------------------
@@ -1244,6 +1679,244 @@ else
   fi
 fi
 
+
+# ---------------------------------------------------------------------------
+# 6b. CONFIG-V2 precedence matrix + default filename template
+#     env > config file > .env > default (non-secret); env > secrets file >
+#     .env > default (secrets); startup migration config.json -> secrets.json.
+# ---------------------------------------------------------------------------
+say "CONFIG-V2 precedence matrix + default filename template"
+CFG_DIR="$WORK/config-center"
+mkdir -p "$CFG_DIR/records" "$CFG_DIR/database" "$CFG_DIR/secrets"
+CFG_FILE="$CFG_DIR/config.json"
+CFG_SECRETS="$CFG_DIR/secrets.json"
+CFG_ENVFILE="$CFG_DIR/.env"
+cat >"$CFG_FILE" <<'JSON'
+{"DOWNLOADER":"streamlink","MY_CUSTOM_KEY":"keep-me","JWT_SECRET":"from-config-migration"}
+JSON
+cat >"$CFG_SECRETS" <<'JSON'
+{"FRP_TOKEN":"from-secrets-file"}
+JSON
+cat >"$CFG_ENVFILE" <<'ENV'
+DOWNLOADER=native
+JWT_SECRET=from-dotenv-jwt
+ENV
+CFG_BASE=(
+  "BILIBILI_LOGIN_MODE=anonymous"
+  "PORT=$BPORT"
+  "HOST=127.0.0.1"
+  "METRICS_ENABLED=false"
+  "OUTPUT_DIR=$CFG_DIR/records"
+  "DATABASE_DIR=$CFG_DIR/database"
+  "SECRET_DIR=$CFG_DIR/secrets"
+  "CONFIG_FILE=$CFG_FILE"
+  "SECRETS_FILE=$CFG_SECRETS"
+  "ENV_FILE=$CFG_ENVFILE"
+  "MAX_CONCURRENT_RECORDINGS=2"
+  "TZ=UTC"
+  "USERNAME="
+  "PASSWORD="
+)
+DEFAULT_FILENAME_TEMPLATE='{roomid}-{uname}/{date}_{time}_{title}'
+
+stop_backend "$BACKEND_PIDFILE"
+AUTH="-"
+
+# --- P1: system env wins over config file > .env > default -----------------
+start_backend "$BACKEND_PIDFILE" "$CFG_DIR/P1.log" "${CFG_BASE[@]}" \
+  "DOWNLOADER=ffmpeg" "JWT_SECRET=env-jwt-secret" \
+  "PATH=/nonexistent-bin" "FFMPEG_BIN=/nonexistent/ffmpeg" \
+  "$ROOT/dist/bilirec"
+BACKEND_READY=0
+if wait_backend_ready "$BPORT" 60; then
+  BACKEND_READY=1
+fi
+if (( BACKEND_READY != 1 )); then
+  fail "CONFIG-V2 precedence P1 backend did not start on :$BPORT"
+  tail -40 "$CFG_DIR/P1.log" >&2 || true
+else
+  pass "CONFIG-V2 precedence: P1 started (system env highest priority)"
+  code=$(api GET /config)
+  expect_status 200 "$code" "P1 GET /config"
+  if out=$(config_expect "$API_BODY" '{"DOWNLOADER":"ffmpeg"}' '{"DOWNLOADER":"env"}' 2>&1); then
+    pass "P1 env > config file > .env for DOWNLOADER: $out"
+  else
+    fail "P1 env precedence: $out"
+  fi
+  body=$(printf '%s' '{"values":{"DOWNLOADER":"native"}}' | mkbody p1-envlocked)
+  code=$(api PUT /config "$body")
+  expect_status 400 "$code" "P1 PUT /config rejects env-locked DOWNLOADER"
+  body=$(printf '%s' '{"values":{"JWT_SECRET":"x"}}' | mkbody p1-secret-envlocked)
+  code=$(api PUT /config/secrets "$body")
+  expect_status 400 "$code" "P1 PUT /config/secrets rejects env-locked JWT_SECRET"
+
+  # Startup migration: secret key found in config.json moved to secrets.json.
+  if json_key_missing "$CFG_FILE" JWT_SECRET; then
+    pass "P1 startup migration removed JWT_SECRET from config.json"
+  else
+    fail "P1 startup migration left JWT_SECRET in config.json"
+  fi
+  json_assert "$CFG_SECRETS" JWT_SECRET '"from-config-migration"' \
+    "P1 startup migration wrote JWT_SECRET to secrets.json"
+  code=$(api GET /config/secrets)
+  expect_status 200 "$code" "P1 GET /config/secrets"
+  if out=$(secrets_state_ok "$API_BODY" '{"JWT_SECRET":true,"FRP_TOKEN":true}' 2>&1); then
+    pass "P1 secrets file state (JWT migrated + FRP_TOKEN): $out"
+  else
+    fail "P1 secrets file state: $out"
+  fi
+
+  # Conversion unavailable with a bogus FFMPEG_BIN => providers empty +
+  # disabled_reason on requires:"ffmpeg" fields.
+  code=$(api GET /convert/providers)
+  expect_status 200 "$code" "P1 GET /convert/providers (no ffmpeg)"
+  if out=$(providers_shape_ok "$API_BODY" 0 2>&1); then
+    pass "P1 convert providers disabled: $out"
+  else
+    fail "P1 convert providers disabled: $out"
+  fi
+  code=$(api GET /config)
+  expect_status 200 "$code" "P1 GET /config (schema disabled_reason)"
+  if out=$(schema_ffmpeg_ok "$API_BODY" 1 2>&1); then
+    pass "P1 requires:ffmpeg disabled_reason: $out"
+  else
+    fail "P1 requires:ffmpeg disabled_reason: $out"
+  fi
+
+  # Reset drops managed keys but keeps unknown keys.
+  code=$(api POST /config/reset)
+  expect_status 200 "$code" "P1 POST /config/reset"
+  if json_key_missing "$CFG_FILE" DOWNLOADER; then
+    pass "P1 reset removed managed DOWNLOADER from config.json"
+  else
+    fail "P1 reset did not remove managed key"
+  fi
+  json_assert "$CFG_FILE" MY_CUSTOM_KEY '"keep-me"' "P1 reset preserves unknown config key"
+  code=$(api GET /config)
+  expect_status 200 "$code" "P1 GET /config (after reset, env still wins)"
+  if out=$(config_expect "$API_BODY" '{"DOWNLOADER":"ffmpeg"}' '{"DOWNLOADER":"env"}' 2>&1); then
+    pass "P1 env still wins after config reset: $out"
+  else
+    fail "P1 env after reset: $out"
+  fi
+  stop_backend "$BACKEND_PIDFILE"
+fi
+
+# --- P2: config file cleared; .env wins over default; secrets file survives -
+start_backend "$BACKEND_PIDFILE" "$CFG_DIR/P2.log" "${CFG_BASE[@]}" \
+  "USERNAME=$E2E_ADMIN_USER" "PASSWORD=$E2E_ADMIN_PASS" \
+  "VIEWER_USERNAME=$E2E_VIEWER_USER" "VIEWER_PASSWORD=$E2E_VIEWER_PASS" \
+  "$ROOT/dist/bilirec"
+BACKEND_READY=0
+if wait_backend_ready "$BPORT" 60; then
+  BACKEND_READY=1
+fi
+if (( BACKEND_READY != 1 )); then
+  fail "CONFIG-V2 precedence P2 backend did not start"
+  tail -40 "$CFG_DIR/P2.log" >&2 || true
+else
+  P2_JAR="$WORK/p2-admin.cookies"
+  code=$(login "$E2E_ADMIN_USER" "$E2E_ADMIN_PASS" "$P2_JAR")
+  expect_status 200 "$code" "P2 POST /login (admin)"
+  AUTH="$P2_JAR"
+  code=$(api GET /config)
+  expect_status 200 "$code" "P2 GET /config"
+  if out=$(config_expect "$API_BODY" '{"DOWNLOADER":"native"}' '{"DOWNLOADER":"dotenv"}' 2>&1); then
+    pass "P2 .env > default after config reset: $out"
+  else
+    fail "P2 .env precedence: $out"
+  fi
+  code=$(api GET /settings)
+  expect_status 200 "$code" "P2 GET /settings"
+  json_assert "$API_BODY" defaults.filename_template "\"$DEFAULT_FILENAME_TEMPLATE\"" \
+    "default FILENAME_TEMPLATE is the CONFIG-V2 path template"
+  code=$(api GET /config/secrets)
+  expect_status 200 "$code" "P2 GET /config/secrets (JWT set in secrets file)"
+  if out=$(secrets_state_ok "$API_BODY" '{"JWT_SECRET":true}' 2>&1); then
+    pass "P2 JWT_SECRET provided by secrets file: $out"
+  else
+    fail "P2 JWT_SECRET secrets-file state: $out"
+  fi
+  stop_backend "$BACKEND_PIDFILE"
+fi
+
+# --- P3: remove JWT_SECRET from secrets.json; old cookie must be rejected ---
+python3 - "$CFG_SECRETS" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+values = json.load(open(path))
+values.pop("JWT_SECRET", None)
+json.dump(values, open(path, "w"))
+PY
+start_backend "$BACKEND_PIDFILE" "$CFG_DIR/P3.log" "${CFG_BASE[@]}" \
+  "USERNAME=$E2E_ADMIN_USER" "PASSWORD=$E2E_ADMIN_PASS" \
+  "VIEWER_USERNAME=$E2E_VIEWER_USER" "VIEWER_PASSWORD=$E2E_VIEWER_PASS" \
+  "$ROOT/dist/bilirec"
+BACKEND_READY=0
+if wait_backend_ready "$BPORT" 60; then
+  BACKEND_READY=1
+fi
+if (( BACKEND_READY != 1 )); then
+  fail "CONFIG-V2 precedence P3 backend did not start"
+  tail -40 "$CFG_DIR/P3.log" >&2 || true
+else
+  AUTH="$P2_JAR"
+  code=$(api GET /settings)
+  expect_status 401 "$code" "P3 old cookie rejected after secrets-file JWT removal"
+  AUTH="-"
+  P3_JAR="$WORK/p3-admin.cookies"
+  code=$(login "$E2E_ADMIN_USER" "$E2E_ADMIN_PASS" "$P3_JAR")
+  expect_status 200 "$code" "P3 POST /login (admin, .env JWT secret)"
+  AUTH="$P3_JAR"
+  code=$(api GET /settings)
+  expect_status 200 "$code" "P3 GET /settings with new cookie"
+  code=$(api GET /config)
+  expect_status 200 "$code" "P3 GET /config"
+  if out=$(config_expect "$API_BODY" '{"DOWNLOADER":"native"}' '{"DOWNLOADER":"dotenv"}' 2>&1); then
+    pass "P3 secrets file > .env proven by JWT cookie invalidation: $out"
+  else
+    fail "P3 precedence: $out"
+  fi
+  stop_backend "$BACKEND_PIDFILE"
+fi
+
+# --- P4: remove .env values => built-in defaults ---------------------------
+cat >"$CFG_ENVFILE" <<'ENV'
+# no overrides left
+ENV
+start_backend "$BACKEND_PIDFILE" "$CFG_DIR/P4.log" "${CFG_BASE[@]}" "$ROOT/dist/bilirec"
+BACKEND_READY=0
+if wait_backend_ready "$BPORT" 60; then
+  BACKEND_READY=1
+fi
+if (( BACKEND_READY != 1 )); then
+  fail "CONFIG-V2 precedence P4 backend did not start"
+  tail -40 "$CFG_DIR/P4.log" >&2 || true
+else
+  AUTH="-"
+  code=$(api GET /config)
+  expect_status 200 "$code" "P4 GET /config (defaults)"
+  if out=$(config_expect "$API_BODY" '{"DOWNLOADER":""}' '{"DOWNLOADER":"default"}' 2>&1); then
+    pass "P4 built-in default when no source sets the key: $out"
+  else
+    fail "P4 default precedence: $out"
+  fi
+  if python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("restart_required")==[] else 1)' "$API_BODY" 2>/dev/null; then
+    pass "P4 restart_required empty on a fresh start"
+  else
+    fail "P4 restart_required is not empty on a fresh start"
+  fi
+  code=$(api GET /settings)
+  expect_status 200 "$code" "P4 GET /settings (built-in defaults)"
+  json_assert "$API_BODY" defaults.filename_template "\"$DEFAULT_FILENAME_TEMPLATE\"" \
+    "default FILENAME_TEMPLATE without env/config (CONFIG-V2 §3)"
+  json_assert "$CFG_FILE" MY_CUSTOM_KEY '"keep-me"' "unknown config key survives restarts/resets"
+  stop_backend "$BACKEND_PIDFILE"
+fi
+AUTH="-"
+
 # ---------------------------------------------------------------------------
 # 7. FEATURES-V2 auth matrix + settings/room-config persistence across restart
 #    Restart the same DATABASE_DIR with USERNAME/PASSWORD + VIEWER_* and verify
@@ -1282,6 +1955,10 @@ else
     expect_status 401 "$code" "GET /settings without token"
     code=$(api GET /record/list)
     expect_status 401 "$code" "GET /record/list without token"
+    code=$(api GET /config)
+    expect_status 401 "$code" "GET /config without token"
+    code=$(api GET /config/secrets)
+    expect_status 401 "$code" "GET /config/secrets without token"
 
     code=$(login "$E2E_ADMIN_USER" "definitely-wrong" "$WORK/bad.cookies")
     expect_status 401 "$code" "POST /login wrong password"
@@ -1325,6 +2002,40 @@ else
     expect_status 403 "$code" "POST /settings/reset as viewer (forbidden)"
     code=$(api PUT "/room/$SEED_ROOM_ID/config" "$WORK/out/roomcfg-put.json")
     expect_status 403 "$code" "PUT room config as viewer (forbidden)"
+    code=$(api GET /config)
+    expect_status 200 "$code" "GET /config as viewer"
+    code=$(api GET /config/secrets)
+    expect_status 200 "$code" "GET /config/secrets as viewer"
+    viewer_cfg_body=$(printf '%s' '{"values":{"EXTERNAL_START_TIMEOUT_SECS":"35"}}' | mkbody viewer-config)
+    code=$(api PUT /config "$viewer_cfg_body")
+    expect_status 403 "$code" "PUT /config as viewer (forbidden)"
+    code=$(api POST /config/reset)
+    expect_status 403 "$code" "POST /config/reset as viewer (forbidden)"
+    viewer_secret_body=$(printf '%s' '{"values":{"FRP_TOKEN":"viewer"}}' | mkbody viewer-secret)
+    code=$(api PUT /config/secrets "$viewer_secret_body")
+    expect_status 403 "$code" "PUT /config/secrets as viewer (forbidden)"
+
+    # CONFIG-V2 admin write + reset; feature overrides in config.json are kept.
+    AUTH="$ADMIN_JAR"
+    code=$(api GET /config)
+    expect_status 200 "$code" "GET /config as admin"
+    admin_cfg_body=$(printf '%s' '{"values":{"EXTERNAL_START_TIMEOUT_SECS":"35"}}' | mkbody admin-config)
+    code=$(api PUT /config "$admin_cfg_body")
+    expect_status 200 "$code" "PUT /config as admin"
+    if json_list_has "$API_BODY" restart_required EXTERNAL_START_TIMEOUT_SECS; then
+      pass "admin PUT /config marks EXTERNAL_START_TIMEOUT_SECS restart_required"
+    else
+      fail "admin PUT /config restart_required missing EXTERNAL_START_TIMEOUT_SECS"
+    fi
+    code=$(api POST /config/reset)
+    expect_status 200 "$code" "POST /config/reset as admin"
+    code=$(api GET /settings)
+    expect_status 200 "$code" "GET /settings after /config reset"
+    if out=$(settings_overrides_ok "$API_BODY"         '{"segment_mode":"time","segment_minutes":30,"filename_template":"persist-{roomid}"}' 2>&1); then
+      pass "/config reset does not touch FEATURES-V2 global overrides: $out"
+    else
+      fail "/config reset unexpectedly touched FEATURES-V2 overrides: $out"
+    fi
 
     # Admin can write; reset clears overrides again.
     AUTH="$ADMIN_JAR"

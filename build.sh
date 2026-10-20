@@ -19,6 +19,7 @@
 #   ./build.sh --all               all three slim tars + ./dist static files
 #   ./build.sh --all --full        all three full tars + ./dist static files
 #
+# VERSION 环境变量可覆盖镜像内版本（默认 git describe，CONFIG-V2 §8）。
 # Any combination of --backend / --frontend / --frontend-static builds only the
 # selected artifacts and does NOT produce the combined tar. --all overrides
 # selective flags and builds every artifact.
@@ -28,6 +29,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 OUT_DIR="$ROOT/dist"
+
+# Version embedded in the image (CONFIG-V2 §8); CI overrides with the release tag.
+VERSION="${VERSION:-$(git -C "$ROOT" describe --tags --always --dirty 2>/dev/null || echo dev)}"
 
 usage() {
     sed -n '3,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -91,11 +95,12 @@ export_image() {
         docker buildx build \
             --output "type=docker,dest=$out" \
             --build-arg "WITH_EXTRA=$extra" \
+            --build-arg "VERSION=$VERSION" \
             -t "$tag" \
             -f "$dockerfile" \
             "$ROOT"
     else
-        docker build --build-arg "WITH_EXTRA=$extra" -t "$tag" -f "$dockerfile" "$ROOT"
+        docker build --build-arg "WITH_EXTRA=$extra" --build-arg "VERSION=$VERSION" -t "$tag" -f "$dockerfile" "$ROOT"
         docker save -o "$out" "$tag"
         docker rmi "$tag" >/dev/null
     fi

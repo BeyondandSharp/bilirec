@@ -13,7 +13,7 @@ import (
 
 func TestSkipByTitleFilter(t *testing.T) {
 	lc := fxtest.NewLifecycle(t)
-	settingsSvc := settingssvc.NewService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil)
+	settingsSvc := settingssvc.NewService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil, nil)
 	lc.RequireStart()
 	t.Cleanup(lc.RequireStop)
 
@@ -45,7 +45,7 @@ func TestSkipByTitleFilter(t *testing.T) {
 
 func TestSkipByTitleFilterDisabled(t *testing.T) {
 	lc := fxtest.NewLifecycle(t)
-	settingsSvc := settingssvc.NewService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil)
+	settingsSvc := settingssvc.NewService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil, nil)
 	lc.RequireStart()
 	t.Cleanup(lc.RequireStop)
 

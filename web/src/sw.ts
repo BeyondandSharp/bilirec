@@ -8,7 +8,7 @@
 
 import { sharedStore } from "@/lib/shared-store";
 import { resources } from "@/i18n/resources";
-import { normalizeLanguage, LANGUAGE_STORAGE_KEY, type AppLanguage } from "@/lib/language";
+import { getDateLocale, normalizeLanguage, LANGUAGE_STORAGE_KEY, type AppLanguage } from "@/lib/language";
 
 declare const self: ServiceWorkerGlobalScope & {
   // Injected by vite-plugin-pwa at build time
@@ -423,7 +423,7 @@ async function buildLiveNotification(payload: PushPayload) {
     bodyParts.push(truncateNotificationText(singleLine(roomTitle), 60));
   } else if (payload.timestamp) {
     const date = new Date(payload.timestamp * 1000);
-    const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const timeStr = date.toLocaleTimeString(getDateLocale(await getSwLanguage()), { hour: "2-digit", minute: "2-digit" });
     bodyParts.push(await swT('sw.atTime', { time: timeStr }));
   }
 
