@@ -30,7 +30,7 @@
 ├── web/                           # vendored bilirec-web（React PWA）
 ├── deploy/                        # 本仓库部署（Dockerfile/compose/env 示例）
 ├── scripts/ testdata/ refs/       # 回放源/E2E/fixtures/只读参考
-├── build.sh                       # 一键构建镜像/静态文件
+├── build.sh build-alpine.sh       # 一键构建 tar（Debian / Alpine）
 ├── .github/ CONTRIBUTING.md       # 上游 CI/贡献文件（保留）
 ├── LICENSES/Bilirec-MIT.txt       # 上游 MIT 许可
 └── docs/upstream-bilirec-*.md     # 上游 README/Makefile 存档
@@ -50,7 +50,53 @@ make e2e     # 本地回放源端到端（离线，109 项检查）
 
 工具链：Go 1.27+、Rust stable、ffmpeg、streamlink、Python 3；前端需要 Node 24+ 与 pnpm。
 
-## 前端（bilirec-web，本仓库已内置改造）
+## 一键构建镜像（导出 tar，不落本机 images）
+
+```bash
+./build.sh                     # Debian 版 all-in-one -> dist/local.tar
+./build.sh --backend           # -> dist/local-backend.tar
+./build.sh --frontend          # -> dist/local-frontend.tar
+./build.sh --frontend-static   # 前端静态文件 -> ./dist
+./build.sh --all               # 全部 Debian 产物
+
+./build-alpine.sh              # Alpine/musl all-in-one -> dist/local-alpine.tar
+./build-alpine.sh --backend    # -> dist/local-backend-alpine.tar
+./build-alpine.sh --frontend   # -> dist/local-frontend-alpine.tar
+./build-alpine.sh --frontend-static / --all
+```
+
+两种脚本都通过 `docker buildx build --output type=docker,dest=...` 直接导出
+docker-loadable tar，**不会留在本机 `docker images`**；有任一选择参数时不产出 all-in-one。
+
+| 产物 | Debian（静态 ffmpeg） | Alpine（apk ffmpeg） |
+|---|---|---|
+| all-in-one | `local.tar` 131MB / 镜像 525MB | `local-alpine.tar` 98MB / 镜像 390MB |
+| backend | 127MB / 507MB | 97MB / 383MB |
+| frontend | 21MB / 76MB | 29MB / 105MB |
+
+**ffmpeg 选择**
+- Debian：不再安装 apt `ffmpeg`（会拉 LLVM/mesa/x265 等约 450MB 依赖），改为复制
+  `mwader/static-ffmpeg:7.1` 的静态 `ffmpeg`（129MB）；镜像从 958MB 降到 525MB。
+  静态构建不含 `ffprobe`（仅测试代码可选使用，运行时不需要）。
+- Alpine：实测 `apk add ffmpeg` 整套约 243MiB，复制 129MB 静态二进制约 248MiB，
+  **apk 更小且原生 musl**，因此 Alpine 镜像使用 apk 的 ffmpeg/streamlink/nginx。
+
+**musl 说明**
+- `flvrepair`（Rust）在 Alpine 镜像里用 `rust:1-alpine` 重新编译为 musl 目标；
+  Debian 构建出的 glibc 二进制**不能**在 Alpine 运行。
+- `bilirec`（Go）为 `CGO_ENABLED=0` 静态二进制，无 libc 依赖。
+- Alpine 的 `ffmpeg` / `streamlink`（8.4）/ `nginx` 均为 apk 原生 musl 包；无需 glibc 兼容层。
+- `streamlink` 版本：Debian 镜像为 pip 8.6.2，Alpine 镜像为 apk 8.4。
+
+使用：
+
+```bash
+docker load -i dist/local.tar        # 或 dist/local-alpine.tar
+docker run --rm -p 8080:80 -v bilirec-data:/data local
+# 打开 http://localhost:8080
+```
+
+## 前端（web/，本仓库已内置改造）
 
 `web/` 是上游 `bilirec-web` 的 vendored 副本（MIT，commit `ab62df3`），本地改动：
 

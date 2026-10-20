@@ -131,3 +131,10 @@ without building (`docker build --check -f deploy/Dockerfile .` on BuildKit
 有选择参数时不会额外产出 `local.tar`；`--all` 才会。all-in-one 镜像内 nginx 监听 80，
 把非静态请求代理到容器内 `127.0.0.1:8080` 的 bilirec，所以前端与 API 同源。
 使用：`docker load -i dist/local.tar && docker run --rm -p 8080:80 -v bilirec-data:/data local`。
+
+### Alpine/musl 版本
+
+`build-alpine.sh` 与 `build.sh` 参数一致，产出 `dist/local-alpine.tar`、
+`dist/local-backend-alpine.tar`、`dist/local-frontend-alpine.tar`（选择参数时同样不产 all-in-one）。
+Alpine 镜像里 Go 为静态二进制，Rust `flvrepair` 用 musl 目标重编译，ffmpeg/streamlink/nginx
+用 apk 原生包；实测 apk ffmpeg 比复制 129MB 静态 ffmpeg 小约 4MB，因此 Alpine 用 apk。

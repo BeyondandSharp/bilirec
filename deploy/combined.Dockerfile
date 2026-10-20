@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # All-in-one local image: bilirec backend + flvrepair sidecar + the React
@@ -15,6 +14,7 @@ ARG GO_IMAGE=golang:1.27-bookworm
 ARG RUST_IMAGE=rust:1-slim-bookworm
 ARG NODE_IMAGE=node:24-slim
 ARG RUNTIME_IMAGE=python:3.13-slim
+ARG FFMPEG_IMAGE=mwader/static-ffmpeg:7.1
 
 # ---------------------------------------------------------------------------
 # 1. Frontend static build
@@ -76,7 +76,12 @@ RUN cargo build --locked --manifest-path rust/Cargo.toml --workspace --release \
     && install -D -m 0755 rust/target/release/flvrepair /out/flvrepair
 
 # ---------------------------------------------------------------------------
-# 4. Runtime: nginx (frontend) + bilirec + ffmpeg/streamlink
+# 4. Static ffmpeg binaries
+# ---------------------------------------------------------------------------
+FROM ${FFMPEG_IMAGE} AS ffmpeg-static
+
+# ---------------------------------------------------------------------------
+# 5. Runtime: nginx (frontend) + bilirec + ffmpeg/streamlink
 # ---------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE} AS runtime
 
@@ -87,13 +92,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        ffmpeg \
         nginx \
         tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --no-cache-dir --break-system-packages \
         "streamlink==${STREAMLINK_VERSION}" \
-    && ffmpeg -version >/dev/null \
     && streamlink --version \
     && rm -f /etc/nginx/sites-enabled/default
 
@@ -106,6 +109,9 @@ COPY --from=web-build /web/dist /app/web
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
 COPY --from=rust-build /out/flvrepair /usr/local/bin/flvrepair
+COPY --from=ffmpeg-static /ffmpeg /usr/local/bin/ffmpeg
+RUN chmod 0755 /usr/local/bin/ffmpeg && ffmpeg -version >/dev/null \
+    && ln -sfn /app/docs /usr/local/bin/docs
 
 # Same defaults as the backend-only image; the frontend is served on :80 and
 # nginx proxies everything that is not a static file to 127.0.0.1:8080.

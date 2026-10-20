@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Static build of the frontend (web/, the React PWA formerly bilirec-web/)

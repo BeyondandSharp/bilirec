@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Multi-stage image for bilirec + the Rust `flvrepair` sidecar.
@@ -26,6 +25,9 @@
 ARG GO_IMAGE=golang:1.27-bookworm
 ARG RUST_IMAGE=rust:1-slim-bookworm
 ARG RUNTIME_IMAGE=python:3.13-slim
+# Static ffmpeg only (`ffmpeg -c copy` is all the recorder needs); avoids the
+# Debian ffmpeg dependency chain (LLVM/mesa/x265/... ~450MB).
+ARG FFMPEG_IMAGE=mwader/static-ffmpeg:7.1
 
 # ---------------------------------------------------------------------------
 # 1. Go backend + generated swagger docs
@@ -74,7 +76,12 @@ RUN cargo build --locked --manifest-path rust/Cargo.toml --workspace --release \
     && install -D -m 0755 rust/target/release/flvrepair /out/flvrepair
 
 # ---------------------------------------------------------------------------
-# 3. Runtime: ffmpeg + streamlink + both binaries, non-root
+# 3. Static ffmpeg binaries
+# ---------------------------------------------------------------------------
+FROM ${FFMPEG_IMAGE} AS ffmpeg-static
+
+# ---------------------------------------------------------------------------
+# 4. Runtime: ffmpeg + streamlink + both binaries, non-root
 # ---------------------------------------------------------------------------
 FROM ${RUNTIME_IMAGE} AS runtime
 
@@ -87,12 +94,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        ffmpeg \
         tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --no-cache-dir --break-system-packages \
         "streamlink==${STREAMLINK_VERSION}" \
-    && ffmpeg -version >/dev/null \
     && streamlink --version
 
 # Non-root runtime user. /data holds records/database/secrets volumes.
@@ -105,7 +110,9 @@ RUN groupadd --gid 10001 bilirec \
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
 COPY --from=rust-build /out/flvrepair /usr/local/bin/flvrepair
-RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair \
+COPY --from=ffmpeg-static /ffmpeg /usr/local/bin/ffmpeg
+RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair /usr/local/bin/ffmpeg \
+    && ffmpeg -version >/dev/null \
     && ln -sfn /app/docs /usr/local/bin/docs
 
 # Defaults reproduce native v0.3.1 behavior (docs/INTERFACES.md §2.3).

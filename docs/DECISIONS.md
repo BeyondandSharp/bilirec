@@ -87,3 +87,14 @@ upstream README/Makefile under `docs/upstream-bilirec-*.md/txt`, upstream Docker
 `deploy/upstream.Dockerfile`, MIT license at `LICENSES/Bilirec-MIT.txt`. Our additions stay in
 parallel directories: `rust/`, `web/`, `deploy/`, `scripts/`, `testdata/`, `docs/`. Build/deploy/test
 paths updated accordingly; released as v0.4.0.
+
+## D010 (2026-10-21, Lead) — image size reduction + Alpine variant
+
+Debian images now copy the static `ffmpeg` from `mwader/static-ffmpeg:7.1` instead of installing
+apt `ffmpeg` (which pulled ~450MB of LLVM/mesa/codec deps): all-in-one 958MB -> 525MB, tar
+242MB -> 131MB. `ffprobe` is not included (only optional test code uses it). New
+`build-alpine.sh` builds Alpine/musl variants (all-in-one 390MB image / 98MB tar): Go is static,
+Rust `flvrepair` is rebuilt for musl (the Debian glibc binary is not usable on Alpine),
+ffmpeg/streamlink/nginx come from apk (native musl). Measured Alpine ffmpeg: apk stack ~243MiB vs
+129MB static binary stack ~248MiB, so apk is used. `streamlink` is 8.6.2 (pip) on Debian and 8.4
+(apk) on Alpine.
