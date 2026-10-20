@@ -116,17 +116,18 @@ If the daemon or base-image network is unavailable, validate the Dockerfile
 without building (`docker build --check -f deploy/Dockerfile .` on BuildKit
 ≥ 0.11) and `docker compose -f deploy/docker-compose.yml config`.
 
-## 一键构建（推荐）
+## 一键构建（推荐，输出 tar）
 
-仓库根目录的 `build.sh` 封装了三种镜像：
+仓库根目录的 `build.sh` 把镜像导出为 docker-loadable tar（不留在本机 images）：
 
 ```bash
-./build.sh                     # local：后端 + 前端（同源 nginx 代理，80 端口）
-./build.sh --backend           # local-backend：仅后端
-./build.sh --frontend          # local-frontend：仅 nginx 前端
-./build.sh --frontend-static   # 前端静态文件 -> ./dist
-./build.sh --all               # 全部产物
+./build.sh                     # dist/local.tar：后端 + 前端（同源 nginx 代理，80 端口）
+./build.sh --backend           # dist/local-backend.tar：仅后端
+./build.sh --frontend          # dist/local-frontend.tar：仅 nginx 前端
+./build.sh --frontend-static   # 前端静态文件 -> ./dist（无镜像）
+./build.sh --all               # 全部 tar + dist 静态文件
 ```
 
-有选择参数时不会额外构建 `local`；`--all` 才会。all-in-one 镜像内 nginx 监听 80，
+有选择参数时不会额外产出 `local.tar`；`--all` 才会。all-in-one 镜像内 nginx 监听 80，
 把非静态请求代理到容器内 `127.0.0.1:8080` 的 bilirec，所以前端与 API 同源。
+使用：`docker load -i dist/local.tar && docker run --rm -p 8080:80 -v bilirec-data:/data local`。

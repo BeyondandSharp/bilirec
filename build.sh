@@ -3,23 +3,31 @@
 #
 # Build convenience script for this repo.
 #
-#   ./build.sh                     all-in-one image (backend + frontend), tag `local`
-#   ./build.sh --backend           backend-only image, tag `local-backend`
-#   ./build.sh --frontend          frontend-only image (nginx), tag `local-frontend`
+# Images are exported as docker-loadable tar files under ./dist/ instead of
+# being loaded into the local Docker image store.
+#
+#   ./build.sh                     all-in-one image (backend + frontend) -> dist/local.tar
+#   ./build.sh --backend           backend-only image                  -> dist/local-backend.tar
+#   ./build.sh --frontend          frontend-only image (nginx)         -> dist/local-frontend.tar
 #   ./build.sh --frontend-static   frontend static files into ./dist (no image)
-#   ./build.sh --all               build everything: local + local-backend +
-#                                  local-frontend + ./dist static files
+#   ./build.sh --all               build everything: all three tars + ./dist static files
 #
 # Any combination of --backend / --frontend / --frontend-static builds only the
-# selected artifacts and does NOT produce the combined `local` image. --all
+# selected artifacts and does NOT produce the combined `local` tar. --all
 # overrides selective flags and builds every artifact (including `local`).
+#
+# Load/build-run example:
+#   docker load -i dist/local.tar
+#   docker run --rm -p 8080:80 -v bilirec-data:/data local
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
+OUT_DIR="$ROOT/dist"
+
 usage() {
-    sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 backend=0
@@ -64,22 +72,43 @@ need_docker() {
     }
 }
 
-build_combined() {
+# Build an image and export it as a docker-loadable tar without loading it into
+# the local image store. Prefers `docker buildx build --output type=docker,dest=`
+# (docker's default buildx driver supports this and keeps the daemon clean);
+# falls back to build + save + rmi on older setups.
+BUILDX=0
+if docker buildx version >/dev/null 2>&1; then
+    BUILDX=1
+fi
+
+export_image() {
+    local tag="$1" dockerfile="$2" out="$3"
     need_docker
-    echo "==> 构建 all-in-one 镜像：local（后端 + 前端，同源 nginx 代理）"
-    docker build -f deploy/combined.Dockerfile -t local "$ROOT"
+    mkdir -p "$OUT_DIR"
+    echo "==> 构建 $tag 并导出到 ${out#"$ROOT"/}"
+    if [[ $BUILDX -eq 1 ]]; then
+        docker buildx build \
+            --output "type=docker,dest=$out" \
+            -t "$tag" \
+            -f "$dockerfile" \
+            "$ROOT"
+    else
+        docker build -t "$tag" -f "$dockerfile" "$ROOT"
+        docker save -o "$out" "$tag"
+        docker rmi "$tag" >/dev/null
+    fi
+}
+
+build_combined() {
+    export_image local deploy/combined.Dockerfile "$OUT_DIR/local.tar"
 }
 
 build_backend() {
-    need_docker
-    echo "==> 构建后端镜像：local-backend"
-    docker build -f deploy/Dockerfile -t local-backend "$ROOT"
+    export_image local-backend deploy/Dockerfile "$OUT_DIR/local-backend.tar"
 }
 
 build_frontend() {
-    need_docker
-    echo "==> 构建前端镜像：local-frontend（nginx + 静态资源）"
-    docker build -f deploy/web.Dockerfile -t local-frontend "$ROOT"
+    export_image local-frontend deploy/web.Dockerfile "$OUT_DIR/local-frontend.tar"
 }
 
 build_frontend_static() {
@@ -95,28 +124,27 @@ build_frontend_static() {
         fi
         pnpm build
     )
-    mkdir -p "$ROOT/dist"
-    cp -a "$ROOT/web/dist/." "$ROOT/dist/"
-    echo "    静态文件已输出到 $ROOT/dist"
+    mkdir -p "$OUT_DIR"
+    cp -a "$ROOT/web/dist/." "$OUT_DIR/"
+    echo "    静态文件已输出到 $OUT_DIR"
 }
 
-# Order: independent artifacts first, all-in-one last (it is the slowest and
-# its Docker layers are independent from the other builds).
+# Order: independent artifacts first, all-in-one last (it is the slowest).
 [[ $backend  -eq 1 ]] && build_backend
 [[ $frontend -eq 1 ]] && build_frontend
 [[ $static   -eq 1 ]] && build_frontend_static
 [[ $combined -eq 1 ]] && build_combined
 
 echo
-echo "完成："
-[[ $combined -eq 1 ]] && echo "  docker image: local          (backend + frontend)"
-[[ $backend  -eq 1 ]] && echo "  docker image: local-backend  (backend only)"
-[[ $frontend -eq 1 ]] && echo "  docker image: local-frontend (frontend only)"
-[[ $static   -eq 1 ]] && echo "  static files: ./dist"
+echo "完成（镜像已导出为 tar，不会留在本机 docker images 中）："
+[[ $combined -eq 1 ]] && echo "  $OUT_DIR/local.tar           (backend + frontend)"
+[[ $backend  -eq 1 ]] && echo "  $OUT_DIR/local-backend.tar   (backend only)"
+[[ $frontend -eq 1 ]] && echo "  $OUT_DIR/local-frontend.tar  (frontend only)"
+[[ $static   -eq 1 ]] && echo "  静态文件: $OUT_DIR/"
 if [[ $combined -eq 1 ]]; then
     echo
-    echo "运行 all-in-one 镜像示例（前端与 API 同源）："
+    echo "使用 all-in-one 镜像："
+    echo "  docker load -i dist/local.tar"
     echo "  docker run --rm -p 8080:80 -v bilirec-data:/data local"
     echo "  打开 http://localhost:8080 ，登录页后端地址填 http://localhost:8080"
-    echo "  如需直接访问 API，可额外加 -p 8081:8080"
 fi
