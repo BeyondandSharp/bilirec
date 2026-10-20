@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"go.uber.org/fx"
 
@@ -52,6 +53,10 @@ type Client struct {
 	session       atomic.Pointer[AuthSession]
 	loginSF       singleflight.Group
 	refreshSF     singleflight.Group
+
+	// cn01ProbeTimeout overrides the cn-gotcha01 range probe timeout
+	// (default defaultStreamProbeTimeout). Exposed for tests; 0 means default.
+	cn01ProbeTimeout time.Duration
 
 	wg sync.WaitGroup
 }

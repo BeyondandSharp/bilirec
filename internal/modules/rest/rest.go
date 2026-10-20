@@ -15,7 +15,7 @@
 
 // @BasePath /
 //
-//go:generate swag init -g rest.go -o ../../docs
+//go:generate sh -c "cd ../../../ && swag init -g internal/modules/rest/rest.go -o docs"
 package rest
 
 import (
@@ -40,7 +40,6 @@ import (
 
 	jwt "github.com/gofiber/contrib/v3/jwt"
 	"github.com/gofiber/contrib/v3/swagger"
-	jwtlib "github.com/golang-jwt/jwt/v5"
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/extractors"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -48,6 +47,7 @@ import (
 	logging "github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/pprof"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	jwtlib "github.com/golang-jwt/jwt/v5"
 )
 
 const jwtTokenKey = "jwtToken"

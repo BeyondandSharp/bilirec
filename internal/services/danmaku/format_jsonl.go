@@ -1,6 +1,7 @@
 package danmaku
 
 import (
+	"encoding/json"
 	"strconv"
 	"time"
 
@@ -11,6 +12,8 @@ type jsonlEncoder struct{}
 
 func (jsonlEncoder) Ext() string { return ".jsonl" }
 
+func (jsonlEncoder) SupportsRaw() bool { return true }
+
 type jsonlMetaLine struct {
 	Type      string `json:"type"`
 	RoomID    int64  `json:"room_id"`
@@ -20,7 +23,7 @@ type jsonlMetaLine struct {
 	StartTime string `json:"start_time"`
 }
 
-// Wire format keeps stable keys used by bilirec-web; extra fields are omitempty.
+// Wire format keeps stable keys used by the web frontend; extra fields are omitempty.
 type jsonlDanmakuLine struct {
 	Type           string  `json:"type"`
 	TS             float64 `json:"ts"`
@@ -42,7 +45,7 @@ type jsonlDanmakuLine struct {
 	EmoticonURL    string  `json:"emoticon_url,omitempty"`
 }
 
-// Fields required by bilirec-web parseJsonlDanmaku for Super Chat overlays.
+// Fields required by the web frontend parseJsonlDanmaku for Super Chat overlays.
 type jsonlSuperChatLine struct {
 	Type                  string  `json:"type"`
 	TS                    float64 `json:"ts"`
@@ -59,7 +62,7 @@ type jsonlSuperChatLine struct {
 	Face                  string  `json:"face,omitempty"`
 }
 
-// Fields required by bilirec-web for gift overlays.
+// Fields required by the web frontend for gift overlays.
 type jsonlGiftLine struct {
 	Type      string  `json:"type"`
 	TS        float64 `json:"ts"`
@@ -70,7 +73,7 @@ type jsonlGiftLine struct {
 	NameColor string  `json:"name_color,omitempty"`
 }
 
-// Fields required by bilirec-web for guard overlays.
+// Fields required by the web frontend for guard overlays.
 type jsonlGuardLine struct {
 	Type  string  `json:"type"`
 	TS    float64 `json:"ts"`
@@ -142,4 +145,33 @@ func appendJSONLine(buf []byte, v any) []byte {
 		return nil
 	}
 	return append(buf, '\n')
+}
+
+// jsonlRawLine persists an otherwise unhandled command payload
+// (docs/FEATURES-V2.md §4). Data is the raw `data` object of the WS message.
+type jsonlRawLine struct {
+	Type string          `json:"type"`
+	TS   float64         `json:"ts"`
+	Cmd  string          `json:"cmd"`
+	Data json.RawMessage `json:"data,omitempty"`
+}
+
+var (
+	_ json.Marshaler = json.RawMessage(nil)
+)
+
+func (jsonlEncoder) AppendRaw(buf []byte, cmd string, raw []byte, ts string) []byte {
+	var msg struct {
+		Cmd  string          `json:"cmd"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return nil
+	}
+	return appendJSONLine(buf, jsonlRawLine{
+		Type: "raw",
+		TS:   parseTS(ts),
+		Cmd:  cmd,
+		Data: msg.Data,
+	})
 }

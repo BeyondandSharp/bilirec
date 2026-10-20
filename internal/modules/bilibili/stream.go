@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"time"
 
 	"github.com/bilirec/bilirec/pkg/fp"
 	"github.com/bilirec/bilirec/utils"
@@ -105,7 +104,6 @@ var ErrInvalidStreamCodec = errors.New("无效的流编码")
 var ErrInvalidStreamQuality = errors.New("无效的流画质")
 
 const v1StreamAPI = "https://api.live.bilibili.com/room/v1/Room/playUrl"
-const v2StreamAPI = "https://api.live.bilibili.com/xlive/web-room/v2/index/getRoomPlayInfo"
 
 const (
 	streamAPICodeRoomNotFound   = 19002003 // playUrl v1
@@ -152,7 +150,6 @@ func (c *Client) GetStreamURLs(roomID int) ([]string, error) {
 }
 
 func (c *Client) GetStreamURLsV2(roomID int, opts ...GetStreamURLsOption) ([]StreamURLInfo, error) {
-	client := c.liveClient.R()
 	options := defaultGetStreamURLsOptions()
 	for _, opt := range opts {
 		if opt != nil {
@@ -197,60 +194,26 @@ func (c *Client) GetStreamURLsV2(roomID int, opts ...GetStreamURLsOption) ([]Str
 		"only_audio":   utils.Ternary(options.onlyAudio, "1", "0"), // 希望可以防止錯誤拿到音頻流
 	}
 
-	client.SetQueryParams(params)
-	newQueryParam, err := c.wbi.SignQuery(client.QueryParam, time.Now())
-	if err != nil {
-		return nil, fmt.Errorf("无法签名 wbi：%v", err)
+	fetchConfig := options.fetch
+	if fetchConfig != nil {
+		log.With(
+			"room", roomID,
+			"api_host", fetchConfig.APIHost,
+			"fallback_api_host", fetchConfig.FallbackAPIHost,
+			"cdn", fetchConfig.CDN,
+			"force_source", fetchConfig.ForceSource,
+			"replace_cn01", fetchConfig.ReplaceCN01,
+		).Debug("使用 B 站高级拉流配置")
 	}
-	client.QueryParam = newQueryParam
 
-	resp, err := client.Get(v2StreamAPI)
+	streamInfos, err := c.fetchStreamURLs(roomID, params, options, fetchConfig)
 	if err != nil {
 		return nil, err
-	} else if resp.StatusCode() != 200 {
-		return nil, fmt.Errorf("状态码：%d", resp.StatusCode())
-	}
-
-	var sr StreamResponseV2
-	if err := json.Unmarshal(resp.Body(), &sr); err != nil {
-		return nil, err
-	} else if sr.Code != 0 {
-		return nil, mapStreamAPIError(sr.Code, sr.Message)
-	}
-
-	if sr.Data.PlayurlInfo == nil || sr.Data.PlayurlInfo.Playurl == nil {
-		return []StreamURLInfo{}, nil
-	}
-
-	streamInfos := make([]StreamURLInfo, 0)
-	for _, stream := range sr.Data.PlayurlInfo.Playurl.Streams {
-		for _, format := range stream.Formats {
-			if !containFormat(options.profiles, format.FormatName) {
-				continue
-			}
-			for _, codec := range format.Codecs {
-				for _, urlInfo := range codec.UrlInfos {
-					fullURL := urlInfo.Host + codec.BaseUrl + urlInfo.Extra
-					audioOnlyStream := isAudioOnlyStreamURL(fullURL)
-					// 雖然加了 only_audio=1/0 理應不會有非預期的流，但是再做一次檢測
-					if options.onlyAudio != audioOnlyStream {
-						continue
-					}
-					streamInfos = append(streamInfos, StreamURLInfo{
-						Protocol:    stream.ProtocolName,
-						Format:      format.FormatName,
-						Codec:       codec.CodecName,
-						URL:         fullURL,
-						Qn:          codec.CurrentQn,
-						AcceptQn:    codec.AcceptQn,
-						IsAudioOnly: audioOnlyStream,
-					})
-				}
-			}
-		}
 	}
 
 	sortStreams(streamInfos, int(options.qn))
+	streamInfos = applyForceSourcePreference(streamInfos, options, fetchConfig)
+	streamInfos = c.applyCN01HostReplacement(roomID, streamInfos, fetchConfig)
 	return streamInfos, nil
 }
 

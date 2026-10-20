@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "class": "R8",
+  "fixture": "r8_hevc_aac.flv",
+  "fixture_bytes": 1377070,
+  "fixture_sha256": "1d5fc1c6cba19522deac7b99a2fcedeb54ca03837203d89f0d6d0b52f511c17e",
+  "base": "clean_hevc.flv",
+  "corruption": {
+    "kind": "hevc_aac_timestamp_rollback_and_duplicate_group",
+    "rollback_start_tag_index": 465,
+    "rollback_ms": -1200,
+    "duplicate_group_start_tag_index": 1153,
+    "duplicate_group_start_timestamp_ms": 14967,
+    "duplicate_group_tag_count": 77,
+    "duplicate_group_audio_tags": 47,
+    "rule": "UpdateTimestampJumpRule + RemoveDuplicatedChunkRule (group contains AAC)"
+  },
+  "input_analysis": {
+    "bytes": 1377070,
+    "sha256": "1d5fc1c6cba19522deac7b99a2fcedeb54ca03837203d89f0d6d0b52f511c17e",
+    "valid_flv_structure": true,
+    "header_flags": 5,
+    "resync_events": 0,
+    "resynced_bytes": 0,
+    "truncated_tail_bytes": 0,
+    "prev_size_mismatches": 0,
+    "tag_count": 1620,
+    "tag_counts": {
+      "video": 632,
+      "audio": 987,
+      "script": 1
+    },
+    "timestamps": {
+      "video": {
+        "count": 632,
+        "first": 0,
+        "last": 19967,
+        "monotonic": false,
+        "jumps": 1,
+        "rollbacks": 1
+      },
+      "audio": {
+        "count": 987,
+        "first": 0,
+        "last": 18856,
+        "monotonic": false,
+        "jumps": 2,
+        "rollbacks": 2
+      }
+    },
+    "raw_last_timestamp_ms": 19967,
+    "video_sequence_headers": 1,
+    "audio_sequence_headers": 1,
+    "video_codec": "hevc",
+    "audio_codec": "aac",
+    "end_tag_count": 0,
+    "zero_size_data_tags": 0,
+    "filler_nalu_count": 0,
+    "adjacent_duplicate_tags": 0,
+    "group_count": 24,
+    "duplicate_groups": 1,
+    "last_tag_is_end": false,
+    "aac_header_index": 2,
+    "first_audio_data_index": 6,
+    "aac_header_before_audio_data": true,
+    "metadata": {
+      "present": true,
+      "parsed": true,
+      "duration_present": true,
+      "duration": 20.067
+    }
+  },
+  "expect": {
+    "class": "R8",
+    "valid_flv": true,
+    "header_flags": 5,
+    "video_codec": "hevc",
+    "audio_codec": "aac",
+    "timestamps": {
+      "video": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      },
+      "audio": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      }
+    },
+    "duration_ms": {
+      "min": 18500,
+      "max": 22500
+    },
+    "tag_count": {
+      "min": 1541,
+      "max": 1545
+    },
+    "output_bytes": {
+      "min": 0,
+      "max": 1381166
+    },
+    "preserved": {
+      "onmetadata": true,
+      "video_sequence_header": true,
+      "audio_sequence_header": true
+    },
+    "anomalies": {
+      "required": [
+        "R8"
+      ],
+      "min_count": 1
+    },
+    "repair_command": "flvrepair file --input fixtures/r8_hevc_aac.flv --output out.flv --mode best-effort",
+    "duplicate_groups_removed": true,
+    "aac_duplicates_removed": true,
+    "duplicated_group_min_tags": 75,
+    "rollback_repaired": true,
+    "notes": [
+      "HEVC enhanced-FLV + AAC; audio rolls back 1200 ms at ~6 s and one complete data group (containing AAC tags) is duplicated at ~15 s. Output keeps hevc/aac sequence headers, is monotonic and drops the duplicate group"
+    ]
+  }
+}

@@ -6,6 +6,7 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/rest"
 	"github.com/bilirec/bilirec/internal/services/room"
+	settingssvc "github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bilirec/bilirec/utils"
@@ -15,14 +16,16 @@ import (
 var log = logger.Named("room")
 
 type Controller struct {
-	roomSvc *room.Service
-	subSvc  *subscribe.Service
+	roomSvc     *room.Service
+	subSvc      *subscribe.Service
+	settingsSvc *settingssvc.Service
 }
 
-func NewController(app *fiber.App, roomSvc *room.Service, subSvc *subscribe.Service) *Controller {
+func NewController(app *fiber.App, roomSvc *room.Service, subSvc *subscribe.Service, settingsSvc *settingssvc.Service) *Controller {
 	rc := &Controller{
-		roomSvc: roomSvc,
-		subSvc:  subSvc,
+		roomSvc:     roomSvc,
+		subSvc:      subSvc,
+		settingsSvc: settingsSvc,
 	}
 	room := app.Group("/room")
 	room.Get("/:roomID/info", rc.getRoomInfo)
@@ -349,17 +352,7 @@ func (r *Controller) getRoomConfig(ctx fiber.Ctx) error {
 		return fiber.ErrInternalServerError
 	}
 
-	return ctx.JSON(RoomConfigResponse{
-		RoomId:                roomId,
-		AutoRecord:            cfg.AutoRecord,
-		Notify:                cfg.Notify,
-		RecordDurationMinutes: cfg.RecordDurationMinutes,
-		Qn:                    cfg.Qn,
-		OnlyAudio:             cfg.OnlyAudio,
-		RecordDanmaku:         cfg.RecordDanmaku,
-		StreamProfiles:        cfg.StreamProfiles,
-		DeleteOldestOnLowDisk: cfg.DeleteOldestOnLowDisk,
-	})
+	return ctx.JSON(roomConfigResponse(roomId, cfg))
 }
 
 // @Summary Update room subscription config
@@ -395,16 +388,19 @@ func (r *Controller) updateRoomConfig(ctx fiber.Ctx) error {
 	}
 	streamProfiles := bilibili.StreamProfilesToStrings(profiles)
 
-	if err := r.subSvc.UpdateConfig(roomId, &subscribe.RoomConfig{
-		AutoRecord:            req.AutoRecord,
-		Notify:                req.Notify,
-		RecordDurationMinutes: req.RecordDurationMinutes,
-		Qn:                    req.Qn,
-		OnlyAudio:             req.OnlyAudio,
-		RecordDanmaku:         req.RecordDanmaku,
-		StreamProfiles:        streamProfiles,
-		DeleteOldestOnLowDisk: req.DeleteOldestOnLowDisk,
-	}); err != nil {
+	cfg := roomConfigFromUpdate(req, streamProfiles)
+	// Validate v2 override fields with the same §2 rules as /settings
+	// (Lead review decision on T9).
+	if r.settingsSvc != nil {
+		if err := r.settingsSvc.ValidateRoomOverrides(cfg); err != nil {
+			if settingssvc.IsValidationError(err) {
+				return fiber.NewError(fiber.StatusBadRequest, err.Error())
+			}
+			log.Errorf("校验房间 %d 配置失败：%v", roomId, err)
+			return fiber.ErrInternalServerError
+		}
+	}
+	if err := r.subSvc.UpdateConfig(roomId, cfg); err != nil {
 		log.Errorf("更新房间 %d 配置失败：%v", roomId, err)
 		if err == subscribe.ErrRoomNotSubscribed {
 			return fiber.NewError(fiber.StatusNotFound, "未订阅该房间")
@@ -412,15 +408,5 @@ func (r *Controller) updateRoomConfig(ctx fiber.Ctx) error {
 		return fiber.ErrInternalServerError
 	}
 
-	return ctx.JSON(RoomConfigResponse{
-		RoomId:                roomId,
-		AutoRecord:            req.AutoRecord,
-		Notify:                req.Notify,
-		RecordDurationMinutes: req.RecordDurationMinutes,
-		Qn:                    req.Qn,
-		OnlyAudio:             req.OnlyAudio,
-		RecordDanmaku:         req.RecordDanmaku,
-		StreamProfiles:        streamProfiles,
-		DeleteOldestOnLowDisk: req.DeleteOldestOnLowDisk,
-	})
+	return ctx.JSON(roomConfigResponse(roomId, cfg))
 }

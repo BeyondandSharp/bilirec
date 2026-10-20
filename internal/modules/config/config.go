@@ -88,9 +88,9 @@ type Config struct {
 	CloudConvertThreshold int64
 	CloudConvertApiKey    string
 
-	PublicBaseUrl     string
-	FrontendURLs      []string // CORS AllowOrigins (normalized origins)
-	WebPushSubscriber string
+	PublicBaseUrl      string
+	FrontendURLs       []string // CORS AllowOrigins (normalized origins)
+	WebPushSubscriber  string
 	NotifySSEToken     string
 	WebhookURLs        string // newline-separated BililiveRecorder v2 webhook targets
 	Username           string
@@ -125,6 +125,25 @@ type Config struct {
 
 	// StreamIdleTimeoutSecs: stream Read idle limit (seconds); 0 = off.
 	StreamIdleTimeoutSecs int
+
+	// External stream downloader (docs/INTERFACES.md §2.3).
+	// Downloader is auto/native/ffmpeg/streamlink; auto behaves like native in
+	// v1 (no external process is spawned).
+	Downloader               string
+	DownloaderFallback       []string
+	FFmpegBin                string
+	StreamlinkBin            string
+	ExternalStartTimeoutSecs int
+
+	// TitlePollSecs is the live room-title poll interval for SegmentByTitle
+	// auto-split sessions (docs/FEATURES-V2.md §3.1); minimum 5s.
+	TitlePollSecs int
+
+	// FLV repair sidecar (docs/INTERFACES.md §2.3), consumed by services/repair.
+	FLVRepair            string // auto/on/off
+	FLVRepairBin         string
+	FLVRepairMode        string // best-effort/strict
+	FLVRepairMaxBufferMB int
 
 	// configurable performances
 	ReadStreamBytesPoolSize      int
@@ -272,6 +291,21 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 
 		StreamIdleTimeoutSecs: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("STREAM_IDLE_TIMEOUT"), "20")), // 0 = off
 
+		// external stream downloader (docs/INTERFACES.md §2.3)
+		Downloader:               parseDownloader(os.Getenv("DOWNLOADER")),
+		DownloaderFallback:       parseCommaSeparatedValues(utils.EmptyOrElse(os.Getenv("DOWNLOADER_FALLBACK"), "native")),
+		FFmpegBin:                utils.EmptyOrElse(strings.TrimSpace(os.Getenv("FFMPEG_BIN")), "ffmpeg"),
+		StreamlinkBin:            utils.EmptyOrElse(strings.TrimSpace(os.Getenv("STREAMLINK_BIN")), "streamlink"),
+		ExternalStartTimeoutSecs: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("EXTERNAL_START_TIMEOUT_SECS"), "20")),
+
+		TitlePollSecs: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("TITLE_POLL_SECS"), "20")),
+
+		// flv repair sidecar (docs/INTERFACES.md §2.3)
+		FLVRepair:            parseFLVRepair(os.Getenv("FLV_REPAIR")),
+		FLVRepairBin:         utils.EmptyOrElse(strings.TrimSpace(os.Getenv("FLV_REPAIR_BIN")), "flvrepair"),
+		FLVRepairMode:        parseFLVRepairMode(os.Getenv("FLV_REPAIR_MODE")),
+		FLVRepairMaxBufferMB: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("FLV_REPAIR_MAX_BUFFER_MB"), "64")),
+
 		// stream performance configs
 		ReadStreamBytesPoolSize:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_BYTES_POOL_SIZE"), "524288")),       // default 512KB
 		ReadStreamChanBufferSize:     utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_CHAN_BUFFER_SIZE"), "16")),          // default 16
@@ -301,6 +335,18 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		danmakuWriterSyncPeriod:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_SYNC_PERIOD_SECS"), "0")),             // 0 = disabled; sync only on Close() to minimize SD card wear
 		danmakuChanBufferSize:              utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_CHAN_BUFFER_SIZE"), "256")),                  // message slots per room; overflow policy decides drop vs block
 		danmakuBytesPoolSize:               utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_BYTES_POOL_SIZE"), "4096")),                  // 4KB per fragment buffer
+	}
+
+	// Warn once when an external downloader/repair env value was invalid and
+	// normalized back to its default (see parseDownloader / parseFLVRepair*).
+	if raw := strings.ToLower(strings.TrimSpace(os.Getenv("DOWNLOADER"))); raw != "" && raw != c.Downloader {
+		log.Warnf("DOWNLOADER 无效（%s），已回退为 auto（等同 native，不启用外部下载器）", raw)
+	}
+	if raw := strings.ToLower(strings.TrimSpace(os.Getenv("FLV_REPAIR"))); raw != "" && raw != c.FLVRepair {
+		log.Warnf("FLV_REPAIR 无效（%s），已回退为 auto", raw)
+	}
+	if raw := strings.ToLower(strings.TrimSpace(os.Getenv("FLV_REPAIR_MODE"))); raw != "" && raw != c.FLVRepairMode {
+		log.Warnf("FLV_REPAIR_MODE 无效（%s），已回退为 best-effort", raw)
 	}
 
 	ReadOnly = &GlobalReadOnly{config: c}
@@ -335,6 +381,35 @@ func parseUsernameAndPassword(usernameKey, passwordKey string) (string, string, 
 		return "", "", err
 	}
 	return username, string(passwordHash), nil
+}
+
+// parseDownloader normalizes DOWNLOADER to auto/native/ffmpeg/streamlink.
+// Unknown values fall back to auto (which behaves like native in v1).
+func parseDownloader(raw string) string {
+	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
+	case "auto", "native", "ffmpeg", "streamlink":
+		return value
+	default:
+		return "auto"
+	}
+}
+
+func parseFLVRepair(raw string) string {
+	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
+	case "on", "off", "auto":
+		return value
+	default:
+		return "auto"
+	}
+}
+
+func parseFLVRepairMode(raw string) string {
+	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
+	case "strict":
+		return "strict"
+	default:
+		return "best-effort"
+	}
 }
 
 func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {

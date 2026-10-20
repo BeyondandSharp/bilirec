@@ -1,137 +1,150 @@
-# Bilirec
+# bilirec + Rust FLV repair (recording only)
 
-专为低配设备优化的 B 站直播录制与回放一体化工具，可在手机上运行。
+以 [Bilirec](https://github.com/bilirec/bilirec) 为底座（调度 / REST API / WebUI 后端 / 三格式原生拉流），
+吸收录播姬的 FLV 修复能力与 biliup 的 streamlink/ffmpeg 拉流方式。**仅关注录制**：不做上传、不做移动端。
 
-**完整文档：** [www.bilirec.org/zh-cn/](https://www.bilirec.org/zh-cn/) · [常见问题](https://www.bilirec.org/zh-cn/guides/faq/)
+## 组成
 
-**交流与反馈：** BUG / 問題回報与功能建议请用 [GitHub Issue 模板](https://github.com/bilirec/bilirec/issues/new/choose) 提交；使用疑问先看 [常见问题](https://www.bilirec.org/zh-cn/guides/faq/) 或 QQ 群 [834229325](https://qm.qq.com/q/oMTN3EsGBy)。
+| 路径 | 内容 |
+|---|---|
+| `cmd/` `internal/` `pkg/` `utils/` | Bilirec v0.3.1（MIT，commit `26f4f8d`）——**仓库根目录就是 fork 后的 Go module**：调度/REST API/WebUI 后端/三格式原生拉流 + 外部下载器、`flvrepair` 侧车接入 |
+| `web/` | vendored bilirec-web（React PWA，MIT，commit `ab62df3`）：下载器选择与录制流水线徽章 |
+| `rust/crates/flv-repair/` | 零依赖 Rust crate + `flvrepair` CLI（GPL-3.0-or-later，移植自录播姬 FLV 处理规则） |
+| `testdata/flv/` | R1–R8 冻结损坏样本 + `*.expect.json` 不变量 + 确定性生成器 |
+| `testdata/hls/` | 本地 HLS ts / fMP4 回放样本 |
+| `scripts/` | 本地回放源（限速/断流/损坏注入）、E2E、fixtures 生成 |
+| `deploy/` | 多阶段 Dockerfile + docker-compose |
+| `docs/` | `INTERFACES.md`（冻结契约）、`PORTING.md`（C#→Rust 规格）、`DECISIONS.md` |
 
-## 目录
+## 仓库结构（fork 布局）
 
-- [功能特性](#功能特性)
-- [效能指标](#效能指标)
-- [快速开始](#快速开始)
-- [生态](#生态)
-- [文档](#文档)
-- [贡献与许可](#贡献与许可)
+本仓库直接从 Bilirec 源码树 fork：**根目录就是 Go module**（`go.mod`、`cmd/`、`internal/`、`pkg/`、`utils/`），
+新增能力以并行目录加入，而不是把上游塞进子目录：
 
-## 功能特性
-
-- ✅ **开箱即用** — 零配置起步，运行后直接访问 Web 界面即可管理任务
-- ✅ **多模式录制** — 手动开始录制，或订阅直播间自动开播录制
-- ✅ **多格式支持** — HTTP-FLV / HLS-TS / HLS-fMP4
-- ✅ **灵活录制时长** — 指定时长上限、定时停止或无限时长
-- ✅ **开播即时通知** — Web Push / SSE 推送开播动态
-- ✅ **弹幕与互动记录** — 可在手动录制或房间自动录制时同时保存弹幕与礼物等互动记录
-- ✅ **自动分段轮转** — PK 或分辨率变更时自动切文件，减少花屏与损坏
-- ✅ **多路并发录制** — 低配硬件上也能稳定多路同时录
-- ✅ **故障自动恢复** — FLV 时间戳修复与断流重连，连接波动时尽量不中断
-- ✅ **自动 MP4 转换** — 本地 FFmpeg 或 CloudConvert 云端转码
-- ✅ **Webhook 事件** — 兼容录播姬 v2 格式，可对接 biliLive-tools 等做转封装、压制与上传
-- ✅ **监控与日志** — 可选独立 Prometheus 指标端口、VictoriaLogs/本地日志与 Grafana 仪表盘
-- ✅ **多端运行与接入** — RESTful API、[bilirec-web](https://github.com/bilirec/bilirec-web)（PWA）、[bilirec-mobile](https://github.com/bilirec/bilirec-mobile)（Android 内嵌后端）
-- ✅ **FRP 内网穿透** — 无公网 IP 也可外网访问管理界面与文件
-- ✅ **文件管理与播放** — 列表浏览、删除、内置播放器支持礼物特效与弹幕滚动回放；空间不足时可选自动删旧文件再录
-- ✅ **账号登录与刷新** — 匿名 / 扫码 / Controller 模式，Cookie 自动刷新
-- ✅ **低配与 microSD 优化** — 大块缓冲、序列化写入、跳过极短直播写盘；默认开启录制中定期清理旧文件缓存，压低容器监控内存
-
-配置详解、API、调优方案见 [官方文档站](https://www.bilirec.org/zh-cn/configuration/overview/)。
-
-## 效能指标
-
-> 测试环境：**树莓派 5B 16GB** · Docker 容器（**1 GB 内存限制**）· 默认配置（含 `DROP_FILE_PAGE_CACHE` + 冷缓存释放）· 每路 **1080p**。
->
-> 下表「内存峰值」为 **Docker 等容器监控里显示的内存用量**，改配置或版本后会有偏差。规划容器 **limit** 请仍用 [内存占用估算](https://www.bilirec.org/zh-cn/configuration/memory-estimation/)（偏保守）。
-
-| 并发路数 | CPU 峰值占用 | 内存峰值占用 |
-| -------- | ------------ | ------------ |
-| 初始闲置 | ~0.0% | ~12 MB |
-| 1 路并发 | ~2.5% | ~85 MB |
-| 2 路并发 | ~3.0% | ~106 MB |
-| 3 路并发 | ~4.0% | ~135 MB |
-| 4 路并发 | ~4.5% | ~164 MB |
-| 5 路并发 | ~5.3% | ~193 MB |
-| 恢复闲置 | ~0.0% | ~54 MB |
-
-**内存规划速查（默认 1080p）：**
-
-| 路数 N | 计算 | 预计总峰值 |
-| ------ | ---- | ---------- |
-| 1 | `(43~50) + 1×49` | 约 92~99 MB |
-| 3 | `(43~50) + 3×49` | 约 190~197 MB |
-| 5 | `(43~50) + 5×49` | 约 288~295 MB |
-
-默认 **4K 单路**约 `(43~50) + 1×122` → **165~172 MB**。公式与变量说明见 [内存占用估算](https://www.bilirec.org/zh-cn/configuration/memory-estimation/)。
-
-## 快速开始
-
-### 二进制
-
-从 [Releases](https://github.com/bilirec/bilirec/releases) 下载对应平台文件：
-
-```bash
-chmod +x bilirec-linux-amd64 && ./bilirec-linux-amd64
-# Linux ARM64（树莓派等）：chmod +x bilirec-linux-arm64 && ./bilirec-linux-arm64
-# macOS Apple Silicon：chmod +x bilirec-darwin-arm64 && ./bilirec-darwin-arm64
-# macOS Intel：chmod +x bilirec-darwin-amd64 && ./bilirec-darwin-amd64
-# Windows：双击 bilirec-windows.exe
+```
+.
+├── cmd/ internal/ pkg/ utils/     # Bilirec fork 主体（Go）
+├── dotenv.go swagger.go go.mod    # 上游根文件
+├── docs/                          # 契约/决策/运维文档 + 生成的 swagger（gitignored）
+├── rust/crates/flv-repair/        # flvrepair 侧车（Rust）
+├── web/                           # vendored bilirec-web（React PWA）
+├── deploy/                        # 本仓库部署（Dockerfile/compose/env 示例）
+├── scripts/ testdata/ refs/       # 回放源/E2E/fixtures/只读参考
+├── .github/ CONTRIBUTING.md       # 上游 CI/贡献文件（保留）
+├── LICENSES/Bilirec-MIT.txt       # 上游 MIT 许可
+└── docs/upstream-bilirec-*.md     # 上游 README/Makefile 存档
 ```
 
-### Docker
+上游 `Dockerfile` 存档在 `deploy/upstream.Dockerfile`；实际部署用 `deploy/` 下的多阶段镜像。
+
+## 构建与测试
 
 ```bash
-# Docker Hub
-docker pull eric1008818/bilirec:latest
-
-# GHCR（国内若 Docker Hub 拉取困难，可改用 GitHub Container Registry）
-docker pull ghcr.io/bilirec/bilirec:latest
-
-docker run -d --name bilirec -p 8080:8080 \
-  -v /path/to/records:/app/records \
-  -v /path/to/secrets:/app/secrets \
-  -v /path/to/database:/app/database \
-  eric1008818/bilirec:latest
+make build   # dist/bilirec + dist/flvrepair
+make fmt     # 只格式化本 worktree 修改过的 Go 文件 + cargo fmt
+make lint    # go vet + cargo clippy -D warnings
+make test    # go test -short ./... + cargo test
+make e2e     # 本地回放源端到端（离线，109 项检查）
 ```
 
-`docker run` 时把镜像名换成 `ghcr.io/bilirec/bilirec:latest` 即可使用 GHCR。
+工具链：Go 1.27+、Rust stable、ffmpeg、streamlink、Python 3；前端需要 Node 24+ 与 pnpm。
 
-启动后打开 [app.bilirec.org](https://app.bilirec.org/)，在登录页填写后端地址（默认 `http://localhost:8080`）。详细步骤见 [快速开始](https://www.bilirec.org/zh-cn/guides/quick-start/)。
+## 前端（bilirec-web，本仓库已内置改造）
 
-### Android（嵌入 App）
+`web/` 是上游 `bilirec-web` 的 vendored 副本（MIT，commit `ab62df3`），本地改动：
 
-- 官方客户端：[bilirec-mobile](https://github.com/bilirec/bilirec-mobile)
-- 库接口与构建：`make android` → `dist/android/<abi>/libbilirec.so`
-- 说明见 [Android 指南](https://www.bilirec.org/zh-cn/guides/android/) · [Android 库接口](https://www.bilirec.org/zh-cn/development/android-library/)
+- **开始录制对话框**（records 视图）新增“下载器”选择：自动 / 原生 / FFmpeg / Streamlink；
+  自动 = 不发送参数、沿用后端 `DOWNLOADER` 默认；其他值作为 `downloader=` query 传给
+  `POST /record/{room}/start`。
+- **录制卡片**新增徽章：实际下载器（仅 ffmpeg/streamlink）、修复状态（“修复”/“修复降级”），
+  以及外部下载器把源 ts/fMP4 转封装为 FLV 时显示“源 HLS-TS / 源 HLS-FMP4”。
+- 订阅（RoomConfig）路径不显示下载器选择：后端房间配置没有该字段，保持 `auto`。
+- **设置页（FEATURES-V2）**：新增“设定”导航页，覆盖分段/命名与过滤/封面/弹幕/FLV 处理/B 站高级六组设置；
+  房间配置对话框对每组提供“继承全局 / 自定义”三态覆盖。详细字段与优先级见
+  [docs/FEATURES-V2.md](docs/FEATURES-V2.md) 与 [docs/OPERATIONS-V2.md](docs/OPERATIONS-V2.md)。
 
-> [!IMPORTANT]
-> 请关闭电池优化并允许通知。华为 / 鸿蒙、OPPO / ColorOS、小米 / HyperOS、vivo / OriginOS 等大陆国产系统还可能在锁屏、切换应用或清理多任务时终止 Bilirec，造成录制中断；这类设备请按 [国产手机后台设置](https://www.bilirec.org/zh-cn/guides/android-mainland/) 额外放行后台活动并锁定多任务卡片。
+构建与自托管：
 
-## 生态
+```bash
+cd web
+pnpm install --frozen-lockfile
+pnpm lint && pnpm build     # dist/ 为静态产物
+```
 
-| 项目 | 说明 |
-| ---- | ---- |
-| [bilirec-web](https://github.com/bilirec/bilirec-web) | Web 管理界面（PWA） |
-| [bilirec-mobile](https://github.com/bilirec/bilirec-mobile) | Android 客户端，可在手机内运行后端 |
-| [bilirec-docs](https://github.com/bilirec/bilirec-docs) | 官方文档站 |
+- 继续使用官方 PWA：打开 <https://app.bilirec.org/>，登录页填后端地址即可。
+- 自托管：`docker compose -f deploy/docker-compose.yml up --build`，`web` 服务在
+  `WEB_PORT`（默认 8081）提供前端，`bilirec` 在 `BILIREC_PORT`（默认 8080）；打开
+  `http://<host>:8081` 填后端地址。后端 CORS 由 `FRONTEND_URLS` 控制（compose 默认
+  `http://localhost:8081`，反代/域名场景记得改成实际 origin）。
 
-## 文档
+## 配置
 
-| 主题 | 链接 |
-| ---- | ---- |
-| 安装 | [guides/installation](https://www.bilirec.org/zh-cn/guides/installation/) |
-| 快速开始 | [guides/quick-start](https://www.bilirec.org/zh-cn/guides/quick-start/) |
-| Docker | [guides/docker](https://www.bilirec.org/zh-cn/guides/docker/) |
-| 录制直播间 | [guides/recording](https://www.bilirec.org/zh-cn/guides/recording/) |
-| 配置与调优 | [configuration/overview](https://www.bilirec.org/zh-cn/configuration/overview/) |
-| 树莓派 / microSD 默认 | [configuration/pi5-defaults](https://www.bilirec.org/zh-cn/configuration/pi5-defaults/) |
-| 内存占用估算 | [configuration/memory-estimation](https://www.bilirec.org/zh-cn/configuration/memory-estimation/) |
-| REST API | [api/overview](https://www.bilirec.org/zh-cn/api/overview/)（运行时根路径 `/` 另有 Swagger UI） |
-| Webhook 对接 | [guides/webhook-integration](https://www.bilirec.org/zh-cn/guides/webhook-integration/) |
-| 监控指标 | [configuration/metrics](https://www.bilirec.org/zh-cn/configuration/metrics/) |
-| Grafana 仪表盘 | [configuration/grafana-dashboards](https://www.bilirec.org/zh-cn/configuration/grafana-dashboards/) |
-| 常见问题 | [guides/faq](https://www.bilirec.org/zh-cn/guides/faq/) |
-| 性能实测 | [guides/performance-benchmark](https://www.bilirec.org/zh-cn/guides/performance-benchmark/) |
+| 环境变量 | 取值 | 默认 | 说明 |
+|---|---|---|---|
+| `DOWNLOADER` | auto/native/ffmpeg/streamlink | auto | auto 等同 native（不启外部进程） |
+| `FFMPEG_BIN` / `STREAMLINK_BIN` | path | ffmpeg / streamlink | 外部下载器二进制 |
+| `EXTERNAL_START_TIMEOUT_SECS` | int | 20 | 首字节超时；超时杀进程树并回退 native |
+| `FLV_REPAIR` | auto/on/off | auto | auto = 能找到 `flvrepair` 即启用 |
+| `FLV_REPAIR_BIN` | path | flvrepair | 修复侧车 |
+| `FLV_REPAIR_MODE` | best-effort/strict | best-effort | 透传侧车 |
+| `FLV_REPAIR_MAX_BUFFER_MB` | int | 64 | 透传侧车 `--max-buffer` |
 
-## 贡献与许可
+录制启动接口支持单次覆盖：`POST /record/{room}/start?downloader=ffmpeg`（或 JSON `{"downloader":"ffmpeg"}`）。
+批量/离线修复直接用 Rust CLI：`flvrepair file --input in.flv --output out.flv`。
 
-请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 与项目许可证文件。
+## 录制状态接口（T7，加性变更）
+
+`POST /record/stats`（以及批量 stats）每条记录新增：
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `downloader` | native/ffmpeg/streamlink | 本会话实际使用的下载器（外部启动失败回退时为 native） |
+| `source_format` | flv/ts/fmp4 | B 站原始流格式；`actual_stream_format` 仍是落盘格式（外部下载器为 flv） |
+| `repair` | off/on/degraded | FLV 修复实时状态（on 后若侧车降级会变 degraded） |
+
+前端已消费这些字段（录制卡片徽章）；全局设置已加入设置页（见下节）。
+
+**已知限制**（D004）：Enhanced-FLV HEVC 房间（如部分 4K/HDR 赛事）上，`ffmpeg -c copy -f flv`
+可能报 “dimensions not set” 并回退 native；native 录制与 `flvrepair` 修复对这类流正常。
+
+## FEATURES-V2（v0.3.0，设置与录制能力补齐）
+
+对应录播姬/biliup 的以下能力已实现（契约见 [docs/FEATURES-V2.md](docs/FEATURES-V2.md)）：
+
+| 编号 | 能力 | 入口 |
+|---|---|---|
+| R02/B02 | 按时间/大小/标题变化分段；过小文件过滤 | 设置页“分段” / 房间覆盖 |
+| R03 | 路径模板（相对 OUTPUT_DIR，可用 `/` 建子目录；`{uname}` `{roomid}` `{title}` `{date}`…，支持 strftime） | 设置页“命名与过滤” |
+| R04 | 标题正则过滤（自动录制跳过） | 设置页“命名与过滤” |
+| R05 | 保存直播封面（`<视频名>-cover.jpg`） | 设置页“封面” |
+| R06/R08 | 弹幕类型开关（raw 事件/SC/礼物/舰长）、传输 auto/ws/wss | 设置页“弹幕” |
+| R14 | FLV 写 metadata、Script tag 切段、Annex-B 切段开关 | 设置页“FLV 处理” |
+| R15 | `flvrepair export` / `danmaku-start-time` / `danmaku-merge` | Rust CLI |
+| R17 | 全局设置页 + 房间级覆盖 | `GET/PUT /settings`、`POST /settings/reset`、`GET/PUT /room/{id}/config` |
+| B05 | B 站高级拉流：API host/备用 host、CDN 优选/回退、强制原画、cn01 替换 | 设置页“B 站高级” |
+
+设置优先级：**房间覆盖 > DB 全局设置 > env 默认 > 内置默认**；变更只对**新会话**生效。
+环境变量清单、API 示例、部署/排障见 [docs/OPERATIONS-V2.md](docs/OPERATIONS-V2.md)。
+
+## 验证状态（v0.4.0）
+
+- `cargo test --workspace`：**95 passed**；`go test -short ./...`：全绿；`go vet`、`cargo clippy -D warnings` 通过。
+- `flvrepair`：R1–R8 全部修复并满足 `.expect.json`；clean AVC/HEVC 流 `stream` 模式字节级 round-trip；
+  `analyze` schema v1；1080p 6.4 Mbps 约 800× 实时，峰值 RSS ≈ 11 MiB；`--write-metadata` 与 Toolbox 三命令通过 golden 测试。
+- `make e2e`：离线 **109/109** 通过（设置 API/房间覆盖/校验矩阵/鉴权矩阵/持久化 + 原有下载器/断流/损坏注入/backend API）。
+- 前端：`pnpm lint` 通过、`pnpm build`（tsc + vite）通过；设置页与房间覆盖有 Playwright 无头浏览器 smoke（27/27）。
+- 真实直播录制（房间 6，匿名）：
+  - 默认设置：`【标题】-YYYYMMDD_HHMMSS.flv` 命名，`downloader=native repair=on`，行为与 v0.2.0 一致；
+  - 自定义设置：模板命名生效、`segment_mode=time/1min` 产出 `...-1.flv` 分段、封面 jpg 生成、
+    `flv_write_metadata=false` 时输出无 onMetaData；重置设置后恢复默认命名。
+- 路径模板（v0.3.1 追加）：真实录制 `{uname}-{roomid}/{date}/{title}-{time}` 正确生成
+  `records/<uname>-<roomid>/<date>/<title>-<time>.flv` + 同目录封面；绝对路径/`..` 模板返回 400。
+- 目录重构（v0.4.0）：仓库根目录即 Bilirec fork（Go module），`web/`/`rust/`/`deploy/` 等为并行目录；
+  `go build/vet/test`、`make e2e` 109/109、Docker 双镜像构建、部署后录制与设置持久化均通过。
+- Docker：`deploy/Dockerfile` + `deploy/web.Dockerfile` 构建成功；部署于 `50300/50301`（镜像 `v0.4.0`），
+  设置持久化跨容器重启验证通过。
+
+## 许可证
+
+本仓库整体 **GPL-3.0-or-later**（`rust/crates/flv-repair` 移植自 GPL-3.0 的录播姬 FLV 规则）。
+Bilirec / biliup / bilirec-web 的 MIT 归属保留在 `NOTICE`。上游来源见 `UPSTREAM.md`。

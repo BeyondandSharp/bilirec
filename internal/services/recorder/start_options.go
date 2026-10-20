@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
+	"github.com/bilirec/bilirec/internal/services/downloader"
 )
 
 type RecordStartOptions struct {
@@ -12,6 +13,8 @@ type RecordStartOptions struct {
 	streamOptions         []bilibili.GetStreamURLsOption
 	recordDanmaku         bool
 	deleteOldestOnLowDisk bool
+	hasDownloader         bool
+	downloaderKind        downloader.Kind
 }
 
 type RecordStartOption func(*RecordStartOptions)
@@ -47,6 +50,15 @@ func WithRecordDanmaku(enabled bool) RecordStartOption {
 func WithDeleteOldestOnLowDisk(enabled bool) RecordStartOption {
 	return func(o *RecordStartOptions) {
 		o.deleteOldestOnLowDisk = enabled
+	}
+}
+
+// WithDownloader overrides the global DOWNLOADER for this recording.
+// downloader.KindNative keeps the built-in HTTP path.
+func WithDownloader(kind downloader.Kind) RecordStartOption {
+	return func(o *RecordStartOptions) {
+		o.hasDownloader = true
+		o.downloaderKind = kind
 	}
 }
 

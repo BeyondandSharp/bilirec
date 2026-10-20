@@ -5,10 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
+	"github.com/bilirec/bilirec/internal/modules/config"
 	rs "github.com/bilirec/bilirec/internal/record_strategies"
+	"github.com/bilirec/bilirec/internal/services/downloader"
+	"github.com/bilirec/bilirec/internal/services/repair"
+	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/pkg/backoff"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bilirec/bilirec/pkg/pool"
@@ -71,8 +76,18 @@ func (r *Service) internalStart(p internalStartParams) error {
 		return ErrStreamNotLive
 	}
 
+	// Resolve the immutable settings snapshot once for this session start
+	// (docs/FEATURES-V2.md §0/§1.2). Recovery reuses the original snapshot, so
+	// settings changes only affect new sessions.
+	effective := r.sessionEffective(p)
+	fetchOptions := streamFetchOptions(effective)
+	flvSplitOptions := rs.FlvSplitOptions{
+		SplitOnScriptTag: effective.FlvSplitOnScriptTag,
+		SplitOnAnnexB:    !effective.FlvDisableSplitOnAnnexB,
+	}
+
 	startTimeStreamURLs := time.Now()
-	streams, err := r.bilic.GetStreamURLsV2(p.roomId, p.opts.streamOptions...)
+	streams, err := r.bilic.GetStreamURLsV2(p.roomId, appendStreamOptions(p.opts.streamOptions, fetchOptions)...)
 	durationStreamURLs := time.Since(startTimeStreamURLs)
 	l.Debugf("duration: function=GetStreamURLsV2 spent=%v", durationStreamURLs)
 
@@ -87,6 +102,7 @@ func (r *Service) internalStart(p internalStartParams) error {
 
 	now := time.Now()
 	ctx := p.ctx
+	downloaderKind := resolveDownloaderKind(p.opts, r.cfg)
 
 	for idx, streamInfo := range streams {
 		if err := ctx.Err(); err != nil {
@@ -104,12 +120,24 @@ func (r *Service) internalStart(p internalStartParams) error {
 			urlPreview,
 		)
 
-		ch, strategy, chunkPool, connected, err := r.connectStream(l, p.roomId, ctx, streamInfo, urlPreview, idx, len(streams))
+		ch, strategy, chunkPool, actualFormat, usedDownloader, connected, err := r.connectStream(l, p.roomId, ctx, downloaderKind, fetchOptions, flvSplitOptions, streamInfo, urlPreview, idx, len(streams))
 		if err != nil {
 			return err
 		}
 		if !connected {
 			continue
+		}
+
+		// FLV repair sidecar (docs/INTERFACES.md §2.2 item 6): wrap FLV
+		// sessions after connectStream succeeds and before the session is
+		// committed/prepared. HLS sessions are never wrapped.
+		repairState := "off"
+		if actualFormat == "flv" {
+			wrapped, wrappedOK := r.wrapFlvRepair(ctx, p.roomId, ch, actualFormat, chunkPool, effective.FlvWriteMetadata)
+			if wrappedOK {
+				ch = wrapped
+				repairState = "on"
+			}
 		}
 
 		if !r.sessionReadyForConfirm(p) {
@@ -133,10 +161,15 @@ func (r *Service) internalStart(p internalStartParams) error {
 			return err
 		}
 		info.chunkPool = chunkPool
-		info.SetStream(streamInfo.Qn, streamInfo.IsAudioOnly, streamInfo.Format)
+		info.SetStream(streamInfo.Qn, streamInfo.IsAudioOnly, actualFormat)
+		info.SetSessionSource(string(usedDownloader), streamInfo.Format, repairState)
+		info.effective = effective
+		l.Infof("session stream connected: downloader=%s repair=%s source_format=%s format=%s qn=%d audio_only=%t",
+			usedDownloader, repairState, streamInfo.Format, actualFormat, streamInfo.Qn, streamInfo.IsAudioOnly)
 
 		if p.mode == startModeUser {
 			r.emitSessionStarted(info)
+			r.startTitlePoller(p.roomId, info)
 		}
 
 		return r.prepare(p.roomId, ch, strategy, info.ctx, info, p.mode == startModeUser)
@@ -241,12 +274,19 @@ func (r *Service) connectStream(
 	l logger.Logger,
 	roomId int,
 	ctx context.Context,
+	downloaderKind downloader.Kind,
+	fetchOptions []bilibili.GetStreamURLsOption,
+	flvSplitOptions rs.FlvSplitOptions,
 	streamInfo bilibili.StreamURLInfo,
 	urlPreview string,
 	idx, total int,
-) (<-chan []byte, rs.StreamRecordStrategy, *pool.BucketedBytesPool, bool, error) {
+) (<-chan []byte, rs.StreamRecordStrategy, *pool.BucketedBytesPool, string, downloader.Kind, bool, error) {
 	var ch <-chan []byte
 	var strategy rs.StreamRecordStrategy
+	actualFormat := streamInfo.Format
+	// usedDownloader starts as native: it is upgraded only when the external
+	// downloader actually starts (fallback still records as native).
+	usedDownloader := downloader.KindNative
 
 	chunkPool, releaseChunkPool := r.st.AcquireChunkPool(streamInfo.Qn)
 	connected := false
@@ -255,6 +295,28 @@ func (r *Service) connectStream(
 			releaseChunkPool()
 		}
 	}()
+
+	// External downloader path (docs/INTERFACES.md §2.2 item 5): ffmpeg or
+	// streamlink remux the source to FLV, so the session always records FLV
+	// and reports Format="flv". The original source format is logged.
+	if downloaderKind.IsExternal() && supportsExternalDownloader(streamInfo.Format) {
+		if extCh, extStrategy, ok := r.connectExternalStream(l, ctx, downloaderKind, streamInfo, chunkPool, releaseChunkPool, flvSplitOptions); ok {
+			connected = true
+			return extCh, extStrategy, chunkPool, "flv", downloaderKind, true, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, nil, nil, "", "", false, err
+		}
+		l.Warnf("外部下载器启动失败，回退到内置下载：downloader=%s source_format=%s (protocol=%s, format=%s, codec=%s, qn=%d, url=%s)",
+			downloaderKind,
+			streamInfo.Format,
+			streamInfo.Protocol,
+			streamInfo.Format,
+			streamInfo.Codec,
+			streamInfo.Qn,
+			urlPreview,
+		)
+	}
 
 	switch streamInfo.Format {
 	case "ts", "fmp4":
@@ -283,9 +345,11 @@ func (r *Service) connectStream(
 			}
 
 			latestStreams, fetchErr := r.bilic.GetStreamURLsV2(roomId,
-				bilibili.WithProfiles(profile),
-				bilibili.WithQn(bilibili.Quality(streamInfo.Qn)),
-				bilibili.WithOnlyAudio(streamInfo.IsAudioOnly),
+				appendStreamOptions([]bilibili.GetStreamURLsOption{
+					bilibili.WithProfiles(profile),
+					bilibili.WithQn(bilibili.Quality(streamInfo.Qn)),
+					bilibili.WithOnlyAudio(streamInfo.IsAudioOnly),
+				}, fetchOptions)...,
 			)
 			if fetchErr != nil {
 				return "", fetchErr
@@ -341,10 +405,10 @@ func (r *Service) connectStream(
 		hlsCh, hlsErr := r.st.ReadHlsStream(fetchM3u8URL, r.bilic.GetLiveHlsPlaylistClient(), r.bilic.GetLiveHlsSegmentClient(), ctx, streamInfo.Qn, chunkPool, releaseChunkPool)
 		if hlsErr != nil {
 			if errors.Is(hlsErr, context.Canceled) || ctx.Err() != nil {
-				return nil, nil, nil, false, context.Canceled
+				return nil, nil, nil, "", "", false, context.Canceled
 			}
 			l.Errorf("cannot start HLS stream: %v, will try next url", hlsErr)
-			return nil, nil, nil, false, nil
+			return nil, nil, nil, "", "", false, nil
 		}
 		ch = hlsCh
 		strategy = utils.TernaryFunc(
@@ -361,7 +425,7 @@ func (r *Service) connectStream(
 
 		if err != nil {
 			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
-				return nil, nil, nil, false, context.Canceled
+				return nil, nil, nil, "", "", false, context.Canceled
 			}
 			l.Errorf("cannot fetch url: %v, will try next url (protocol=%s, format=%s, codec=%s, qn=%d, url=%s)",
 				err,
@@ -371,7 +435,7 @@ func (r *Service) connectStream(
 				streamInfo.Qn,
 				urlPreview,
 			)
-			return nil, nil, nil, false, nil
+			return nil, nil, nil, "", "", false, nil
 		} else if resp.StatusCode() != 200 {
 			drainAndCloseBody(resp.RawBody())
 			l.Errorf("non-200 response: %d, will try next url (protocol=%s, format=%s, codec=%s, qn=%d, url=%s)",
@@ -382,7 +446,7 @@ func (r *Service) connectStream(
 				streamInfo.Qn,
 				urlPreview,
 			)
-			return nil, nil, nil, false, nil
+			return nil, nil, nil, "", "", false, nil
 		}
 
 		finalURL := ""
@@ -407,16 +471,16 @@ func (r *Service) connectStream(
 		if flvErr != nil {
 			drainAndCloseBody(resp.RawBody())
 			l.Errorf("cannot capture url stream: %v, will try next url", flvErr)
-			return nil, nil, nil, false, nil
+			return nil, nil, nil, "", "", false, nil
 		}
 		ch = flvCh
-		strategy = rs.NewFlvStrategy(streamInfo.Qn)
+		strategy = rs.NewFlvStrategyWithOptions(streamInfo.Qn, flvSplitOptions)
 		connected = true
 	default:
-		return nil, nil, nil, false, fmt.Errorf("unsupported format: %s", streamInfo.Format)
+		return nil, nil, nil, "", "", false, fmt.Errorf("unsupported format: %s", streamInfo.Format)
 	}
 
-	return ch, strategy, chunkPool, true, nil
+	return ch, strategy, chunkPool, actualFormat, usedDownloader, true, nil
 }
 
 func drainAndCloseBody(body io.ReadCloser) {
@@ -427,6 +491,14 @@ func drainAndCloseBody(body io.ReadCloser) {
 	_ = body.Close()
 }
 
+// discardStreamCh drains a stream channel so its producer can finish, returning
+// buffers to the pool.
+//
+// Note: this path does not force-close the underlying producer. For the native
+// HTTP path and the external downloader path the producer stops on EOF/session
+// context cancellation (a downloader process tree is killed by its context
+// watcher when the session is cancelled, or by EOF when the stream ends). This
+// mirrors the pre-existing native discard behavior; see Lead review note on T3.
 func discardStreamCh(ch <-chan []byte, chunkPool *pool.BucketedBytesPool) {
 	if ch == nil {
 		return
@@ -438,4 +510,144 @@ func discardStreamCh(ch <-chan []byte, chunkPool *pool.BucketedBytesPool) {
 			}
 		}
 	}()
+}
+
+// supportsExternalDownloader reports whether an external downloader can fetch
+// this source format. All supported formats are remuxed to FLV by ffmpeg.
+func supportsExternalDownloader(format string) bool {
+	switch format {
+	case "flv", "ts", "fmp4":
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveDownloaderKind returns the per-session downloader kind: the request
+// override when present, otherwise the global DOWNLOADER setting. "auto" and
+// unknown values behave like native in v1.
+func resolveDownloaderKind(o RecordStartOptions, cfg *config.Config) downloader.Kind {
+	if o.hasDownloader {
+		return o.downloaderKind
+	}
+	if cfg == nil {
+		return downloader.KindNative
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Downloader)) {
+	case string(downloader.KindFFmpeg):
+		return downloader.KindFFmpeg
+	case string(downloader.KindStreamlink):
+		return downloader.KindStreamlink
+	default:
+		return downloader.KindNative
+	}
+}
+
+// downloaderFor returns the downloader for kind, or nil (native/unknown).
+func (r *Service) downloaderFor(kind downloader.Kind) downloader.Downloader {
+	if r.downloaders == nil {
+		return nil
+	}
+	return r.downloaders.Get(kind)
+}
+
+// connectExternalStream opens an external downloader process tree and starts
+// pumping its FLV output. It returns ok=false (so the caller can fall back to
+// the native path for the same streamInfo) on spawn failure or when no output
+// byte arrives before EXTERNAL_START_TIMEOUT_SECS.
+func (r *Service) connectExternalStream(
+	l logger.Logger,
+	ctx context.Context,
+	kind downloader.Kind,
+	streamInfo bilibili.StreamURLInfo,
+	chunkPool *pool.BucketedBytesPool,
+	releasePool func(),
+	flvSplitOptions rs.FlvSplitOptions,
+) (<-chan []byte, rs.StreamRecordStrategy, bool) {
+	d := r.downloaderFor(kind)
+	if d == nil {
+		l.Warnf("未找到外部下载器：downloader=%s", kind)
+		return nil, nil, false
+	}
+
+	var headers map[string]string
+	if r.bilic != nil {
+		headers = r.bilic.StreamRequestHeaders()
+	}
+	spec := downloader.Spec{
+		URL:     streamInfo.URL,
+		Format:  streamInfo.Format,
+		Headers: headers,
+	}
+
+	start := time.Now()
+	rc, err := d.Open(ctx, spec)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return nil, nil, false
+		}
+		l.Warnf("外部下载器启动失败：downloader=%s source_format=%s qn=%d err=%v", kind, streamInfo.Format, streamInfo.Qn, err)
+		return nil, nil, false
+	}
+
+	ch := r.st.ReadExternalStream(rc, ctx, streamInfo.Qn, chunkPool, releasePool)
+	l.Infof("外部下载器已连接：downloader=%s source_format=%s qn=%d first_byte=%v", kind, streamInfo.Format, streamInfo.Qn, time.Since(start))
+	return ch, rs.NewFlvStrategyWithOptions(streamInfo.Qn, flvSplitOptions), true
+}
+
+// sessionEffective resolves the immutable settings snapshot for a session
+// start. Recovery reuses the snapshot taken when the session first started so
+// settings changes only affect new sessions (docs/FEATURES-V2.md §0).
+func (r *Service) sessionEffective(p internalStartParams) settings.Effective {
+	if p.mode == startModeRecovery && p.session != nil && p.session.effective.SegmentMode != "" {
+		return p.session.effective
+	}
+	if r.settings == nil {
+		return settings.Effective{}
+	}
+	return r.settings.Resolve(p.roomId)
+}
+
+// streamFetchOptions maps the effective Bilibili advanced-fetch settings to a
+// GetStreamURLsV2 option (docs/FEATURES-V2.md §6). Defaults are a no-op:
+// WithFetchConfig folds the official host into empty and keeps the legacy
+// single-host request.
+func streamFetchOptions(eff settings.Effective) []bilibili.GetStreamURLsOption {
+	return []bilibili.GetStreamURLsOption{
+		bilibili.WithFetchConfig(bilibili.StreamFetchConfig{
+			APIHost:         eff.BiliLiveAPIHost,
+			FallbackAPIHost: eff.BiliLiveAPIFallbackHost,
+			CDN:             eff.BiliCDN,
+			CDNFallback:     eff.BiliCDNFallback,
+			ForceSource:     eff.BiliForceSource,
+			ReplaceCN01:     eff.BiliReplaceCN01,
+		}),
+	}
+}
+
+// appendStreamOptions returns base + extra without mutating base's backing
+// array (callers may reuse the start options across attempts).
+func appendStreamOptions(base, extra []bilibili.GetStreamURLsOption) []bilibili.GetStreamURLsOption {
+	out := make([]bilibili.GetStreamURLsOption, 0, len(base)+len(extra))
+	out = append(out, base...)
+	out = append(out, extra...)
+	return out
+}
+
+// wrapFlvRepair wraps an FLV byte channel with the flvrepair sidecar when
+// repair is enabled. Non-FLV formats and repair failures return the original
+// channel so a repair problem can never abort a recording (docs §2.5).
+func (r *Service) wrapFlvRepair(ctx context.Context, roomID int, ch <-chan []byte, format string, chunkPool *pool.BucketedBytesPool, writeMetadata bool) (<-chan []byte, bool) {
+	if format != "flv" || r.repair == nil || !r.repair.Enabled() {
+		return ch, false
+	}
+	wrapped, err := r.repair.WithRoom(roomID).WrapStream(ctx, ch, chunkPool, repair.SessionOptions{WriteMetadata: writeMetadata})
+	if err != nil {
+		log.Warnf("启用 FLV 修复失败，本次会话继续录制但不修复：%v", err)
+		return ch, false
+	}
+	if wrapped == nil {
+		return ch, false
+	}
+	return wrapped, true
 }

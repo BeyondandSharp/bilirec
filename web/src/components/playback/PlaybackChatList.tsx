@@ -1,0 +1,306 @@
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { useTranslation } from "react-i18next"
+import { cn } from "@/lib/utils"
+import { useVideoPlaybackTime } from "@/hooks/use-video-playback-time"
+import {
+  chatItemsVisibleEnd,
+  guardDurationMonths,
+  guardLevelColor,
+  guardLevelLabel,
+  resolveSuperChatTheme,
+  type PlaybackChatItem,
+} from "@/lib/danmaku"
+import type { EmoteMap } from "@/lib/danmaku-emote"
+import { GuardIcon, type OverlayLayout } from "@/components/playback/EventOverlayLayer"
+import { PlaybackChatDanmakuBody } from "@/components/playback/PlaybackChatDanmakuBody"
+
+const CONTROL_RESERVE_PX = 100
+const STICK_BOTTOM_PX = 48
+const EST_ROW_PX = 36
+/** Overlay panel: keep clear of the dialog close button floating at the stage's top-right. */
+const PANEL_TOP_INSET_PX = 44
+const PANEL_RIGHT_INSET_PX = 8
+const PANEL_WIDTH_PX = 320
+
+type ChatListLayout =
+  | Extract<OverlayLayout, { mode: "letterbox" | "docked" }>
+  | { mode: "panel" }
+  | { mode: "column" }
+
+interface PlaybackChatListProps {
+  items: PlaybackChatItem[]
+  videoRef: RefObject<HTMLVideoElement | null>
+  hidden: boolean
+  layout: ChatListLayout
+  emotes?: EmoteMap | null
+  className?: string
+}
+
+function ChatRow({ item, emotes }: { item: PlaybackChatItem; emotes?: EmoteMap | null }) {
+  const { t } = useTranslation()
+
+  if (item.kind === "danmaku") {
+    return (
+      <div className="px-2.5 py-1 text-[13px] leading-snug text-white/90">
+        {item.user ? (
+          <span className="mr-1.5 font-medium text-white/55">{item.user}</span>
+        ) : null}
+        <PlaybackChatDanmakuBody
+          text={item.text}
+          color={item.color}
+          emoticonUrl={item.emoticonUrl}
+          emotes={emotes}
+        />
+      </div>
+    )
+  }
+
+  if (item.kind === "super_chat") {
+    const theme = resolveSuperChatTheme(item)
+    return (
+      <div
+        className="mx-2 my-1 overflow-hidden rounded-md text-left shadow-md"
+        style={{
+          backgroundColor: theme.body,
+          border: `1px solid ${theme.body}`,
+          boxShadow: "1px 1px 5px rgb(0 0 0 / 0.75)",
+        }}
+      >
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold bg-contain bg-no-repeat"
+          style={{
+            backgroundColor: theme.header,
+            color: theme.name,
+            backgroundImage: theme.backgroundImage ? `url(${theme.backgroundImage})` : undefined,
+            backgroundPosition: "right center",
+          }}
+        >
+          {item.face ? (
+            <img
+              src={item.face}
+              alt=""
+              className="size-6 shrink-0 rounded-full object-cover"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="size-6 shrink-0 rounded-full bg-black/20" />
+          )}
+          <span className="min-w-0 flex-1 truncate leading-6">{item.user}</span>
+          <span className="shrink-0 tabular-nums leading-6" style={{ color: theme.price }}>
+            ￥{item.price ?? 0}
+          </span>
+        </div>
+        {item.text ? (
+          <div className="px-2.5 py-1.5">
+            <p
+              className="text-xs leading-snug line-clamp-4 wrap-break-word"
+              style={{ color: theme.message }}
+            >
+              {item.text}
+            </p>
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  if (item.kind === "gift") {
+    return (
+      <div className="px-2.5 py-1 text-[12px] leading-snug text-white/85">
+        <span aria-hidden>🎁 </span>
+        <span className="font-medium text-pink-200">{item.user}</span>
+        <span className="text-white/75">
+          {" "}
+          {t("playbackPlayer.giftLine", {
+            gift: item.giftName || t("playbackPlayer.giftFallback"),
+            count: item.giftCount ?? 1,
+          })}
+        </span>
+      </div>
+    )
+  }
+
+  const color = guardLevelColor(item.level)
+  const label = guardLevelLabel(item.level)
+  const months = guardDurationMonths(item)
+  return (
+    <div
+      className="relative mx-2 my-1 overflow-hidden rounded-md bg-black/75 text-left shadow-md backdrop-blur-sm"
+      style={{
+        border: `1px solid ${color}66`,
+        boxShadow: `0 0 12px ${color}40, 1px 1px 5px rgb(0 0 0 / 0.75)`,
+      }}
+    >
+      <div aria-hidden className="absolute inset-y-0 left-0 w-1.5" style={{ backgroundColor: color }} />
+      <div className="flex items-center gap-2 py-1.5 pl-3.5 pr-2.5">
+        <GuardIcon level={item.level} color={color} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[11px] font-bold leading-tight" style={{ color }}>
+              {label}
+            </span>
+            <span className="text-[10px] text-white/55 leading-tight">{t("playbackPlayer.guardAction")}</span>
+          </div>
+          <div className="mt-0.5 flex items-center gap-1">
+            <span className="truncate text-xs font-medium leading-tight text-white">{item.user}</span>
+          </div>
+        </div>
+        {/* Duration pinned to the right edge so long nicknames never shift it */}
+        <span className="shrink-0 self-center text-[11px] text-white/60">
+          {t("playbackPlayer.guardMonths", { months })}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Portrait chat timeline (virtualized): letterbox black bar, translucent dock on
+ * vertical VODs, or a floating overlay panel on the desktop picture.
+ * Follows playback (stick-to-bottom) until the user scrolls up.
+ */
+export function PlaybackChatList({
+  items,
+  videoRef,
+  hidden,
+  layout,
+  emotes,
+  className,
+}: PlaybackChatListProps) {
+  const currentTime = useVideoPlaybackTime(videoRef)
+  const parentRef = useRef<HTMLDivElement>(null)
+  const stickRef = useRef(true)
+  const [stickBottom, setStickBottom] = useState(true)
+
+  const visibleCount = useMemo(
+    () => chatItemsVisibleEnd(items, currentTime),
+    [items, currentTime]
+  )
+  const visible = useMemo(() => items.slice(0, visibleCount), [items, visibleCount])
+
+  const virtualizer = useVirtualizer({
+    count: visible.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => EST_ROW_PX,
+    overscan: 12,
+    measureElement:
+      typeof window !== "undefined" && "ResizeObserver" in window
+        ? (el) => el.getBoundingClientRect().height
+        : undefined,
+  })
+
+  useEffect(() => {
+    stickRef.current = true
+    setStickBottom(true)
+  }, [items])
+
+  useEffect(() => {
+    if (!stickRef.current || visible.length === 0) return
+    const id = requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(visible.length - 1, { align: "end" })
+    })
+    return () => cancelAnimationFrame(id)
+    // Only follow when the visible window grows/shrinks with playback/seek.
+    // The virtualizer API is stable enough here; only the visible row count drives this effect.
+  }, [visible.length])
+
+  if (hidden) return null
+
+  const panel = layout.mode === "panel"
+  const column = layout.mode === "column"
+  const docked = layout.mode === "docked"
+  const panelStyle: CSSProperties | undefined = panel
+    ? {
+        top: PANEL_TOP_INSET_PX,
+        right: PANEL_RIGHT_INSET_PX,
+        bottom: CONTROL_RESERVE_PX,
+        width: PANEL_WIDTH_PX,
+      }
+    : column
+      ? undefined
+      : docked
+        ? {
+            left: 0,
+            right: 0,
+            bottom: layout.bottomInset,
+            height: layout.panelHeight,
+          }
+        : {
+            top: layout.contentBottom + 4,
+            bottom: CONTROL_RESERVE_PX,
+            left: 0,
+            right: 0,
+          }
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-auto flex flex-col",
+        panel
+          ? "absolute z-19 rounded-md bg-linear-to-l from-black/75 via-black/50 to-black/10 backdrop-blur-[1px]"
+          : column
+            ? "relative h-full w-full"
+            : "absolute z-19",
+        docked && "bg-linear-to-r from-black/75 via-black/50 to-black/10 backdrop-blur-[1px]",
+        className
+      )}
+      style={panelStyle}
+    >
+      {column ? <div aria-hidden className="h-11 shrink-0" /> : null}
+      <div
+        ref={parentRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
+        onScroll={() => {
+          const el = parentRef.current
+          if (!el) return
+          const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+          const next = dist <= STICK_BOTTOM_PX
+          stickRef.current = next
+          setStickBottom(next)
+        }}
+      >
+        <div
+          className="relative w-full"
+          style={{ height: `${virtualizer.getTotalSize()}px` }}
+        >
+          {virtualizer.getVirtualItems().map((row) => {
+            const item = visible[row.index]
+            if (!item) return null
+            return (
+              <div
+                key={item.id}
+                data-index={row.index}
+                ref={virtualizer.measureElement}
+                className="absolute top-0 left-0 w-full"
+                style={{ transform: `translateY(${row.start}px)` }}
+              >
+                <ChatRow item={item} emotes={emotes} />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      {!stickBottom && visible.length > 0 ? (
+        <button
+          type="button"
+          className={cn(
+            "absolute right-2 rounded-full bg-white/15 px-2.5 py-1 text-[11px] text-white/90 backdrop-blur-sm",
+            // Desktop panel + extend column: bottom-right keeps the pill clear
+            // of the dialog close button floating at the top-right. Mobile
+            // letterbox/docked keeps it at the top inside the visible dock.
+            panel || column ? "bottom-2" : "top-1"
+          )}
+          onClick={() => {
+            stickRef.current = true
+            setStickBottom(true)
+            virtualizer.scrollToIndex(visible.length - 1, { align: "end" })
+          }}
+        >
+          ↓
+        </button>
+      ) : null}
+    </div>
+  )
+}

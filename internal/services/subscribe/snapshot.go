@@ -13,7 +13,41 @@ func cloneRoomConfig(cfg *RoomConfig) *RoomConfig {
 	if cfg.StreamProfiles != nil {
 		out.StreamProfiles = slices.Clone(cfg.StreamProfiles)
 	}
+	out.SegmentMode = clonePtr(cfg.SegmentMode)
+	out.SegmentMinutes = clonePtr(cfg.SegmentMinutes)
+	out.SegmentSizeMB = clonePtr(cfg.SegmentSizeMB)
+	out.SegmentByTitle = clonePtr(cfg.SegmentByTitle)
+	out.MinFileSizeMB = clonePtr(cfg.MinFileSizeMB)
+	out.FilenameTemplate = clonePtr(cfg.FilenameTemplate)
+	out.TitleFilterPatterns = clonePtr(cfg.TitleFilterPatterns)
+	out.SaveStreamCover = clonePtr(cfg.SaveStreamCover)
+	out.DanmakuTypes = clonePtr(cfg.DanmakuTypes)
+	out.DanmakuTransport = clonePtr(cfg.DanmakuTransport)
+	out.FlvWriteMetadata = clonePtr(cfg.FlvWriteMetadata)
+	out.FlvSplitOnScriptTag = clonePtr(cfg.FlvSplitOnScriptTag)
+	out.FlvDisableSplitOnAnnexB = clonePtr(cfg.FlvDisableSplitOnAnnexB)
+	out.BiliLiveAPIHost = clonePtr(cfg.BiliLiveAPIHost)
+	out.BiliLiveAPIFallbackHost = clonePtr(cfg.BiliLiveAPIFallbackHost)
+	if cfg.BiliCDN != nil {
+		v := slices.Clone(*cfg.BiliCDN)
+		out.BiliCDN = &v
+	}
+	out.BiliCDNFallback = clonePtr(cfg.BiliCDNFallback)
+	out.BiliForceSource = clonePtr(cfg.BiliForceSource)
+	if cfg.BiliReplaceCN01 != nil {
+		v := slices.Clone(*cfg.BiliReplaceCN01)
+		out.BiliReplaceCN01 = &v
+	}
 	return &out
+}
+
+// clonePtr deep-copies a pointer field so callers cannot mutate the cache.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 func cloneRooms(rooms map[int]*RoomConfig) map[int]*RoomConfig {

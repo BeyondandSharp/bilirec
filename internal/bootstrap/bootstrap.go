@@ -11,12 +11,14 @@ import (
 	nc "github.com/bilirec/bilirec/internal/controllers/notify"
 	"github.com/bilirec/bilirec/internal/controllers/record"
 	"github.com/bilirec/bilirec/internal/controllers/room"
+	cs "github.com/bilirec/bilirec/internal/controllers/settings"
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/modules/logging"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/modules/rest"
 	co "github.com/bilirec/bilirec/internal/services/convert"
+	cv "github.com/bilirec/bilirec/internal/services/cover"
 	dm "github.com/bilirec/bilirec/internal/services/danmaku"
 	ex "github.com/bilirec/bilirec/internal/services/expose"
 	fi "github.com/bilirec/bilirec/internal/services/file"
@@ -25,7 +27,9 @@ import (
 	no "github.com/bilirec/bilirec/internal/services/notify"
 	pa "github.com/bilirec/bilirec/internal/services/path"
 	re "github.com/bilirec/bilirec/internal/services/recorder"
+	rp "github.com/bilirec/bilirec/internal/services/repair"
 	ro "github.com/bilirec/bilirec/internal/services/room"
+	se "github.com/bilirec/bilirec/internal/services/settings"
 	st "github.com/bilirec/bilirec/internal/services/stream"
 	sc "github.com/bilirec/bilirec/internal/services/subcheck"
 	su "github.com/bilirec/bilirec/internal/services/subscribe"
@@ -51,6 +55,9 @@ func MainModule() fx.Option {
 		fx.Provide(me.NewService),
 		fx.Provide(dm.NewService),
 		fx.Provide(st.NewService),
+		fx.Provide(cv.NewService),
+		fx.Provide(rp.NewService),
+		fx.Provide(se.NewService),
 		fx.Provide(re.NewService),
 		fx.Provide(ro.NewService),
 		fx.Provide(su.NewService),
@@ -65,6 +72,7 @@ func MainModule() fx.Option {
 		fx.Invoke(updatecheck.InvokeCheck),
 
 		fx.Invoke(room.NewController),
+		fx.Invoke(cs.NewController),
 		fx.Invoke(nc.NewController),
 		fx.Invoke(record.NewController),
 		fx.Invoke(file.NewController),

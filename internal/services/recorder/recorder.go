@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,8 +16,13 @@ import (
 	"github.com/bilirec/bilirec/internal/processors"
 	rs "github.com/bilirec/bilirec/internal/record_strategies"
 	"github.com/bilirec/bilirec/internal/services/convert"
+	"github.com/bilirec/bilirec/internal/services/cover"
 	"github.com/bilirec/bilirec/internal/services/danmaku"
+	"github.com/bilirec/bilirec/internal/services/downloader"
+	"github.com/bilirec/bilirec/internal/services/naming"
 	"github.com/bilirec/bilirec/internal/services/notify"
+	"github.com/bilirec/bilirec/internal/services/repair"
+	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/stream"
 	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/pkg/ds"
@@ -64,6 +70,10 @@ type Service struct {
 	nt           *notify.Service
 	wh           *webhook.Service
 	dm           *danmaku.Service
+	cover        *cover.Service
+	downloaders  *downloader.Registry
+	repair       *repair.Service
+	settings     *settings.Service
 	bilic        *bilibili.Client
 	m            *metrics.Exporter
 	recording    *xsync.Map[int, *Info]
@@ -82,6 +92,9 @@ func NewService(
 	cv *convert.Service,
 	nt *notify.Service,
 	dm *danmaku.Service,
+	coverSvc *cover.Service,
+	repairSvc *repair.Service,
+	settingsSvc *settings.Service,
 	bilic *bilibili.Client,
 	cfg *config.Config,
 	m *metrics.Exporter,
@@ -90,12 +103,22 @@ func NewService(
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	downloaders := downloader.NewRegistry(downloader.Options{
+		FFmpegBin:     cfg.FFmpegBin,
+		StreamlinkBin: cfg.StreamlinkBin,
+		StartTimeout:  time.Duration(cfg.ExternalStartTimeoutSecs) * time.Second,
+	})
+
 	r := &Service{
 		st:           st,
 		cv:           cv,
 		nt:           nt,
 		dm:           dm,
+		cover:        coverSvc,
 		bilic:        bilic,
+		downloaders:  downloaders,
+		repair:       repairSvc,
+		settings:     settingsSvc,
 		m:            m,
 		recording:    xsync.NewMap[int, *Info](),
 		writingFiles: ds.NewSyncedSet[string](),
@@ -209,6 +232,53 @@ func (r *Service) prepare(roomId int, ch <-chan []byte, strategy rs.StreamRecord
 	return nil
 }
 
+// startTitlePoller starts the per-session title poller when SegmentByTitle is
+// enabled (docs/FEATURES-V2.md §3.1). Only user-started sessions start it, so
+// recovery never creates a second poller.
+func (r *Service) startTitlePoller(roomId int, info *Info) {
+	if info == nil || !info.effective.SegmentByTitle || r.bilic == nil {
+		return
+	}
+	interval := time.Duration(r.cfg.TitlePollSecs) * time.Second
+	if interval < 5*time.Second {
+		interval = 5 * time.Second
+	}
+	r.wg.Go(func() {
+		r.pollTitle(info.ctx, roomId, info, interval)
+	})
+}
+
+// pollTitle refreshes the live room title and requests a title-based rotation
+// when it changes. Errors are warned at most once per minute and recording
+// continues.
+func (r *Service) pollTitle(ctx context.Context, roomId int, info *Info, interval time.Duration) {
+	l := log.With("room", roomId)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var lastWarn time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			roomInfo, err := r.bilic.GetLiveRoomInfo(roomId)
+			if err != nil {
+				if time.Since(lastWarn) >= time.Minute {
+					l.Warnf("轮询直播标题失败（将按 %v 间隔继续重试）：%v", interval, err)
+					lastWarn = time.Now()
+				}
+				continue
+			}
+			if roomInfo == nil || roomInfo.Title == "" || roomInfo.Title == info.Title() {
+				continue
+			}
+			info.SetTitle(roomInfo.Title)
+			info.RequestRotation("title")
+			l.Infof("直播标题变化，按配置请求切段：title=%q", roomInfo.Title)
+		}
+	}
+}
+
 func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordStrategy, info *Info, ctx context.Context, userStart bool) error {
 	l := log.With("room", roomId)
 	defer strategy.Close()
@@ -249,11 +319,21 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 		}
 
 		info.segmentOpenTime = segmentOpen
+		info.resetSegmentRotation(segmentOpen)
 		r.emitFileOpening(roomId, info, outputPath)
+
+		// Stream cover: best-effort, once per session on the first segment
+		// (docs/FEATURES-V2.md §3.4).
+		if segment == 0 && info.effective.SaveStreamCover && r.cover != nil && info.room != nil {
+			r.cover.SaveAsync(ctx, info.room.Cover, cover.PathFor(outputPath), l)
+		}
 
 		if info.startOptions.recordDanmaku {
 			if segment == 0 && userStart {
-				r.dm.StartSession(roomId, info.ctx, outputPath, danmakuRoomMeta(info.room), segmentOpen)
+				r.dm.StartSession(roomId, info.ctx, outputPath, danmakuRoomMeta(info), segmentOpen, danmaku.SessionOptions{
+					Types:     info.effective.DanmakuTypes,
+					Transport: info.effective.DanmakuTransport,
+				})
 			} else {
 				r.dm.Rotate(roomId, outputPath, segmentOpen)
 			}
@@ -267,7 +347,15 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 			handle := strategy.HandleErr(err)
 			switch handle.Action {
 			case rs.ErrActionRotate:
-				l.Infof("收到策略要求轮转文件的信号，开始分割录制文件: %v", err)
+				if errors.Is(err, rs.ErrRotationRequested) {
+					reason := info.takeRotationReason()
+					if reason == "" {
+						reason = "configured"
+					}
+					l.Infof("按配置切段：reason=%s（segment=%d）", reason, segment+1)
+				} else {
+					l.Infof("收到策略要求轮转文件的信号，开始分割录制文件: %v", err)
+				}
 				if handle.State == nil {
 					state = &rs.RotationState{Data: map[string][]byte{}}
 				} else {
@@ -314,11 +402,22 @@ func (r *Service) rev(roomId int, ch <-chan []byte, info *Info, ctx context.Cont
 		go r.finalize(roomId, info, outputPath, info.isAudioOnly.Load())
 	}()
 	for data := range ch {
+		// A configured segment cut applies to the next chunk (docs §3.1).
+		if info.RotationPending() {
+			if info.chunkPool != nil && cap(data) > 0 {
+				info.chunkPool.Put(data[:cap(data)])
+			}
+			return rs.ErrRotationRequested
+		}
 		info.bytesRead.Add(uint64(len(data)))
 		r.m.AddStreamBytes(roomId, len(data))
 		result, err := pipe.Process(ctx, data)
 		if info.chunkPool != nil && cap(data) > 0 {
 			info.chunkPool.Put(data[:cap(data)])
+		}
+		if err == nil {
+			info.addSegmentBytes(len(data))
+			info.checkSegmentTime()
 		}
 		if err != nil {
 			// "abandoned" bytes = pipeline output size at the moment of error, not input size.
@@ -489,7 +588,7 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 
 	defer r.writingFiles.Remove(filepath.Base(outputPath))
 
-	_, err := os.Stat(outputPath)
+	fileInfo, err := os.Stat(outputPath)
 	if err != nil && os.IsNotExist(err) {
 		log.Debugf("文件因为过小被而没有写入，跳过收尾：%s", outputPath)
 		if info.startOptions.recordDanmaku {
@@ -501,6 +600,22 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 		log.Errorf("获取房间 %d 录制文件状态失败：%v", roomId, err)
 		r.m.RecordingSegmentDiscarded(roomId, metrics.ReasonStatError)
 		return
+	}
+
+	// Minimum file size filter (docs/FEATURES-V2.md §3.1): remove too-small
+	// segments before conversion/webhooks.
+	if minMB := info.effective.MinFileSizeMB; minMB > 0 {
+		if fileInfo.Size() < int64(minMB)*1024*1024 {
+			log.Infof("录制文件小于 MIN_FILE_SIZE_MB（%d MB），已删除：%s", minMB, outputPath)
+			if info.startOptions.recordDanmaku {
+				r.dm.Discard(roomId, outputPath)
+			}
+			if removeErr := os.Remove(outputPath); removeErr != nil {
+				log.Warnf("删除过小录制文件失败：%v", removeErr)
+			}
+			r.m.RecordingSegmentDiscarded(roomId, metrics.ReasonSkippedSmall)
+			return
+		}
 	}
 
 	if !r.cfg.ConvertToMp4 {
@@ -534,7 +649,7 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 
 func (r *Service) stopAndPublish(roomId int, info *Info) {
 	r.Stop(roomId)
-	r.nt.PublishLiveState(roomId, info.room.Uname, info.room.Title, notify.LiveStateRecordStopped)
+	r.nt.PublishLiveState(roomId, info.room.Uname, info.Title(), notify.LiveStateRecordStopped)
 }
 
 func (r *Service) giveUpRecover(roomId int, info *Info, reason string) {
@@ -544,28 +659,40 @@ func (r *Service) giveUpRecover(roomId int, info *Info, reason string) {
 
 // fileTime is used for the filename timestamp; startTime is for duration accounting.
 func (r *Service) rotateFilePath(info *Info, segment int, ext string) (string, error) {
+	// A non-empty filename template is a PATH template relative to OUTPUT_DIR:
+	// "/" creates subdirectories and there is no implicit <uname>-<roomid>/.
+	// Parent dirs, collision handling and root containment live in naming.
+	// The empty default keeps the legacy v0.2.0 naming so defaults stay
+	// identical (docs/FEATURES-V2.md §3.2 + §8 defaults check).
+	if template := strings.TrimSpace(info.effective.FilenameTemplate); template != "" {
+		return naming.ResolvePathInRoot(r.cfg.OutputDir, template, ext, naming.Vars{
+			RoomID:  int(info.room.RoomID),
+			ShortID: int(info.room.ShortID),
+			Uname:   info.room.Uname,
+			Title:   info.Title(),
+			Time:    info.fileTime,
+			Segment: segment,
+		})
+	}
+
 	dirPath := fmt.Sprintf("%s/%s-%d", r.cfg.OutputDir, info.room.Uname, info.room.RoomID)
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return "", err
 	}
-	safeTitle := utils.TruncateString(utils.SanitizeFilename(info.room.Title), 20)
+	safeTitle := utils.TruncateString(utils.SanitizeFilename(info.Title()), 20)
 	stamp := info.fileTime.Format("20060102_150405")
-	if segment == 0 {
-		return fmt.Sprintf("%s/%s-%s%s", dirPath, safeTitle, stamp, ext), nil
-	} else {
-		return fmt.Sprintf("%s/%s-%s-%d%s", dirPath, safeTitle, stamp, segment, ext), nil
-	}
+	return naming.UniquePath(dirPath, fmt.Sprintf("%s-%s", safeTitle, stamp), ext, segment)
 }
 
-func danmakuRoomMeta(room *bilibili.LiveRoomInfoDetail) danmaku.RoomMeta {
-	if room == nil {
+func danmakuRoomMeta(info *Info) danmaku.RoomMeta {
+	if info == nil || info.room == nil {
 		return danmaku.RoomMeta{}
 	}
 	return danmaku.RoomMeta{
-		RoomID:  room.RoomID,
-		ShortID: room.ShortID,
-		Uname:   room.Uname,
-		Title:   room.Title,
+		RoomID:  info.room.RoomID,
+		ShortID: info.room.ShortID,
+		Uname:   info.room.Uname,
+		Title:   info.Title(),
 	}
 }
 

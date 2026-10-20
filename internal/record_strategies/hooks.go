@@ -13,4 +13,7 @@ type PipelineHooks struct {
 	OnSync          func(processors.SyncEvent)
 	OnEnqueueWait   func(processors.EnqueueWaitEvent)
 	OnTimestampJump flv.TimestampJumpReporter
+	// OnFlvHeaders observes the current video/audio sequence-header FLV tags
+	// (FLV only) so configured rotations can carry them into the next segment.
+	OnFlvHeaders func(videoTag, audioTag []byte)
 }

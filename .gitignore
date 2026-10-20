@@ -1,29 +1,28 @@
-**/secrets/*
-**/records/*
-**/database/*
-**/docs/*
-**/java-upgrade/*
-dist
-
-*.tmp
-*.zip
-*.mp4
-*.flv
-*.ts
-*.prof
-*.txt
-*.py
-*.exe
+refs/
+dist/
+target/
+rust/target/
+__pycache__/
+*.pyc
+**/records/
+**/database/
+**/secrets/
+**/docs/swagger.json
+**/docs/docs.go
+**/docs/swagger.yaml
 *.log
-*.so
-*.pprof
-*.json
-*.jsonl
-*.db
+*.tmp
+.DS_Store
+node_modules/
 
+# Local compose overrides (ports/CORS/host-specific), never committed
+deploy/.env
+
+# Local volume backups (deploy/backup.sh output)
+backups/
+
+# Upstream bilirec developer-local files
+.env.local
+.vscode/
 tmp*/*
 .tmp*/*
-
-.vscode/
-
-.env.local

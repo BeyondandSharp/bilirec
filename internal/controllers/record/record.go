@@ -42,6 +42,7 @@ func NewController(app *fiber.App, service *recorder.Service) *Controller {
 // @Param only_audio query bool false "Whether to request only audio stream"
 // @Param record_danmaku query bool false "Whether to record live chat sidecar alongside video"
 // @Param delete_oldest_on_low_disk query bool false "When free space is below MIN_DISK_SPACE_BYTES, delete this room's oldest recordings by filename and retry"
+// @Param downloader query string false "Downloader override for this recording: auto|native|ffmpeg|streamlink (auto/omitted inherits the server DOWNLOADER setting)"
 // @Param payload body StartRecordingRequest false "JSON start options (query ignored when request has a body)"
 // @Success 200 "Recording started successfully"
 // @Failure 400 {string} string "Invalid room ID"

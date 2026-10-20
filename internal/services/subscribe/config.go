@@ -7,6 +7,16 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// DanmakuTypes selects which danmaku message types are recorded. It is defined
+// here (not in services/settings) so room overrides and global settings can
+// share the type without an import cycle; services/settings aliases it.
+type DanmakuTypes struct {
+	RawEvents bool `json:"raw_events"`
+	SuperChat bool `json:"super_chat"`
+	Gift      bool `json:"gift"`
+	Guard     bool `json:"guard"`
+}
+
 type RoomConfig struct {
 	AutoRecord            bool
 	Notify                bool
@@ -16,6 +26,28 @@ type RoomConfig struct {
 	RecordDanmaku         bool     // record live chat sidecar alongside video when starting recording
 	StreamProfiles        []string // empty/nil = auto (all formats); allow-list of http-flv|hls-ts|hls-fmp4
 	DeleteOldestOnLowDisk bool     // when starting record, purge this room's oldest file by filename if below MIN_DISK_SPACE_BYTES
+
+	// v2 per-room feature overrides (docs/FEATURES-V2.md §1.3).
+	// nil = inherit the global setting. Old DB records decode with nil fields.
+	SegmentMode             *string
+	SegmentMinutes          *int
+	SegmentSizeMB           *int
+	SegmentByTitle          *bool
+	MinFileSizeMB           *int
+	FilenameTemplate        *string
+	TitleFilterPatterns     *string
+	SaveStreamCover         *bool
+	DanmakuTypes            *DanmakuTypes
+	DanmakuTransport        *string
+	FlvWriteMetadata        *bool
+	FlvSplitOnScriptTag     *bool
+	FlvDisableSplitOnAnnexB *bool
+	BiliLiveAPIHost         *string
+	BiliLiveAPIFallbackHost *string
+	BiliCDN                 *[]string
+	BiliCDNFallback         *bool
+	BiliForceSource         *bool
+	BiliReplaceCN01         *[]string
 }
 
 var roomConfigSerializer = pool.NewSerializer()

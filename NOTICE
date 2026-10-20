@@ -1,0 +1,32 @@
+This repository combines and derives work from the following projects.
+
+1. Bilirec — https://github.com/bilirec/bilirec
+   Copyright (c) Bilirec contributors
+   License: MIT
+   Usage: the repository root is a fork of Bilirec (base application: scheduler, REST API, WebUI
+   backend, native HTTP-FLV / HLS-TS / HLS-fMP4 readers, danmaku recorder).
+
+2. Biliup — https://github.com/biliup/biliup
+   Copyright (c) biliup contributors
+   License: MIT
+   Usage: reference only (`refs/biliup`, not distributed). The streamlink/ffmpeg command-line
+   construction in `internal/services/downloader` is derived from its downloader
+   implementation.
+
+3. BililiveRecorder (录播姬) — https://github.com/BililiveRecorder/BililiveRecorder
+   Copyright (c) BililiveRecorder contributors
+   License: GPL-3.0
+   Usage: reference only (`refs/BililiveRecorder`, not distributed). The Rust FLV repair engine
+   in `rust/crates/flv-repair` is a port of its FLV processing pipeline rules
+   (timestamp jump/offset, duplicate removal, filler removal, header/script handling,
+   delayed audio header, end tag).
+
+4. bilirec-web — https://github.com/bilirec/bilirec-web
+   Copyright (c) Eric Lam 2026
+   License: MIT
+   Usage: vendored frontend at `web/` (React PWA). Local changes: downloader picker on
+   the record-start form and downloader/repair/source-format badges on recording cards.
+
+Because of item 3, this repository as a whole is licensed under GPL-3.0-or-later (see LICENSE).
+The MIT-licensed components above (Bilirec, biliup reference, bilirec-web) keep their original
+licenses and copyright notices.

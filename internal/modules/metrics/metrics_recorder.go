@@ -22,6 +22,7 @@ const (
 	metricRoomRecordingGaveUpTotal            = "bilirec_room_recording_gave_up_total"
 	metricRoomRecordingSegmentsDiscardedTotal = "bilirec_room_recording_segments_discarded_total"
 	metricRoomRecordingPipelineErrorsTotal    = "bilirec_room_recording_pipeline_errors_total"
+	metricRoomAutoRecordSkippedTotal          = "bilirec_room_auto_record_skipped_total"
 )
 
 const (
@@ -41,6 +42,9 @@ const (
 	ReasonStatError      = "stat_error"
 	ReasonNotFLV         = "not_flv"
 	ReasonOpen           = "open"
+	// ReasonTitleFilter is used by the subcheck auto-record title filter
+	// (docs/FEATURES-V2.md §3.3).
+	ReasonTitleFilter = "title_filter"
 )
 
 var (
@@ -83,6 +87,15 @@ func (e *Exporter) AddStreamBytes(roomID int, n int) {
 		return
 	}
 	e.registry.counter(metricRoomStreamBytesTotal, roomID).Add(n)
+}
+
+// AutoRecordSkipped records an auto-record start skipped by a configured
+// filter (currently only the title filter), with a fixed reason.
+func (e *Exporter) AutoRecordSkipped(roomID int, reason string) {
+	if e.registry == nil || reason != ReasonTitleFilter {
+		return
+	}
+	e.registry.counterReason(metricRoomAutoRecordSkippedTotal, roomID, reason).Inc()
 }
 
 // RecordingStarted records a session, marks recording as active, and updates

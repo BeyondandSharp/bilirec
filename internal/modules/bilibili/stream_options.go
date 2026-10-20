@@ -118,6 +118,8 @@ type getStreamURLsOptions struct {
 	codecs    []Codec
 	qn        Quality
 	onlyAudio bool
+	// fetch is nil when no advanced fetch config is set, keeping legacy behavior.
+	fetch *StreamFetchConfig
 }
 
 func defaultGetStreamURLsOptions() getStreamURLsOptions {
@@ -138,6 +140,18 @@ func WithQn(qn Quality) GetStreamURLsOption {
 func WithOnlyAudio(onlyAudio bool) GetStreamURLsOption {
 	return func(o *getStreamURLsOptions) {
 		o.onlyAudio = onlyAudio
+	}
+}
+
+// WithFetchConfig applies the Bilibili advanced fetching configuration
+// (docs/FEATURES-V2.md §6): API host fallback, `cdn` iteration, force_source
+// profile preference and cn-gotcha01 host replacement.
+//
+// An empty (zero) config is a no-op: fetching behaves exactly like before the
+// B05 feature existed.
+func WithFetchConfig(cfg StreamFetchConfig) GetStreamURLsOption {
+	return func(o *getStreamURLsOptions) {
+		o.fetch = normalizeStreamFetchConfig(cfg)
 	}
 }
 

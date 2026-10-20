@@ -1,0 +1,29 @@
+# bilirec-web
+
+Bilibili 直播录制管理 Web 界面（PWA），连接 [bilirec](https://github.com/bilirec/bilirec) 后端使用，并提供含礼物特效与弹幕滚动的录制回放。
+
+线上地址：[app.bilirec.org](https://app.bilirec.org/)
+
+**交流与反馈：** BUG / 問題回報与建议请到主仓库 [bilirec Issues](https://github.com/bilirec/bilirec/issues/new/choose)（选 PWA 或功能建议模板）。**在本仓库开的 Issue 会被自动关闭。** 使用疑问见 [FAQ](https://www.bilirec.org/zh-cn/guides/faq/) 或 QQ 群 [834229325](https://qm.qq.com/q/oMTN3EsGBy)。
+
+## 自行部署
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/bilirec/bilirec-web)
+
+完整部署步骤、注意事项（`FRONTEND_URLS`、HTTPS、与官方前端的取舍等）见官方文档：
+
+- [开发与自架（Cloudflare）](https://www.bilirec.org/zh-cn/development/web/#自行部署cloudflare)
+- [Web 界面使用说明](https://www.bilirec.org/zh-cn/guides/web-ui/)
+
+## 文档
+
+| 主题 | 链接 |
+| ---- | ---- |
+| 使用说明（功能、PWA、连接后端） | [guides/web-ui](https://www.bilirec.org/zh-cn/guides/web-ui/) |
+| 录制回放（礼物特效与弹幕滚动） | [guides/file-management](https://www.bilirec.org/zh-cn/guides/file-management/) |
+| 本地开发与自架部署 | [development/web](https://www.bilirec.org/zh-cn/development/web/) |
+| bilirec 后端 | [bilirec](https://github.com/bilirec/bilirec) |
+
+## 授权
+
+MIT

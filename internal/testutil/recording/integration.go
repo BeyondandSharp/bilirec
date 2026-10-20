@@ -24,12 +24,16 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/services/convert"
+	"github.com/bilirec/bilirec/internal/services/cover"
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/notify"
 	"github.com/bilirec/bilirec/internal/services/path"
 	"github.com/bilirec/bilirec/internal/services/recorder"
+	"github.com/bilirec/bilirec/internal/services/repair"
 	"github.com/bilirec/bilirec/internal/services/room"
+	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/stream"
+	"github.com/bilirec/bilirec/internal/services/subscribe"
 	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/process"
@@ -41,7 +45,7 @@ const (
 	recorderTestProfileDirEnv              = "RECORDER_TEST_PROFILE_DIR"
 	recorderCPUSteadySampleEnv             = "RECORDER_CPU_STEADY_SAMPLE_SECS"
 	recorderCPUSteadySampleMin             = 1 * time.Second
-	SettleAfterStop            = 5 * time.Second
+	SettleAfterStop                        = 5 * time.Second
 	pprofLogTopN                           = 10
 	recorderRecordProfileIntervalEnv       = "RECORDER_RECORD_PROFILE_INTERVAL_SECS"
 	recorderProfileLogTopEnv               = "RECORDER_PROFILE_LOG_TOP" // default false: save only during test
@@ -87,6 +91,10 @@ func NewSession(t *testing.T) *Session {
 		fx.Provide(convert.NewService),
 		fx.Provide(notify.NewService),
 		fx.Provide(danmaku.NewService),
+		fx.Provide(cover.NewService),
+		fx.Provide(repair.NewService),
+		fx.Provide(subscribe.NewService),
+		fx.Provide(settings.NewService),
 		fx.Provide(recorder.NewService),
 		fx.Populate(&biliClient, &recorderService, &roomService, &danmakuService, &metricsExporter),
 	)

@@ -454,7 +454,7 @@ func TestSession_ConcurrentWriteLoops_NoLeak(t *testing.T) {
 			t.Fatal(err)
 		}
 		meta := RoomMeta{RoomID: int64(1000 + i), Uname: "u", Title: "t"}
-		sess := newSession(1000+i, meta, svc, enc, context.Background())
+		sess := newSession(1000+i, meta, svc, enc, context.Background(), defaultSessionOptions())
 		sessions[i] = sess
 		videoPath := filepath.Join(dir, fmt.Sprintf("room-%d.flv", i))
 		startWriteLoop(t, sess, videoPath)
@@ -507,7 +507,7 @@ func TestService_StartSessionCycles_NoLeak(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sess := newSession(1, meta, svc, enc, context.Background())
+		sess := newSession(1, meta, svc, enc, context.Background(), defaultSessionOptions())
 		svc.sessions.Store(1, sess)
 		videoPath := filepath.Join(dir, fmt.Sprintf("rec-%d.flv", i))
 		startWriteLoop(t, sess, videoPath)

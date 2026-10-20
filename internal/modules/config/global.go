@@ -301,6 +301,16 @@ func (g *GlobalReadOnly) Validate() error {
 	if g.config.FFmpegAllowDuringRecordingMaxActiveRecordings < 1 {
 		log.Debugf("FFMPEG_ALLOW_DURING_RECORDING_MAX_ACTIVE_RECORDINGS is %d, threshold disabled (no active-recordings limit)", g.config.FFmpegAllowDuringRecordingMaxActiveRecordings)
 	}
+	// External downloader / repair sidecar settings: log once at startup.
+	if g.config.ExternalStartTimeoutSecs <= 0 {
+		log.Warnf("EXTERNAL_START_TIMEOUT_SECS 无效（%d），使用默认值 20 秒", g.config.ExternalStartTimeoutSecs)
+	}
+	if g.config.TitlePollSecs < 5 {
+		log.Warnf("TITLE_POLL_SECS 无效（%d），使用最小值 5 秒", g.config.TitlePollSecs)
+	}
+	if g.config.FLVRepairMaxBufferMB <= 0 {
+		log.Warnf("FLV_REPAIR_MAX_BUFFER_MB 无效（%d），使用默认值 64", g.config.FLVRepairMaxBufferMB)
+	}
 	if g.config.liveStreamWriterSyncPeriod < 0 {
 		log.Warnf("LIVE_STREAM_WRITER_SYNC_PERIOD_SECS 无效（%d），使用默认值 %d 秒", g.config.liveStreamWriterSyncPeriod, defaultLiveStreamWriterSyncPeriodSecs)
 	}
@@ -362,6 +372,18 @@ func NewGlobalReadOnlyForTest(dropFilePageCache bool, liveStreamWriterColdCacheR
 	return &GlobalReadOnly{config: &Config{
 		dropFilePageCache:                      dropFilePageCache,
 		liveStreamWriterColdCacheReleasePeriod: liveStreamWriterColdCacheReleaseSecs,
+	}}
+}
+
+// NewGlobalReadOnlyWithAuthForTest builds read-only config with REST auth and
+// viewer RBAC enabled for unit tests (hashes must be bcrypt strings).
+func NewGlobalReadOnlyWithAuthForTest(username, passwordHash, viewerUsername, viewerPasswordHash, jwtSecret string) *GlobalReadOnly {
+	return &GlobalReadOnly{config: &Config{
+		Username:           username,
+		PasswordHash:       passwordHash,
+		ViewerUsername:     viewerUsername,
+		ViewerPasswordHash: viewerPasswordHash,
+		JwtSecret:          jwtSecret,
 	}}
 }
 

@@ -14,11 +14,14 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/services/convert"
+	"github.com/bilirec/bilirec/internal/services/cover"
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/notify"
 	"github.com/bilirec/bilirec/internal/services/path"
 	"github.com/bilirec/bilirec/internal/services/recorder"
+	"github.com/bilirec/bilirec/internal/services/repair"
 	"github.com/bilirec/bilirec/internal/services/room"
+	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/stream"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
 	"github.com/bilirec/bilirec/internal/services/webhook"
@@ -111,6 +114,9 @@ func newSubcheckIntegrationSession(t *testing.T) *subcheckIntegrationSession {
 		fx.Provide(notify.NewService),
 		fx.Provide(webhook.NewService),
 		fx.Provide(danmaku.NewService),
+		fx.Provide(cover.NewService),
+		fx.Provide(repair.NewService),
+		fx.Provide(settings.NewService),
 		fx.Provide(recorder.NewService),
 		fx.Provide(NewService),
 		fx.Populate(&roomSvc, &subSvc, &recSvc, &subcheckSvc),

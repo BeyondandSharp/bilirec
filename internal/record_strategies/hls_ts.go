@@ -2,6 +2,7 @@ package record_strategies
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
@@ -53,6 +54,9 @@ func (s *HlsTsStrategy) BuildPipeline(ctx context.Context, outputPath string, st
 }
 
 func (s *HlsTsStrategy) HandleErr(err error) ErrHandleResult {
+	if errors.Is(err, ErrRotationRequested) {
+		return ErrHandleResult{Action: ErrActionRotate}
+	}
 	return ErrHandleResult{Action: ErrActionAbort}
 }
 

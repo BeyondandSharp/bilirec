@@ -2,6 +2,7 @@ package record_strategies
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -15,6 +16,11 @@ import (
 type RotationState struct {
 	Data map[string][]byte
 }
+
+// ErrRotationRequested signals a configured segmentation point (size/time/title
+// triggers in docs/FEATURES-V2.md §3.1). Strategies map it to ErrActionRotate
+// while preserving their per-format header/state carry.
+var ErrRotationRequested = errors.New("按配置切段")
 
 type ErrAction uint8
 
@@ -89,7 +95,9 @@ func getWriterPools() *pool.LazyDualPool[*pool.BucketedBytesPool] {
 		writerPools = pool.NewLazyDualPool(
 			pool.DefaultLazyDualPoolIdleTTL,
 			func() *pool.BucketedBytesPool { return newWriterPool(config.ReadOnly.LiveStreamWriterBytesPoolSize()) },
-			func() *pool.BucketedBytesPool { return newWriterPool(config.ReadOnly.LiveStreamWriterBytesPoolSizeHigh()) },
+			func() *pool.BucketedBytesPool {
+				return newWriterPool(config.ReadOnly.LiveStreamWriterBytesPoolSizeHigh())
+			},
 		)
 	})
 	return writerPools

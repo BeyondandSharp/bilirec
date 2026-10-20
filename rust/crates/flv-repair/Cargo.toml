@@ -1,0 +1,12 @@
+[package]
+name = "flv-repair"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "FLV stream repair/analysis sidecar (port of BililiveRecorder.Flv rules)"
+
+[[bin]]
+name = "flvrepair"
+path = "src/main.rs"
+
+[dependencies]

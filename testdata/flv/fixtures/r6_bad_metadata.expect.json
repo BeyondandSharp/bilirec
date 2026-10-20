@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "class": "R6",
+  "fixture": "r6_bad_metadata.flv",
+  "fixture_bytes": 1537549,
+  "fixture_sha256": "7a6f321f487893a33fb0fbcc1b6bb25c3e67d31b8602912b80fe814165e97c06",
+  "base": "clean.flv",
+  "corruption": {
+    "kind": "metadata_duration_missing_and_bad_flags",
+    "script_tag_index": 0,
+    "removed_key": "duration",
+    "original_script_body_bytes": 268,
+    "new_script_body_bytes": 249,
+    "header_flags_written": 0,
+    "rule": "HandleNewScriptRule + writer metadata duration fix + header flags"
+  },
+  "input_analysis": {
+    "bytes": 1537549,
+    "sha256": "7a6f321f487893a33fb0fbcc1b6bb25c3e67d31b8602912b80fe814165e97c06",
+    "valid_flv_structure": true,
+    "header_flags": 0,
+    "resync_events": 0,
+    "resynced_bytes": 0,
+    "truncated_tail_bytes": 0,
+    "prev_size_mismatches": 0,
+    "tag_count": 1543,
+    "tag_counts": {
+      "video": 602,
+      "audio": 940,
+      "script": 1
+    },
+    "timestamps": {
+      "video": {
+        "count": 602,
+        "first": 0,
+        "last": 19967,
+        "monotonic": true,
+        "jumps": 0,
+        "rollbacks": 0
+      },
+      "audio": {
+        "count": 940,
+        "first": 0,
+        "last": 20056,
+        "monotonic": true,
+        "jumps": 0,
+        "rollbacks": 0
+      }
+    },
+    "raw_last_timestamp_ms": 20056,
+    "video_sequence_headers": 1,
+    "audio_sequence_headers": 1,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "end_tag_count": 1,
+    "zero_size_data_tags": 0,
+    "filler_nalu_count": 0,
+    "adjacent_duplicate_tags": 0,
+    "group_count": 23,
+    "duplicate_groups": 0,
+    "last_tag_is_end": true,
+    "aac_header_index": 2,
+    "first_audio_data_index": 5,
+    "aac_header_before_audio_data": true,
+    "metadata": {
+      "present": true,
+      "parsed": true,
+      "duration_present": false,
+      "duration": null
+    }
+  },
+  "expect": {
+    "class": "R6",
+    "valid_flv": true,
+    "header_flags": 5,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "timestamps": {
+      "video": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      },
+      "audio": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      }
+    },
+    "duration_ms": {
+      "min": 19056,
+      "max": 21056
+    },
+    "tag_count": {
+      "min": 1541,
+      "max": 1545
+    },
+    "output_bytes": {
+      "min": 0,
+      "max": 1541645
+    },
+    "preserved": {
+      "onmetadata": true,
+      "video_sequence_header": true,
+      "audio_sequence_header": true
+    },
+    "anomalies": {
+      "required": [
+        "R6"
+      ],
+      "min_count": 1
+    },
+    "repair_command": "flvrepair file --input fixtures/r6_bad_metadata.flv --output out.flv --mode best-effort",
+    "metadata_duration": {
+      "input": "missing",
+      "file_mode": {
+        "min": 18500,
+        "max": 25000,
+        "may_be_absent": true
+      },
+      "stream_mode": "unspecified",
+      "note": "if duration is present it must agree with the media duration within the range"
+    },
+    "notes": [
+      "duration is missing from onMetaData and the FLV header flags are 0x00; output flags must be 0x05 (audio+video). file mode should fix duration when possible"
+    ]
+  }
+}

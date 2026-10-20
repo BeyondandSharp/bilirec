@@ -19,8 +19,17 @@ type Stats struct {
 	OutputPath          string       `json:"output_path"`
 	ActualQn            int          `json:"actual_qn"`
 	ActualStreamFormat  string       `json:"actual_stream_format,omitempty"`
-	IsAudioOnly         bool         `json:"is_audio_only"`
-	RoomTitle           string       `json:"room_title"`
+	// Downloader is the resolved fetch path actually used for this session
+	// (native|ffmpeg|streamlink), after any native fallback.
+	Downloader string `json:"downloader,omitempty"`
+	// SourceFormat is the original Bilibili source format (flv|ts|fmp4).
+	// ActualStreamFormat remains the format written to disk (always flv for
+	// external downloaders).
+	SourceFormat string `json:"source_format,omitempty"`
+	// Repair is the live FLV repair state: off|on|degraded.
+	Repair      string `json:"repair,omitempty"`
+	IsAudioOnly bool   `json:"is_audio_only"`
+	RoomTitle   string `json:"room_title"`
 }
 
 func (r *Service) GetStatus(roomId int) RecordStatus {
@@ -55,13 +64,22 @@ func (r *Service) GetStats(roomId int) (*Stats, bool) {
 		return nil, false
 	}
 	status := r.GetStatus(roomId)
-	roomTitle := ""
-	if info.room != nil {
-		roomTitle = info.room.Title
-	}
+	roomTitle := info.Title()
 	var danmakuBytes uint64
 	if r.dm != nil {
 		danmakuBytes = r.dm.GetBytesWritten(roomId)
+	}
+	// Repair state is live: a session that started on and later degraded keeps
+	// reporting degraded until the repair session ends. The state stored on
+	// Info is the start-time fallback (off/on).
+	repairState := info.GetSessionRepair()
+	if repairState == "" {
+		repairState = "off"
+	}
+	if r.repair != nil {
+		if live, ok := r.repair.State(roomId); ok {
+			repairState = live
+		}
 	}
 	return &Stats{
 		BytesRead:           info.bytesRead.Load(),
@@ -74,6 +92,9 @@ func (r *Service) GetStats(roomId int) (*Stats, bool) {
 		OutputPath:          info.OutputPath(),
 		ActualQn:            int(info.actualQn.Load()),
 		ActualStreamFormat:  info.actualStreamFormat.LoadOr(""),
+		Downloader:          info.GetSessionDownloader(),
+		SourceFormat:        info.GetSessionSourceFormat(),
+		Repair:              repairState,
 		IsAudioOnly:         info.isAudioOnly.Load(),
 		RoomTitle:           roomTitle,
 	}, true

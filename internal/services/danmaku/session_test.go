@@ -41,7 +41,7 @@ func newTestSession(svc *Service, format string) (*session, string) {
 		panic(err)
 	}
 	meta := RoomMeta{RoomID: 12345, ShortID: 678, Uname: "测试主播", Title: "测试标题"}
-	sess := newSession(123, meta, svc, enc, context.Background())
+	sess := newSession(123, meta, svc, enc, context.Background(), defaultSessionOptions())
 	return sess, filepath.Join(os.TempDir(), "bilirec-danmaku-test")
 }
 

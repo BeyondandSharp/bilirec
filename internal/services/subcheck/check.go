@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 	"github.com/bilirec/bilirec/internal/services/notify"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/internal/services/room"
-	"github.com/bilirec/bilirec/internal/services/webhook"
+	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
+	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/pkg/backoff"
 	"github.com/bilirec/bilirec/pkg/coordinator"
 	"github.com/bilirec/bilirec/pkg/db"
@@ -51,10 +53,11 @@ type Service struct {
 	subSvc         *subscribe.Service
 	roomSvc        *room.Service
 	recSvc         *recorder.Service
-	notifySvc *notify.Service
-	wh        *webhook.Service
-	webhookOn bool
-	m         *metrics.Exporter
+	settingsSvc    *settings.Service
+	notifySvc      *notify.Service
+	wh             *webhook.Service
+	webhookOn      bool
+	m              *metrics.Exporter
 	bucket         *db.Bucket
 	sessionKeys    *xsync.Map[int, string]
 	autoStartRetry *xsync.Map[int, autoStartRetry]
@@ -73,19 +76,20 @@ type Service struct {
 	wg     sync.WaitGroup
 }
 
-func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service, roomSvc *room.Service, recSvc *recorder.Service, notifySvc *notify.Service, m *metrics.Exporter, webhookSvc *webhook.Service) *Service {
+func NewService(lc fx.Lifecycle, cfg *config.Config, subSvc *subscribe.Service, roomSvc *room.Service, recSvc *recorder.Service, settingsSvc *settings.Service, notifySvc *notify.Service, m *metrics.Exporter, webhookSvc *webhook.Service) *Service {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Service{
 		subSvc:         subSvc,
 		roomSvc:        roomSvc,
 		recSvc:         recSvc,
+		settingsSvc:    settingsSvc,
 		notifySvc:      notifySvc,
-		webhookOn: cfg.WebhookConfigured(),
-		m:         m,
+		webhookOn:      cfg.WebhookConfigured(),
+		m:              m,
 		sessionKeys:    xsync.NewMap[int, string](),
 		autoStartRetry: xsync.NewMap[int, autoStartRetry](),
 		ctx:            ctx,
-		cancel: cancel,
+		cancel:         cancel,
 	}
 	if cfg.WebhookConfigured() {
 		s.wh = webhookSvc
@@ -259,6 +263,20 @@ func (s *Service) tryStartShardAutoRecordRooms(shardIndex, shardCount int) {
 	s.processRooms(shardRooms, roomInfos)
 }
 
+// skipByTitleFilter reports whether the room's effective title-filter rules
+// match the current live title (docs/FEATURES-V2.md §3.3). Room overrides take
+// precedence over global settings via settings.Resolve.
+func (s *Service) skipByTitleFilter(roomID int, info *bilibili.LiveRoomInfoDetail) bool {
+	if s.settingsSvc == nil || info == nil || info.Title == "" {
+		return false
+	}
+	eff := s.settingsSvc.Resolve(roomID)
+	if strings.TrimSpace(eff.TitleFilterPatterns) == "" {
+		return false
+	}
+	return settings.TitleMatches(eff.TitleFilterPatterns, info.Title)
+}
+
 func (s *Service) processRooms(shardRooms map[int]*subscribe.RoomConfig, roomInfos map[int]*bilibili.LiveRoomInfoDetail) {
 	for roomID, cfg := range shardRooms {
 		info, ok := roomInfos[roomID]
@@ -300,51 +318,58 @@ func (s *Service) processRooms(shardRooms map[int]*subscribe.RoomConfig, roomInf
 		if cfg != nil && cfg.AutoRecord {
 			status := s.recSvc.GetStatus(roomID)
 			if status != recorder.Recording && status != recorder.Recovering {
-				var autoRecordArgs []recorder.RecordStartOption
-				switch {
-				case cfg.RecordDurationMinutes == -1:
-					autoRecordArgs = append(autoRecordArgs, recorder.WithDuration(0))
-				case cfg.RecordDurationMinutes > 0:
-					autoRecordArgs = append(autoRecordArgs, recorder.WithDuration(time.Duration(cfg.RecordDurationMinutes)*time.Minute))
-				}
-				streamOptions := streamOptionsFromRoomConfig(cfg)
-				if len(streamOptions) > 0 {
-					autoRecordArgs = append(autoRecordArgs, recorder.WithStreamOptions(streamOptions...))
-				}
-				if cfg.RecordDanmaku {
-					autoRecordArgs = append(autoRecordArgs, recorder.WithRecordDanmaku(true))
-				}
-				if cfg.DeleteOldestOnLowDisk {
-					autoRecordArgs = append(autoRecordArgs, recorder.WithDeleteOldestOnLowDisk(true))
-				}
+				if s.skipByTitleFilter(roomID, info) {
+					// Title filter (docs/FEATURES-V2.md §3.3): skip auto-start,
+					// keep notifications/metrics behavior.
+					log.Infof("skip_reason=title_filter room=%d title=%q", roomID, info.Title)
+					s.m.AutoRecordSkipped(roomID, metrics.ReasonTitleFilter)
+				} else {
+					var autoRecordArgs []recorder.RecordStartOption
+					switch {
+					case cfg.RecordDurationMinutes == -1:
+						autoRecordArgs = append(autoRecordArgs, recorder.WithDuration(0))
+					case cfg.RecordDurationMinutes > 0:
+						autoRecordArgs = append(autoRecordArgs, recorder.WithDuration(time.Duration(cfg.RecordDurationMinutes)*time.Minute))
+					}
+					streamOptions := streamOptionsFromRoomConfig(cfg)
+					if len(streamOptions) > 0 {
+						autoRecordArgs = append(autoRecordArgs, recorder.WithStreamOptions(streamOptions...))
+					}
+					if cfg.RecordDanmaku {
+						autoRecordArgs = append(autoRecordArgs, recorder.WithRecordDanmaku(true))
+					}
+					if cfg.DeleteOldestOnLowDisk {
+						autoRecordArgs = append(autoRecordArgs, recorder.WithDeleteOldestOnLowDisk(true))
+					}
 
-				err := s.recSvc.Start(roomID, autoRecordArgs...)
-				switch err {
-				case nil, recorder.ErrRecordingStarted, recorder.ErrRecordRecovering, recorder.ErrRecordingPending:
-					if isRetry {
-						state = notify.LiveStateAutoRecordRetryStarted
-					} else {
-						state = notify.LiveStateAutoRecordStarted
-					}
-					log.Infof("已开始录制房间 %d（%s）", roomID, info.Uname)
-				default:
-					attempts := 1
-					if isRetry {
-						attempts = retry.attempts + 1
-					}
-					if isTransientAutoStartError(err) && attempts < maxAutoStartAttempts {
-						if !isRetry {
-							retry = autoStartRetry{sessionKey: currentSessionKey, delays: backoff.NewSequence(autoStartRetryDelays...)}
+					err := s.recSvc.Start(roomID, autoRecordArgs...)
+					switch err {
+					case nil, recorder.ErrRecordingStarted, recorder.ErrRecordRecovering, recorder.ErrRecordingPending:
+						if isRetry {
+							state = notify.LiveStateAutoRecordRetryStarted
+						} else {
+							state = notify.LiveStateAutoRecordStarted
 						}
-						retry.attempts = attempts
-						retry.dueAt = time.Now().Add(retry.delays.Next())
-						s.autoStartRetry.Store(roomID, retry)
-						markNow = false
+						log.Infof("已开始录制房间 %d（%s）", roomID, info.Uname)
+					default:
+						attempts := 1
+						if isRetry {
+							attempts = retry.attempts + 1
+						}
+						if isTransientAutoStartError(err) && attempts < maxAutoStartAttempts {
+							if !isRetry {
+								retry = autoStartRetry{sessionKey: currentSessionKey, delays: backoff.NewSequence(autoStartRetryDelays...)}
+							}
+							retry.attempts = attempts
+							retry.dueAt = time.Now().Add(retry.delays.Next())
+							s.autoStartRetry.Store(roomID, retry)
+							markNow = false
+						}
+						if !isRetry {
+							state = notify.LiveStateAutoRecordFailed
+						}
+						log.Warnf("开始录制房间 %d 失败（%d/%d）：%v", roomID, attempts, maxAutoStartAttempts, err)
 					}
-					if !isRetry {
-						state = notify.LiveStateAutoRecordFailed
-					}
-					log.Warnf("开始录制房间 %d 失败（%d/%d）：%v", roomID, attempts, maxAutoStartAttempts, err)
 				}
 			}
 		}

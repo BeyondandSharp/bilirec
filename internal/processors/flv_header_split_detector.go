@@ -20,6 +20,9 @@ type flvHeaderSplitDetectorProcessor struct {
 	detector        *flv.HeaderChangeDetector
 	log             logger.Logger
 	seedVideoHeader []byte // pre-seeded initial video header tag bytes
+	onHeaders       func(videoTag, audioTag []byte)
+	reportedVideo   bool
+	reportedAudio   bool
 }
 
 // NewFlvHeaderSplitDetector returns a ProcessorInfo that signals pipe rotation
@@ -51,8 +54,22 @@ func NewFlvHeaderSplitDetectorSeeded(videoHeaderTag []byte) *pipeline.ProcessorI
 	)
 }
 
+func NewFlvHeaderSplitDetectorSeededWithHook(videoHeaderTag []byte, onHeaders func(videoTag, audioTag []byte)) *pipeline.ProcessorInfo[[]byte] {
+	return pipeline.NewProcessorInfo(
+		"flv-header-split-detector",
+		&flvHeaderSplitDetectorProcessor{
+			detector:        flv.NewHeaderChangeDetector(),
+			seedVideoHeader: videoHeaderTag,
+			onHeaders:       onHeaders,
+		},
+		pipeline.WithErrorStrategy[[]byte](pipeline.ReturnNextOnError),
+	)
+}
+
 func (p *flvHeaderSplitDetectorProcessor) Open(ctx context.Context, log logger.Logger) error {
 	p.log = log
+	p.reportedVideo = false
+	p.reportedAudio = false
 	p.detector.Reset()
 	if len(p.seedVideoHeader) > 0 {
 		p.detector.SeedVideoHeader(p.seedVideoHeader)
@@ -67,11 +84,19 @@ func (p *flvHeaderSplitDetectorProcessor) Process(ctx context.Context, log logge
 
 	err := p.detector.DetectChange(data)
 	if err == nil {
+		p.reportHeaders(p.detector.LastVideoTag(), p.detector.LastAudioTag())
 		return data, nil
 	}
 
 	var headerChanged *flv.FlvHeaderChangedError
 	if errors.As(err, &headerChanged) {
+		// Observe the new headers before signalling rotation so a configured
+		// size/time rotation later in the session can carry them.
+		p.reportedVideo = true
+		p.reportedAudio = headerChanged.AudioHeaderTag != nil
+		if p.onHeaders != nil {
+			p.onHeaders(headerChanged.VideoHeaderTag, headerChanged.AudioHeaderTag)
+		}
 		log.Infof("🔀 视频序列头已变化，触发管道轮转")
 		// Only return bytes after the changed video seq-header tag.
 		// Bytes before the changed tag belong to the old stream config and should
@@ -93,6 +118,27 @@ func (p *flvHeaderSplitDetectorProcessor) Process(ctx context.Context, log logge
 	}
 
 	return data, err
+}
+
+// reportHeaders forwards the current sequence-header tags to the hook the
+// first time each of the video/audio headers is seen.
+func (p *flvHeaderSplitDetectorProcessor) reportHeaders(videoTag, audioTag []byte) {
+	if p.onHeaders == nil {
+		return
+	}
+	changed := false
+	if !p.reportedVideo && len(videoTag) > 0 {
+		p.reportedVideo = true
+		changed = true
+	}
+	if !p.reportedAudio && len(audioTag) > 0 {
+		p.reportedAudio = true
+		changed = true
+	}
+	if !changed {
+		return
+	}
+	p.onHeaders(videoTag, audioTag)
 }
 
 func (p *flvHeaderSplitDetectorProcessor) Close() error {

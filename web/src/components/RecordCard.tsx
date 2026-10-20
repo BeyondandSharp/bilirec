@@ -1,0 +1,445 @@
+import { useState } from 'react'
+import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { RoomCover } from '@/components/RoomCover'
+import { StopIcon, UserIcon, ClockIcon, VideoCameraIcon, ChatCircleDotsIcon, ArrowSquareOutIcon, CopySimpleIcon, WarningCircleIcon, LineVerticalIcon } from '@phosphor-icons/react'
+import { cn, formatFileSize, formatDuration } from '@/lib/utils'
+import { getRecordQualityLabelKey, getRecordSourceFormatLabel, getRecordStreamFormatLabel } from '@/lib/record-labels'
+import type { RecordTask } from '@/lib/types'
+import { useRole } from '@/lib/role-context'
+import { useIsMobile } from '@/hooks/use-mobile'
+import { StreamHealthIndicator, StreamHealthLoading } from '@/components/record/StreamHealthIndicator'
+import { canComputeStreamIoRate } from '@/lib/stream-io-rates'
+import { TitleChangedDetails } from '@/components/record/TitleChangedDetails'
+import { toast } from 'sonner'
+
+interface RecordCardProps {
+  task: RecordTask
+  onStop: (roomId: number) => void
+}
+import { useTranslation } from 'react-i18next'
+
+/** Badge labels for the non-default downloaders; native/auto need no badge. */
+const DOWNLOADER_BADGE_LABEL_KEYS: Record<string, string> = {
+  ffmpeg: 'downloaderFfmpeg',
+  streamlink: 'downloaderStreamlink',
+}
+
+export function RecordCard({ task, onStop }: RecordCardProps) {
+  const { t } = useTranslation()
+  const { isReadOnly } = useRole()
+  const [isLoading, setIsLoading] = useState(false)
+  const [isStopDialogOpen, setIsStopDialogOpen] = useState(false)
+  const isMobile = useIsMobile()
+  const [isTitleInfoOpen, setIsTitleInfoOpen] = useState(false)
+  const roomId = task.roomInfo?.room_id ?? task.roomId
+
+  const handleCopyRoomId = async () => {
+    try {
+      await navigator.clipboard.writeText(String(roomId))
+      toast.success(t('toast.copyRoomIdSuccess', { roomId }), { position: 'bottom-center' })
+    } catch {
+      toast.error(t('toast.copyRoomIdFailed'), { position: 'bottom-center' })
+    }
+  }
+
+  const canControlRecording = task.status === 'recording' || task.status === 'recovering'
+  const currentTitle = task.roomInfo?.title
+  const sessionTitle = task.sessionTitle
+  const titleMismatched = canControlRecording
+    && !!sessionTitle
+    && !!currentTitle
+    && sessionTitle !== currentTitle
+  const qualityLabelKey = getRecordQualityLabelKey(task.actualQn)
+  const qualityLabel = qualityLabelKey
+    ? t(`recordStartOptions.${qualityLabelKey}`)
+    : task.actualQn && task.actualQn > 0
+      ? `QN ${task.actualQn}`
+      : undefined
+  const streamFormatLabel = getRecordStreamFormatLabel(task.actualStreamFormat)
+  const downloaderKey = task.downloader?.trim().toLowerCase()
+  const downloaderLabelKey = downloaderKey
+    ? DOWNLOADER_BADGE_LABEL_KEYS[downloaderKey]
+    : undefined
+  const downloaderLabel = downloaderLabelKey
+    ? t(`recordStartOptions.${downloaderLabelKey}`)
+    : undefined
+  const repairState = task.repair?.trim().toLowerCase()
+  const repairLabel = repairState === 'degraded'
+    ? t('recordCard.repairDegradedBadge')
+    : repairState === 'on'
+      ? t('recordCard.repairBadge')
+      : undefined
+  // External downloaders always remux to FLV, so show the original source format
+  // only when it differs from the format actually being written.
+  const sourceFormatLabel = getRecordSourceFormatLabel(task.sourceFormat)
+  const sourceFormatDiffers = sourceFormatLabel !== undefined
+    && task.sourceFormat?.trim().toLowerCase() !== task.actualStreamFormat?.trim().toLowerCase()
+  const showStreamBadge = canControlRecording
+    && (task.isAudioOnly
+      || qualityLabel !== undefined
+      || streamFormatLabel !== undefined
+      || downloaderLabel !== undefined
+      || repairLabel !== undefined
+      || sourceFormatDiffers)
+
+  const confirmStop = async () => {
+    setIsStopDialogOpen(false)
+    setIsLoading(true)
+    try {
+      if (canControlRecording) {
+        onStop(task.roomId)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleStop = () => {
+    setIsStopDialogOpen(true)
+  }
+
+  const ioRate = task.ioRate
+  const canShowStreamHealth = canComputeStreamIoRate(task)
+  const showStreamHealth = canShowStreamHealth && ioRate
+  const showStreamHealthLoading = canShowStreamHealth && !ioRate
+
+  const getStatusBadge = () => {
+    switch (task.status) {
+      case 'recording':
+        return (
+          <Badge className="relative overflow-visible bg-accent text-accent-foreground">
+            {t('recordCard.recording')}
+            <span className="pointer-events-none absolute -right-1 -top-1 flex size-2.5" aria-hidden="true">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-red-500" />
+            </span>
+          </Badge>
+        )
+      case 'recovering':
+        return (
+          <Badge variant="outline" className="border-accent text-accent animate-pulse">
+            {t('recordCard.recovering')}
+          </Badge>
+        )
+      case 'idle':
+        return (
+          <Badge variant="secondary">
+            {t('recordCard.idle')}
+          </Badge>
+        )
+    }
+  }
+
+  return (
+    <Card className="h-full p-4 record-card transition-all hover:shadow-lg">
+      <div className="flex h-full flex-col gap-3">
+        <div className="relative grow">
+          <div className="flex flex-col sm:flex-row items-start gap-3">
+            <RoomCover
+              src={task.roomInfo?.cover}
+              alt={task.roomInfo?.title ?? task.roomInfo?.uid.toString()}
+              className="w-full sm:w-40 shrink-0"
+              fallbackIconSize={20}
+            />
+
+            <div className="flex flex-col flex-1 min-w-0 w-full">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="inline-flex max-w-full items-center gap-1.5">
+                    <p className="font-semibold text-card-foreground record-title truncate max-w-full">
+                      { task.roomInfo?.uname ?? t('recordCard.roomFallback', { roomId: task.roomInfo?.room_id })}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+                      title={t('recordCard.copyRoomIdTitle', { roomId })}
+                      aria-label={t('recordCard.copyRoomIdAria', { roomId })}
+                      onClick={handleCopyRoomId}
+                    >
+                      <CopySimpleIcon size={12} />
+                    </Button>
+                  </div>
+                  <div className="flex w-fit max-w-full items-center gap-1.5">
+                    <p className="min-w-0 truncate text-sm text-muted-foreground">
+                      {task.roomInfo?.title || t('recordCard.loadingTitle')}
+                    </p>
+                    {titleMismatched && (
+                      isMobile ? (
+                        <button
+                          type="button"
+                          className="shrink-0 rounded-full p-0.5 text-amber-600 transition-colors hover:bg-amber-500/15 dark:text-amber-400"
+                          aria-label={t('recordCard.titleChangedAria')}
+                          onClick={() => setIsTitleInfoOpen(true)}
+                        >
+                          <WarningCircleIcon size={14} weight="fill" />
+                        </button>
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-full p-0.5 text-amber-600 transition-colors hover:bg-amber-500/15 dark:text-amber-400"
+                              aria-label={t('recordCard.titleChangedAria')}
+                            >
+                              <WarningCircleIcon size={14} weight="fill" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            arrowClassName="bg-popover fill-popover"
+                            className="max-w-72 rounded-lg border border-border bg-popover p-3 text-left text-popover-foreground shadow-lg"
+                          >
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-1.5 font-semibold leading-none">
+                                <WarningCircleIcon size={14} weight="fill" className="shrink-0 text-amber-600 dark:text-amber-400" />
+                                <span>{t('recordCard.titleChangedTitle')}</span>
+                              </div>
+                              <TitleChangedDetails sessionTitle={sessionTitle!} compact />
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      )
+                    )}
+                  </div>
+                  {titleMismatched && isMobile && (
+                    <Dialog open={isTitleInfoOpen} onOpenChange={setIsTitleInfoOpen}>
+                      <DialogContent className="w-[90vw] max-w-sm">
+                        <DialogHeader className="text-left">
+                          <DialogTitle className="inline-flex items-center gap-1.5 self-start text-left leading-snug">
+                            <WarningCircleIcon size={20} weight="fill" className="shrink-0 text-amber-600 dark:text-amber-400" />
+                            <span>{t('recordCard.titleChangedTitle')}</span>
+                          </DialogTitle>
+                        </DialogHeader>
+                        <TitleChangedDetails sessionTitle={sessionTitle!} compact={false} />
+                      </DialogContent>
+                    </Dialog>
+                  )}
+                  {showStreamBadge && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {task.isAudioOnly ? (
+                        <Badge variant="secondary" className="text-xs font-normal">
+                          {t('recordCard.audioOnlyBadge')}
+                        </Badge>
+                      ) : (
+                        <>
+                          {qualityLabel && (
+                            <Badge variant="outline" className="text-xs font-normal" title={t('recordCard.actualQuality')}>
+                              {qualityLabel}
+                            </Badge>
+                          )}
+                          {streamFormatLabel && (
+                            <Badge variant="outline" className="text-xs font-normal" title={t('recordCard.actualStreamFormat')}>
+                              {streamFormatLabel}
+                            </Badge>
+                          )}
+                        </>
+                      )}
+                      {sourceFormatDiffers && sourceFormatLabel && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs font-normal"
+                          title={t('recordCard.sourceFormatBadgeTitle')}
+                        >
+                          {t('recordCard.sourceFormatBadge', { format: sourceFormatLabel })}
+                        </Badge>
+                      )}
+                      {downloaderLabel && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs font-normal"
+                          title={t('recordCard.downloaderBadge', { name: downloaderLabel })}
+                          aria-label={t('recordCard.downloaderBadge', { name: downloaderLabel })}
+                        >
+                          {downloaderLabel}
+                        </Badge>
+                      )}
+                      {repairLabel && (
+                        <Badge
+                          variant={repairState === 'degraded' ? 'destructive' : 'default'}
+                          className={cn(
+                            'text-xs font-normal',
+                            repairState !== 'degraded' && 'bg-accent text-accent-foreground',
+                          )}
+                          title={repairState === 'degraded'
+                            ? t('recordCard.repairDegradedBadgeTitle')
+                            : t('recordCard.repairBadgeTitle')}
+                        >
+                          {repairLabel}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col items-end gap-2 ml-2 shrink-0">
+                  {task.roomInfo?.online !== undefined && (
+                    <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
+                      <UserIcon size={16} />
+                      <span className="font-mono" title={t('recordCard.onlineCount')}>
+                        {(task.roomInfo.online ?? 0).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex items-end gap-2">
+                    {showStreamHealth && (
+                      <StreamHealthIndicator ioRate={ioRate} />
+                    )}
+                    {showStreamHealthLoading && <StreamHealthLoading />}
+                    {getStatusBadge()}
+                  </div>
+                </div>
+              </div>
+
+              {task.roomInfo?.description && (
+                <p className="text-sm text-muted-foreground mt-2 line-clamp-3 wrap-break-word break-all whitespace-normal">
+                  {task.roomInfo.description}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Recording stats: use two columns only when the card has enough width. */}
+        {task.status === 'recording' && (
+          <div className="hidden gap-2 text-sm text-muted-foreground sm:grid min-[1100px]:grid-cols-2">
+            {task.recordedTime !== undefined && (
+              <div className="flex items-center gap-2" title={t('recordCard.estimatedDuration')}>
+                <ClockIcon size={16} />
+                <span className="font-mono">{formatDuration(task.recordedTime)}</span>
+              </div>
+            )}
+            {task.fileSize !== undefined && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2" title={t('recordCard.estimatedSize')}>
+                  <VideoCameraIcon size={16} />
+                  <span className="font-mono">{formatFileSize(task.fileSize)}</span>
+                </div>
+                {task.recordDanmaku && task.danmakuFileSize !== undefined ? (
+                  <>
+                    <span className="text-muted-foreground/50" aria-hidden>
+                      <LineVerticalIcon size={16} className="rotate-15" />
+                    </span>
+                    <div className="flex items-center gap-2 font-mono" title={t('recordCard.estimatedDanmakuSize')}>
+                      <ChatCircleDotsIcon size={16} />
+                      {formatFileSize(task.danmakuFileSize)}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Mobile stats (Scheme D-2: fixed slot 2x2 grid) */}
+        <div className="sm:hidden text-sm text-muted-foreground">
+          {task.status === 'recording' ? (
+            <div className="grid grid-cols-2 gap-2">
+              {task.roomInfo?.online !== undefined && (
+                <div
+                  className={cn(
+                    "flex items-center gap-2",
+                    !(task.recordDanmaku && task.danmakuFileSize !== undefined) && "col-span-2"
+                  )}
+                  title={t('recordCard.onlineCount')}
+                >
+                  <UserIcon size={16} />
+                  <span className="font-mono">{(task.roomInfo.online ?? 0).toLocaleString()}</span>
+                </div>
+              )}
+              {task.recordDanmaku && task.danmakuFileSize !== undefined && (
+                <div className="flex items-center gap-2" title={t('recordCard.estimatedDanmakuSize')}>
+                  <ChatCircleDotsIcon size={16} />
+                  <span className="font-mono">{formatFileSize(task.danmakuFileSize)}</span>
+                </div>
+              )}
+              {task.recordedTime !== undefined && (
+                <div className="flex items-center gap-2" title={t('recordCard.estimatedDuration')}>
+                  <ClockIcon size={16} />
+                  <span className="font-mono">{formatDuration(task.recordedTime)}</span>
+                </div>
+              )}
+              {task.fileSize !== undefined && (
+                <div className="flex items-center gap-2" title={t('recordCard.estimatedSize')}>
+                  <VideoCameraIcon size={16} />
+                  <span className="font-mono">{formatFileSize(task.fileSize)}</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            task.roomInfo?.online !== undefined && (
+              <div className="flex items-center gap-2" title={t('recordCard.onlineCount')}>
+                <UserIcon size={16} />
+                <span className="font-mono">{(task.roomInfo.online ?? 0).toLocaleString()}</span>
+              </div>
+            )
+          )}
+        </div>
+
+        {task.error && (
+          <p className="text-sm text-destructive">
+            {task.error}
+          </p>
+        )}
+
+        {canControlRecording ? (
+          <div className="flex flex-col sm:flex-row gap-2 mt-auto">
+            <Button
+              asChild
+              variant="default"
+              className="w-full sm:flex-1 transition-all hover:shadow-lg"
+            >
+              <a
+                href={`https://live.bilibili.com/${task.roomInfo?.room_id ?? task.roomId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ArrowSquareOutIcon size={18} />
+                {t('recordCard.enterLiveRoom')}
+              </a>
+            </Button>
+
+            {!isReadOnly && (
+            <Button
+              onClick={handleStop}
+              disabled={isLoading}
+              variant="destructive"
+              className="w-full sm:w-1/2 transition-all hover:bg-destructive/90 hover:shadow-md hover:ring-1 hover:ring-destructive/30"
+            >
+              <StopIcon size={20} />
+              {t('recordCard.stopRecording')}
+            </Button>
+            )}
+          </div>
+        ) : null}
+
+        <Dialog open={isStopDialogOpen} onOpenChange={setIsStopDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('recordCard.stopConfirmTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('recordCard.stopConfirmDescription', {
+                  name: task.roomInfo?.uname ?? t('recordCard.roomFallback', { roomId: task.roomInfo?.room_id ?? task.roomId })
+                })}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setIsStopDialogOpen(false)} disabled={isLoading}>
+                {t('fileCard.cancel')}
+              </Button>
+              <Button variant="destructive" onClick={confirmStop} disabled={isLoading}>
+                {isLoading ? t('recordCard.processing') : t('recordCard.confirmStop')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </Card>
+  )
+}

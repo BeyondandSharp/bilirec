@@ -39,6 +39,11 @@ const (
 	protoZlib   = 2 // zlib-compressed sub-packets
 	protoBrotli = 3 // brotli-compressed sub-packets
 
+	// defaultDanmakuWsPort is the standard plaintext ws port used when
+	// transport=ws. DanmuInfoHost only exposes wss_port, so this is the
+	// fallback until the API host struct carries ws_port.
+	defaultDanmakuWsPort = 2244
+
 	liveWSHeartbeatInterval = 30 * time.Second
 	liveWSReadTimeout       = 70 * time.Second // > 2x heartbeat interval to detect half-dead connections
 	liveWSWriteTimeout      = 10 * time.Second
@@ -68,8 +73,15 @@ type LiveMessageClient struct {
 	handlers map[string][]LiveMessageHandler
 
 	// plainWS dials ws:// instead of wss://; only used by tests against a
-	// local plaintext websocket server.
+	// local plaintext websocket server (kept for test compatibility).
 	plainWS bool
+
+	// transport is the configured danmaku transport: "" (default/auto) and
+	// "wss" dial wss://, "ws" dials plaintext ws:// (docs/FEATURES-V2.md §4).
+	transport string
+	// rawHandler receives messages whose normalized cmd has no registered
+	// HandleFunc handler (used for raw_events recording).
+	rawHandler func(cmd string, raw []byte)
 
 	writeMu sync.Mutex // serializes frame writes (read loop control replies + heartbeat)
 	connMu  sync.Mutex
@@ -93,6 +105,42 @@ func (c *LiveMessageClient) HandleFunc(cmd string, fn LiveMessageHandler) {
 	c.handlers[cmd] = append(c.handlers[cmd], fn)
 }
 
+// SetTransport selects the danmaku websocket transport (docs/FEATURES-V2.md
+// §4): ""/"auto"/"wss" dial wss://; "ws" dials plaintext ws://. Unknown values
+// fall back to the default wss behavior.
+func (c *LiveMessageClient) SetTransport(transport string) {
+	switch strings.ToLower(strings.TrimSpace(transport)) {
+	case "", "auto", "wss":
+		c.transport = "wss"
+	case "ws":
+		c.transport = "ws"
+	default:
+		c.transport = "wss"
+	}
+}
+
+// HandleRaw registers a fallback handler for messages whose normalized cmd has
+// no registered HandleFunc handler. Pass nil to disable. It must be called
+// before Run (same contract as HandleFunc).
+func (c *LiveMessageClient) HandleRaw(fn func(cmd string, raw []byte)) {
+	c.rawHandler = fn
+}
+
+// dialURL builds the /sub websocket URL for the selected transport.
+func (c *LiveMessageClient) dialURL(host DanmuInfoHost) string {
+	scheme := "wss"
+	port := host.WssPort
+	switch {
+	case c.plainWS:
+		// Test override: plaintext ws on the test server's port.
+		scheme = "ws"
+	case c.transport == "ws":
+		scheme = "ws"
+		port = defaultDanmakuWsPort
+	}
+	return fmt.Sprintf("%s://%s:%d/sub", scheme, host.Host, port)
+}
+
 // Close force-closes the underlying connection, causing Run to return.
 func (c *LiveMessageClient) Close() {
 	c.closeConn()
@@ -101,11 +149,7 @@ func (c *LiveMessageClient) Close() {
 // Run dials the given host, enters the room, starts the heartbeat loop and
 // blocks dispatching messages until the connection fails or ctx is canceled.
 func (c *LiveMessageClient) Run(ctx context.Context, host DanmuInfoHost, token string) error {
-	scheme := "wss"
-	if c.plainWS {
-		scheme = "ws"
-	}
-	url := fmt.Sprintf("%s://%s:%d/sub", scheme, host.Host, host.WssPort)
+	url := c.dialURL(host)
 	dialer := ws.Dialer{
 		Timeout: liveWSDialTimeout,
 		Header: ws.HandshakeHeaderHTTP(http.Header{
@@ -298,9 +342,30 @@ func (c *LiveMessageClient) dispatchMessage(body []byte) {
 	if i := strings.IndexByte(cmd, ':'); i >= 0 {
 		cmd = cmd[:i]
 	}
-	for _, fn := range c.handlers[cmd] {
+	handlers := c.handlers[cmd]
+	if len(handlers) == 0 {
+		if c.rawHandler != nil {
+			c.callRawHandler(cmd, body)
+		}
+		return
+	}
+	for _, fn := range handlers {
 		c.callHandler(cmd, fn, body)
 	}
+}
+
+// callRawHandler invokes the raw fallback handler with panic isolation.
+func (c *LiveMessageClient) callRawHandler(cmd string, body []byte) {
+	handler := c.rawHandler
+	if handler == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			c.log.Errorf("弹幕原始消息处理器 panic（cmd=%s）：%v", cmd, r)
+		}
+	}()
+	handler(cmd, body)
 }
 
 func (c *LiveMessageClient) callHandler(cmd string, fn LiveMessageHandler, body []byte) {

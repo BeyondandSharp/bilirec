@@ -1,0 +1,38 @@
+{
+  "base": {
+    "path": "base/clean.flv",
+    "sha256": "2c989ac61427b3e9541fb9bfe43ad0c0957a3befb792bd8a781c4694a4a7232a",
+    "size": 1537568
+  },
+  "fixtures": {
+    "v2_annexb_video.flv": {
+      "expect": {
+        "annexb_start_codes_in_video_payload": true,
+        "script_tag_after_first_media_tag": false
+      },
+      "sha256": "bb1d3643127551f618defd59c058f61f08be7d04002c6195285d888ffc3273c8",
+      "size": 153153
+    },
+    "v2_clean_prefix.flv": {
+      "expect": {
+        "annexb_start_codes_in_video_payload": false,
+        "script_tag_after_first_media_tag": false
+      },
+      "sha256": "41d858cfe099b010c9d099472a4bb426d5703028dc8e55dee00044e73a68d3e0",
+      "size": 153153
+    },
+    "v2_script_tag_mid.flv": {
+      "expect": {
+        "annexb_start_codes_in_video_payload": false,
+        "script_tag_after_first_media_tag": true
+      },
+      "sha256": "e4b05d094d1fd598ace121ef1a8e60b486aedbadd575be62ac42e2752bd4a018",
+      "size": 153186
+    }
+  },
+  "generator": "testdata/flv/gen/gen_v2_detectors.py",
+  "prefix_ms": 2000,
+  "prefix_tags": 156,
+  "purpose": "Go FLV split detectors (FEATURES-V2 \u00a75.2): ScriptTagSplitDetector / AnnexBDetector",
+  "schema": 1
+}

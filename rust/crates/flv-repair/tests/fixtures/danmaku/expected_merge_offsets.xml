@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<i>
+<chatserver>chat.bilibili.com</chatserver>
+<chatid>0</chatid>
+<mission>0</mission>
+<maxlimit>1000</maxlimit>
+<state>0</state>
+<real_name>0</real_name>
+<source>0</source>
+<BililiveRecorder version="0.1.0" />
+<BililiveRecorderRecordInfo roomid="12345" shortid="0" name="主播A" title="测试直播" start_time="2026-10-20T10:00:00+08:00" />
+<d p="0.500,1,25,16777215,1700000002,0,2001,0" user="frank">from b</d>
+<d p="1.000,1,25,16777215,1700000000,0,1001,0" user="alice">first</d>
+<sc ts="1.500" user="heidi" uid="2003" price="50">super chat B</sc>
+<gift ts="2.000" user="carol" uid="1003" giftname="rocket" giftcount="2" />
+<d p="2.000,1,25,16777215,1700000003,0,2002,0" user="grace">second b</d>
+<d p="3.500,1,25,16777215,1700000001,0,1002,0" user="bob">a &amp; b</d>
+<guard ts="4.250" user="eve" uid="1005" level="3" count="1" />
+<sc ts="5.000" user="dave" uid="1004" price="30">super chat A</sc>
+</i>

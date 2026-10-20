@@ -1,0 +1,41 @@
+# BuildKit Dockerfile-specific ignore file (used when building deploy/Dockerfile).
+# The build context is the repo root (the Go module root): keep it limited to the
+# sources the backend/rust build needs and avoid leaking local artifacts/secrets.
+#
+# Keep: go.mod/go.sum, cmd/, internal/, pkg/, utils/, dotenv.go, swagger.go,
+#       LICENSE/NOTICE/README, rust/ sources (+ rust/Cargo.*).
+# Exclude: frontend (web/), reference clones (refs/), test fixtures, scripts,
+#          local volume backups, build outputs, docs (swagger is generated in
+#          the builder), the deploy/ tree itself, and VCS/editor metadata.
+.git
+.github
+.cursor
+.gitignore
+.gitattributes
+
+# local configuration overrides. NOTE: the tracked root `.env` must stay in the
+# context: the Go root package `//go:embed`s it (dotenv.go). `.env.local` is a
+# developer-local override and is not needed.
+.env.local
+.env.example
+
+# not needed inside the image
+refs
+web
+testdata
+scripts
+backups
+dist
+docs
+deploy
+
+# dependency/build caches and local data
+**/node_modules
+rust/target
+**/target
+**/records
+**/database
+**/secrets
+**/*.log
+**/*.tmp
+**/.DS_Store

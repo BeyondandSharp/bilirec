@@ -12,6 +12,14 @@ type xmlEncoder struct{}
 
 func (xmlEncoder) Ext() string { return ".xml" }
 
+// SupportsRaw is false: the XML replay format ignores raw events
+// (docs/FEATURES-V2.md §4).
+func (xmlEncoder) SupportsRaw() bool { return false }
+
+func (xmlEncoder) AppendRaw(buf []byte, cmd string, raw []byte, ts string) []byte {
+	return nil
+}
+
 const xmlFileHeaderStatic = `<i>
 <chatserver>chat.bilibili.com</chatserver>
 <chatid>0</chatid>

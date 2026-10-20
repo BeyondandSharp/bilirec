@@ -1,0 +1,120 @@
+{
+  "schema": 1,
+  "class": "R1",
+  "fixture": "r1_timestamp_jump.flv",
+  "fixture_bytes": 1537568,
+  "fixture_sha256": "0c1fcd2d4d0f2020e9f4c345864e005d334681c07b8f6edcef0a83aa363a6ff5",
+  "base": "clean.flv",
+  "corruption": {
+    "kind": "timestamp_jump_forward",
+    "at_tag_index": 616,
+    "at_timestamp_ms": 8000,
+    "delta_ms": 2000,
+    "rule": "UpdateTimestampJumpRule (JUMP_THRESHOLD=500)"
+  },
+  "input_analysis": {
+    "bytes": 1537568,
+    "sha256": "0c1fcd2d4d0f2020e9f4c345864e005d334681c07b8f6edcef0a83aa363a6ff5",
+    "valid_flv_structure": true,
+    "header_flags": 5,
+    "resync_events": 0,
+    "resynced_bytes": 0,
+    "truncated_tail_bytes": 0,
+    "prev_size_mismatches": 0,
+    "tag_count": 1543,
+    "tag_counts": {
+      "video": 602,
+      "audio": 940,
+      "script": 1
+    },
+    "timestamps": {
+      "video": {
+        "count": 602,
+        "first": 0,
+        "last": 21967,
+        "monotonic": true,
+        "jumps": 1,
+        "rollbacks": 0
+      },
+      "audio": {
+        "count": 940,
+        "first": 0,
+        "last": 22056,
+        "monotonic": true,
+        "jumps": 1,
+        "rollbacks": 0
+      }
+    },
+    "raw_last_timestamp_ms": 22056,
+    "video_sequence_headers": 1,
+    "audio_sequence_headers": 1,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "end_tag_count": 1,
+    "zero_size_data_tags": 0,
+    "filler_nalu_count": 0,
+    "adjacent_duplicate_tags": 0,
+    "group_count": 23,
+    "duplicate_groups": 0,
+    "last_tag_is_end": true,
+    "aac_header_index": 2,
+    "first_audio_data_index": 5,
+    "aac_header_before_audio_data": true,
+    "metadata": {
+      "present": true,
+      "parsed": true,
+      "duration_present": true,
+      "duration": 20.067
+    }
+  },
+  "expect": {
+    "class": "R1",
+    "valid_flv": true,
+    "header_flags": 5,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "timestamps": {
+      "video": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      },
+      "audio": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      }
+    },
+    "duration_ms": {
+      "min": 19000,
+      "max": 21000
+    },
+    "tag_count": {
+      "min": 1541,
+      "max": 1545
+    },
+    "output_bytes": {
+      "min": 0,
+      "max": 1541664
+    },
+    "preserved": {
+      "onmetadata": true,
+      "video_sequence_header": true,
+      "audio_sequence_header": true
+    },
+    "anomalies": {
+      "required": [
+        "R1"
+      ],
+      "min_count": 1
+    },
+    "repair_command": "flvrepair file --input fixtures/r1_timestamp_jump.flv --output out.flv --mode best-effort",
+    "jump_repaired": true,
+    "input_raw_last_timestamp_ms": 22056,
+    "notes": [
+      "input has a +2000 ms jump at the fixture boundary; output timestamps must stay continuous and end near the original duration"
+    ]
+  }
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,7 @@ const (
 	superChatEventType = "super_chat"
 	giftEventType      = "gift"
 	guardEventType     = "guard"
+	rawEventType       = "raw"
 )
 
 // rotateRequest asks the writer goroutine to finalize the current danmaku file
@@ -38,6 +40,10 @@ type session struct {
 	meta    RoomMeta
 	svc     *Service
 	encoder FormatEncoder
+
+	// options are fixed for the session (docs/FEATURES-V2.md §4).
+	types     DanmakuTypes
+	transport string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -61,13 +67,15 @@ type session struct {
 	writerCtx context.Context
 }
 
-func newSession(roomID int, meta RoomMeta, svc *Service, enc FormatEncoder, recCtx context.Context) *session {
+func newSession(roomID int, meta RoomMeta, svc *Service, enc FormatEncoder, recCtx context.Context, options SessionOptions) *session {
 	ctx, cancel := context.WithCancel(recCtx)
 	s := &session{
 		roomID:          roomID,
 		meta:            meta,
 		svc:             svc,
 		encoder:         enc,
+		types:           options.Types,
+		transport:       normalizeTransport(options.Transport),
 		ctx:             ctx,
 		cancel:          cancel,
 		msgCh:           make(chan []byte, config.ReadOnly.DanmakuChanBufferSize()),
@@ -146,17 +154,53 @@ func (s *session) runOnce() error {
 	}
 	uid, buvid := s.svc.bilic.DanmakuIdentity()
 
+	// Like BililiveRecorder, use the first candidate host; the reconnect loop
+	// refetches a fresh host list on every cycle.
+	host := info.HostList[0]
+
+	s.svc.metrics.DanmakuConnectionActive(s.roomID, true)
+	err = s.connect(protocolRoomID, uid, buvid, host, info.Token, s.transport)
+	if err != nil && s.transport == "auto" && isDialOrTLSError(err) {
+		// docs/FEATURES-V2.md §4: auto = wss with one ws fallback on TLS/dial
+		// errors. The next reconnect cycle goes back to wss (fresh attempt).
+		log.Warnf("房间 %d 弹幕 wss 连接失败（%v），尝试一次明文 ws 回退", s.roomID, err)
+		return s.connect(protocolRoomID, uid, buvid, host, info.Token, "ws")
+	}
+	return err
+}
+
+// connect dials the danmaku websocket with the given transport and runs it.
+func (s *session) connect(protocolRoomID, uid int, buvid string, host bilibili.DanmuInfoHost, token, transport string) error {
 	client := bilibili.NewLiveMessageClient(protocolRoomID, uid, buvid)
 	client.HandleFunc("DANMU_MSG", s.handleDanmaku)
 	client.HandleFunc("SUPER_CHAT_MESSAGE", s.handleSuperChat)
 	client.HandleFunc("SEND_GIFT", s.handleGift)
 	client.HandleFunc("SEND_GIFT_V2", s.handleGiftV2)
 	client.HandleFunc("GUARD_BUY", s.handleGuard)
+	if s.types.RawEvents && s.encoder.SupportsRaw() {
+		client.HandleRaw(s.handleRaw)
+	}
+	client.SetTransport(transport)
+	return client.Run(s.ctx, host, token)
+}
 
-	s.svc.metrics.DanmakuConnectionActive(s.roomID, true)
-	// Like BililiveRecorder, use the first candidate host; the reconnect loop
-	// refetches a fresh host list on every cycle.
-	return client.Run(s.ctx, info.HostList[0], info.Token)
+// isDialOrTLSError classifies connection-level failures for the auto
+// wss->ws fallback. The websocket client wraps dial errors with %v, so
+// classification is string based.
+func isDialOrTLSError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"tls", "certificate", "x509", "dial tcp", "dial udp", "connection refused",
+		"i/o timeout", "no such host", "network is unreachable", "handshake",
+	} {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *session) handleDanmaku(raw []byte) {
@@ -172,6 +216,9 @@ func (s *session) handleDanmaku(raw []byte) {
 }
 
 func (s *session) handleSuperChat(raw []byte) {
+	if !s.types.SuperChat {
+		return
+	}
 	e, err := parseSuperChat(raw)
 	if err != nil {
 		s.svc.metrics.DanmakuParseError(s.roomID, superChatEventType)
@@ -185,6 +232,9 @@ func (s *session) handleSuperChat(raw []byte) {
 }
 
 func (s *session) handleGift(raw []byte) {
+	if !s.types.Gift {
+		return
+	}
 	e, err := parseGift(raw)
 	if err != nil {
 		s.svc.metrics.DanmakuParseError(s.roomID, giftEventType)
@@ -198,6 +248,9 @@ func (s *session) handleGift(raw []byte) {
 }
 
 func (s *session) handleGiftV2(raw []byte) {
+	if !s.types.Gift {
+		return
+	}
 	gifts, err := parseGiftV2(raw)
 	if err != nil {
 		s.svc.metrics.DanmakuParseError(s.roomID, giftEventType)
@@ -213,6 +266,9 @@ func (s *session) handleGiftV2(raw []byte) {
 }
 
 func (s *session) handleGuard(raw []byte) {
+	if !s.types.Guard {
+		return
+	}
 	e, err := parseGuard(raw)
 	if err != nil {
 		s.svc.metrics.DanmakuParseError(s.roomID, guardEventType)
@@ -223,6 +279,17 @@ func (s *session) handleGuard(raw []byte) {
 	s.enqueue(func(buf []byte, ts string) []byte {
 		return s.encoder.AppendGuard(buf, e, ts)
 	}, guardEventType)
+}
+
+// handleRaw persists an unhandled command payload when raw_events is enabled
+// (JSONL only; the XML replay format ignores raw records).
+func (s *session) handleRaw(cmd string, raw []byte) {
+	if !s.types.RawEvents || !s.encoder.SupportsRaw() {
+		return
+	}
+	s.enqueue(func(buf []byte, ts string) []byte {
+		return s.encoder.AppendRaw(buf, cmd, raw, ts)
+	}, rawEventType)
 }
 
 type fragmentBuilder func(buf []byte, ts string) []byte

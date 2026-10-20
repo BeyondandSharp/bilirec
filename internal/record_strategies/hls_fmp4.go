@@ -70,6 +70,15 @@ func (s *HlsFmp4Strategy) BuildPipeline(ctx context.Context, outputPath string, 
 }
 
 func (s *HlsFmp4Strategy) HandleErr(err error) ErrHandleResult {
+	if errors.Is(err, ErrRotationRequested) {
+		s.bases = make(map[uint32]uint64)
+		state := &RotationState{Data: map[string][]byte{}}
+		if len(s.lastInit) > 0 {
+			state.Data[fmp4StatePendingInit] = append([]byte(nil), s.lastInit...)
+		}
+		return ErrHandleResult{Action: ErrActionRotate, State: state}
+	}
+
 	var disc *processors.Fmp4DiscontinuityError
 	if errors.As(err, &disc) {
 		s.bases = make(map[uint32]uint64)

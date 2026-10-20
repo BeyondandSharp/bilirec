@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
+	"github.com/bilirec/bilirec/internal/services/downloader"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/gofiber/fiber/v3"
 )
@@ -22,6 +23,8 @@ type resolvedStartParams struct {
 	onlyAudio              bool
 	recordDanmaku          bool
 	deleteOldestOnLowDisk  bool
+	hasDownloader          bool
+	downloaderRaw          string
 }
 
 func parseStartRecordingParams(ctx fiber.Ctx) (resolvedStartParams, error) {
@@ -61,6 +64,12 @@ func resolvedFromStartRecordingQuery(ctx fiber.Ctx) (resolvedStartParams, error)
 	deleteOldestRaw := strings.TrimSpace(strings.ToLower(fiber.Query(ctx, "delete_oldest_on_low_disk", "false")))
 	p.deleteOldestOnLowDisk, _ = strconv.ParseBool(deleteOldestRaw)
 
+	downloaderRaw := strings.TrimSpace(fiber.Query(ctx, "downloader", ""))
+	if downloaderRaw != "" {
+		p.hasDownloader = true
+		p.downloaderRaw = downloaderRaw
+	}
+
 	return p, nil
 }
 
@@ -81,6 +90,10 @@ func resolvedFromStartRecordingRequest(req StartRecordingRequest) resolvedStartP
 	}
 	if req.DeleteOldestOnLowDisk != nil {
 		p.deleteOldestOnLowDisk = *req.DeleteOldestOnLowDisk
+	}
+	if req.Downloader != nil {
+		p.hasDownloader = true
+		p.downloaderRaw = strings.TrimSpace(*req.Downloader)
 	}
 	switch {
 	case req.StreamProfiles != nil:
@@ -136,6 +149,16 @@ func recordStartOptionsFromResolved(p resolvedStartParams) ([]recorder.RecordSta
 	}
 	if p.deleteOldestOnLowDisk {
 		startArgs = append(startArgs, recorder.WithDeleteOldestOnLowDisk(true))
+	}
+	if p.hasDownloader {
+		// auto (or an omitted value) inherits the server-wide DOWNLOADER.
+		if raw := strings.ToLower(strings.TrimSpace(p.downloaderRaw)); raw != "" && raw != "auto" {
+			kind, err := downloader.ParseKind(raw)
+			if err != nil {
+				return nil, fiber.NewError(fiber.StatusBadRequest, "无效的 downloader 参数（仅支持 auto、native、ffmpeg、streamlink）")
+			}
+			startArgs = append(startArgs, recorder.WithDownloader(kind))
+		}
 	}
 
 	return startArgs, nil

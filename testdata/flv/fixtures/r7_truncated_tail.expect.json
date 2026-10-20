@@ -1,0 +1,127 @@
+{
+  "schema": 1,
+  "class": "R7",
+  "fixture": "r7_truncated_tail.flv",
+  "fixture_bytes": 1537436,
+  "fixture_sha256": "d69ed0d1624d304e7d8245b4ba3699d12c93646ca2428476e6701059d63992a6",
+  "base": "clean.flv",
+  "corruption": {
+    "kind": "garbage_between_tags_and_truncated_tail",
+    "garbage_bytes": 20,
+    "garbage_after_tag_index": 769,
+    "garbage_at_timestamp_ms": 9987,
+    "truncated_tail_bytes": 152,
+    "truncated_tag_index": 1541,
+    "dropped_tags": [
+      1542,
+      1541
+    ],
+    "complete_tag_count": 1541,
+    "rule": "parser resync (§3.6) + drop partial tail"
+  },
+  "input_analysis": {
+    "bytes": 1537436,
+    "sha256": "d69ed0d1624d304e7d8245b4ba3699d12c93646ca2428476e6701059d63992a6",
+    "valid_flv_structure": false,
+    "header_flags": 5,
+    "resync_events": 1,
+    "resynced_bytes": 20,
+    "truncated_tail_bytes": 125,
+    "prev_size_mismatches": 0,
+    "tag_count": 1541,
+    "tag_counts": {
+      "video": 601,
+      "audio": 939,
+      "script": 1
+    },
+    "timestamps": {
+      "video": {
+        "count": 601,
+        "first": 0,
+        "last": 19967,
+        "monotonic": true,
+        "jumps": 0,
+        "rollbacks": 0
+      },
+      "audio": {
+        "count": 939,
+        "first": 0,
+        "last": 20035,
+        "monotonic": true,
+        "jumps": 0,
+        "rollbacks": 0
+      }
+    },
+    "raw_last_timestamp_ms": 20035,
+    "video_sequence_headers": 1,
+    "audio_sequence_headers": 1,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "end_tag_count": 0,
+    "zero_size_data_tags": 0,
+    "filler_nalu_count": 0,
+    "adjacent_duplicate_tags": 0,
+    "group_count": 22,
+    "duplicate_groups": 0,
+    "last_tag_is_end": false,
+    "aac_header_index": 2,
+    "first_audio_data_index": 5,
+    "aac_header_before_audio_data": true,
+    "metadata": {
+      "present": true,
+      "parsed": true,
+      "duration_present": true,
+      "duration": 20.067
+    }
+  },
+  "expect": {
+    "class": "R7",
+    "valid_flv": true,
+    "header_flags": 5,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "timestamps": {
+      "video": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      },
+      "audio": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      }
+    },
+    "duration_ms": {
+      "min": 19235,
+      "max": 20835
+    },
+    "tag_count": {
+      "min": 1539,
+      "max": 1543
+    },
+    "output_bytes": {
+      "min": 0,
+      "max": 1541532
+    },
+    "preserved": {
+      "onmetadata": true,
+      "video_sequence_header": true,
+      "audio_sequence_header": true
+    },
+    "anomalies": {
+      "required": [
+        "R7"
+      ],
+      "min_count": 1
+    },
+    "repair_command": "flvrepair file --input fixtures/r7_truncated_tail.flv --output out.flv --mode best-effort",
+    "truncated_tail_dropped": true,
+    "resync": true,
+    "notes": [
+      "20 garbage bytes sit between tags and the final two tags (terminal END tag + half of the last audio tag) are truncated; output must contain only complete tags (resync + drop partial tail), no parser abort"
+    ]
+  }
+}

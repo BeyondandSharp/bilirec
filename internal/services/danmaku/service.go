@@ -62,7 +62,7 @@ func NewService(
 // StartSession begins danmaku recording for a room. videoPath is the current
 // video segment path; the sidecar file is written next to it with the same
 // base name. If a live session already exists for the room, the call is a no-op.
-func (s *Service) StartSession(roomID int, recCtx context.Context, videoPath string, meta RoomMeta, segmentStart time.Time) {
+func (s *Service) StartSession(roomID int, recCtx context.Context, videoPath string, meta RoomMeta, segmentStart time.Time, options SessionOptions) {
 	if existing, ok := s.sessions.Load(roomID); ok {
 		if !existing.isDone() {
 			return
@@ -80,7 +80,7 @@ func (s *Service) StartSession(roomID int, recCtx context.Context, videoPath str
 		s.pool = pool.NewBytesPool(config.ReadOnly.DanmakuBytesPoolSize())
 	})
 
-	sess := newSession(roomID, meta, s, enc, recCtx)
+	sess := newSession(roomID, meta, s, enc, recCtx, options)
 	s.sessions.Store(roomID, sess)
 	s.metrics.DanmakuSessionStarted(roomID)
 

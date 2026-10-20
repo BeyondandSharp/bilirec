@@ -1,0 +1,509 @@
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useGridVirtualizer } from '@/hooks/use-grid-virtualizer'
+import { BellIcon, BellSlashIcon, MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
+import { SearchBar } from './SearchBar'
+import { SubscribeCard } from './SubscribeCard'
+import { EmptyState } from './EmptyState'
+import { RoomIdInputWithConfirmDialog } from './RoomIdInputWithConfirmDialog'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { apiClient } from '@/lib/api'
+import { isNetworkError, markOnline, noteTransportFailure } from '@/lib/network-status'
+import { toast } from 'sonner'
+import type { RecordInfo, RecordStatus, RoomConfig, RoomInfo } from '@/lib/types'
+import { buildStartRecordParams } from '@/lib/room-config'
+import { LoadingScreen } from './LoadingScreen'
+import { usePageVisibility } from '@/hooks/use-visibility'
+import { useScoredSearch } from '@/hooks/use-scored-search'
+import { useRole } from '@/lib/role-context'
+import { rememberLiveStarts } from '@/lib/last-live-start'
+import { normalizeText } from '@/lib/utils'
+import {
+  getNotificationPermission,
+  NOTIFICATION_BLOCKED_BANNER_DISMISSED_KEY,
+  requestNotificationPermission,
+  startLiveNotifications,
+  type NotificationPermissionStatus,
+  watchNotificationPermission,
+} from '@/lib/notifications'
+import { storage } from '@/lib/storage'
+import useSWR from 'swr'
+import { useTranslation } from 'react-i18next'
+
+const CARD_MIN_WIDTH = 400
+const GRID_GAP = 16
+const CONTENT_PADDING_X = 32
+const ESTIMATED_ROW_HEIGHT = 200
+const MAX_COLUMNS = 3
+
+interface SubscribesViewProps {
+  onRefresh?: () => void
+  pinnedRoomId?: number | null
+}
+
+export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps) {
+  const { t } = useTranslation()
+  const { isReadOnly } = useRole()
+  const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [notificationPermission, setNotificationPermission] =
+    useState<NotificationPermissionStatus>(getNotificationPermission)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const lastScrolledPinRef = useRef<number | null>(null)
+  const isVisible = usePageVisibility()
+
+  const {
+    data: subscribedRoomIds,
+    error: subscribedRoomsError,
+    isLoading: isSubscribedRoomsLoading,
+    mutate: mutateSubscribedRoomIds,
+  } = useSWR<number[]>(
+    'subscribe/room-ids',
+    () => apiClient.getSubscribedRooms(),
+    {
+      refreshInterval: isVisible ? 5000 : 0,
+      refreshWhenHidden: true,
+      revalidateOnFocus: true,
+      keepPreviousData: true,
+      onSuccess: () => markOnline(),
+      onError: (err) => {
+        if (isNetworkError(err)) {
+          noteTransportFailure(err)
+        }
+      },
+    }
+  )
+
+  const roomIds = subscribedRoomIds ?? []
+
+  const { data: autoRecordRoomIds = [] } = useSWR<number[]>(
+    'subscribe/auto-record-ids',
+    () => apiClient.getAutoRecordRooms(),
+    {
+      refreshInterval: isVisible ? 5000 : 0,
+      refreshWhenHidden: true,
+      revalidateOnFocus: true,
+      keepPreviousData: true,
+    }
+  )
+
+  const autoRecordRoomIdSet = useMemo(
+    () => new Set(autoRecordRoomIds),
+    [autoRecordRoomIds]
+  )
+
+  const roomInfoKey =
+    roomIds.length > 0 ? `subscribe/details/${roomIds.join(',')}` : null
+
+  const {
+    data: details = { roomInfos: {}, recordStatuses: [] },
+    isLoading: isDetailsLoading,
+    mutate: mutateDetails,
+  } = useSWR<{ roomInfos: Record<string, RoomInfo>; recordStatuses: RecordInfo[] }>(
+    roomInfoKey,
+    async () => {
+      const [roomInfos, recordStatusesMap] = await Promise.all([
+        apiClient.getRoomInfos(roomIds),
+        apiClient.getRecordStatuses(roomIds).catch((): Record<string, RecordStatus> => ({}))
+      ])
+
+      rememberLiveStarts(Object.values(roomInfos))
+
+      const recordStatuses = roomIds.map((id) => ({
+        room_id: id,
+        status: recordStatusesMap[id.toString()] ?? 'idle',
+      }))
+
+      return { roomInfos, recordStatuses }
+    },
+    {
+      refreshInterval: isVisible ? 5000 : 0,
+      refreshWhenHidden: true,
+      revalidateOnFocus: true,
+      keepPreviousData: true,
+    }
+  )
+
+  const recordingRoomIds = useMemo(
+    () => new Set(details.recordStatuses.filter((status) => status.status === 'recording').map((status) => status.room_id)),
+    [details.recordStatuses]
+  )
+
+  const rooms = useMemo(() => {
+    const sortRank = (room: RoomInfo) => {
+      const live = room.live_status === 1
+      const autoRecord = autoRecordRoomIdSet.has(room.room_id)
+      if (live && autoRecord) return 0
+      if (live && !autoRecord) return 1
+      if (!live && autoRecord) return 2
+      return 3
+    }
+
+    return Object.values(details.roomInfos).sort((a, b) => {
+      if (pinnedRoomId !== undefined && pinnedRoomId !== null) {
+        if (a.room_id === pinnedRoomId) return -1
+        if (b.room_id === pinnedRoomId) return 1
+      }
+      const rankDiff = sortRank(a) - sortRank(b)
+      if (rankDiff !== 0) return rankDiff
+      return 0
+    })
+  }, [details.roomInfos, pinnedRoomId, autoRecordRoomIdSet])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchQuery(searchInput.trim())
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [searchInput])
+
+  useEffect(() => {
+    void storage
+      .get<boolean>(NOTIFICATION_BLOCKED_BANNER_DISMISSED_KEY)
+      .then((value) => {
+        if (value) {
+          setBannerDismissed(true)
+        }
+      })
+  }, [])
+
+  useEffect(() => {
+    return watchNotificationPermission((status) => {
+      setNotificationPermission(status)
+      if (status !== 'denied') {
+        setBannerDismissed(false)
+        void storage.delete(NOTIFICATION_BLOCKED_BANNER_DISMISSED_KEY)
+      }
+    })
+  }, [])
+
+  const showNotificationEnableBanner =
+    !isReadOnly && notificationPermission === 'default'
+
+  const showNotificationBlockedBanner =
+    !isReadOnly &&
+    notificationPermission === 'denied' &&
+    !bannerDismissed
+
+  const handleDismissNotificationBanner = () => {
+    setBannerDismissed(true)
+    void storage.set(NOTIFICATION_BLOCKED_BANNER_DISMISSED_KEY, true)
+  }
+
+  const handleEnableNotifications = async () => {
+    setIsRequestingPermission(true)
+    try {
+      const permission = await requestNotificationPermission()
+      setNotificationPermission(permission)
+
+      if (permission === 'granted') {
+        const result = await startLiveNotifications({ autoRequestPermission: false })
+        if (result === 'push-unavailable') {
+          console.error('Web Push bootstrap failed after granting permission:', result)
+        }
+      } else if (permission === 'denied') {
+        toast.error(t('toast.notificationBlocked'))
+      }
+    } catch (error) {
+      console.error('Failed to request notification permission:', error)
+    } finally {
+      setIsRequestingPermission(false)
+    }
+  }
+
+  const normalizeSearchText = useMemo(
+    () => (value: string) => normalizeText(value).toLowerCase(),
+    []
+  )
+
+  const roomSearchFields = useMemo(
+    () => [
+      {
+        getValue: (room: RoomInfo) => room.room_id,
+        exact: 140,
+        startsWith: 90,
+        includes: 70,
+      },
+      {
+        getValue: (room: RoomInfo) => room.room_id,
+        exact: 140,
+        startsWith: 120,
+        includes: 100,
+        when: (normalizedQuery: string) => /^\d+$/.test(normalizedQuery),
+      },
+      {
+        getValue: (room: RoomInfo) => room.uname,
+        exact: 130,
+        startsWith: 110,
+        includes: 90,
+      },
+      {
+        getValue: (room: RoomInfo) => room.title,
+        exact: 80,
+        startsWith: 80,
+        includes: 60,
+      },
+      {
+        getValue: (room: RoomInfo) => room.description,
+        exact: 40,
+        startsWith: 40,
+        includes: 40,
+      },
+    ],
+    []
+  )
+
+  const filteredRooms = useScoredSearch<RoomInfo>({
+    items: rooms,
+    query: searchQuery,
+    fields: roomSearchFields,
+    normalize: normalizeSearchText,
+    minScore: 1,
+  })
+
+  const isLoading = isSubscribedRoomsLoading || (roomIds.length > 0 && isDetailsLoading)
+
+  useEffect(() => {
+    if (!subscribedRoomsError || isNetworkError(subscribedRoomsError)) {
+      return
+    }
+    console.error('Failed to fetch subscribed rooms:', subscribedRoomsError)
+    toast.error(t('subscribesView.loadError'))
+  }, [subscribedRoomsError, t])
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+
+    if (pinnedRoomId != null) {
+      if (lastScrolledPinRef.current !== pinnedRoomId) {
+        el.scrollTop = 0
+        lastScrolledPinRef.current = pinnedRoomId
+      }
+      return
+    }
+
+    lastScrolledPinRef.current = null
+  }, [rooms, pinnedRoomId])
+
+  const { rows, fixedColumnsStyle, rowVirtualizer } = useGridVirtualizer<RoomInfo>({
+    scrollContainerRef,
+    items: filteredRooms,
+    cardMinWidth: CARD_MIN_WIDTH,
+    gridGap: GRID_GAP,
+    contentPaddingX: CONTENT_PADDING_X,
+    estimatedRowHeight: ESTIMATED_ROW_HEIGHT,
+    maxColumns: MAX_COLUMNS,
+  })
+
+  const handleConfirmSubscribe = async (roomInfo: RoomInfo) => {
+    try {
+      await apiClient.subscribeRoom(roomInfo.room_id)
+    } catch (error: any) {
+      console.error('Failed to subscribe room:', error)
+      if (error.response?.status === 409) {
+        toast.error(t('subscribesView.duplicated'))
+      } else if (error.response?.status === 400) {
+        toast.error(t('subscribesView.invalidRoom'))
+      } else {
+        toast.error(error.response?.data || t('subscribesView.subscribeFailed'))
+      }
+      throw error
+    }
+    toast.success(t('subscribesView.subscribeSuccess'))
+    await mutateSubscribedRoomIds()
+    onRefresh?.()
+  }
+
+  const handleUnsubscribe = async (roomId: number) => {
+    try {
+      await apiClient.unsubscribeRoom(roomId)
+      toast.success(t('subscribesView.unsubscribeSuccess'))
+      await mutateSubscribedRoomIds()
+      onRefresh?.()
+    } catch (error: any) {
+      console.error('Failed to unsubscribe room:', error)
+      if (error.response?.status === 404) {
+        toast.error(t('subscribesView.notSubscribed'))
+      } else {
+        toast.error(error.response?.data || t('subscribesView.unsubscribeFailed'))
+      }
+    }
+  }
+
+  const handleStartRecord = async (roomId: number) => {
+    try {
+      let config: RoomConfig | null = null
+      try {
+        config = await apiClient.getRoomConfig(roomId)
+      } catch {
+        // If config fetch fails, fall back to backend default (no param)
+      }
+      await apiClient.startRecord(buildStartRecordParams(roomId, config))
+      await mutateDetails()
+      toast.success(t('subscribesView.startSuccess'))
+      onRefresh?.()
+    } catch (error: any) {
+      console.error('Failed to start record:', error)
+      toast.error(error.response?.data || t('subscribesView.startFailed'))
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="sticky top-0 bg-background z-10 p-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-bold shrink-0">{t('subscribesView.title')}</h2>
+
+          <SearchBar
+            value={searchInput}
+            onChange={setSearchInput}
+            placeholder={t('subscribesView.searchPlaceholder')}
+            isSearching={searchInput.trim() !== searchQuery}
+            searchingLabel={t('subscribesView.searching')}
+            searchLabel={t('actions.search')}
+            dialogTitle={t('subscribesView.searchAria')}
+            ariaLabel={t('subscribesView.searchAria')}
+            containerClassName="ml-auto"
+            inputWidth="w-[200px] md:w-[280px]"
+          />
+
+          {!isReadOnly && (
+            <RoomIdInputWithConfirmDialog
+              triggerLabel={t('subscribesView.subscribe')}
+              inputDialogTitle={t('subscribesView.subscribeTitle')}
+              confirmDialogTitle={t('subscribesView.confirmTargetTitle')}
+              confirmDialogDescription={t('subscribesView.confirmTargetDescription')}
+              confirmLabel={t('subscribesView.confirmSubscribe')}
+              confirmLoadingLabel={t('subscribesView.subscribing')}
+              onConfirm={handleConfirmSubscribe}
+            />
+          )}
+        </div>
+
+        {showNotificationEnableBanner && (
+          <Alert className="mt-3">
+            <BellIcon size={16} />
+            <div className="col-start-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <AlertTitle>{t('subscribesView.notificationEnableTitle')}</AlertTitle>
+                <AlertDescription>
+                  {t('subscribesView.notificationEnableDescription')}
+                </AlertDescription>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0"
+                disabled={isRequestingPermission}
+                onClick={() => void handleEnableNotifications()}
+              >
+                {t('subscribesView.notificationEnableAction')}
+              </Button>
+            </div>
+          </Alert>
+        )}
+
+        {showNotificationBlockedBanner && (
+          <Alert variant="destructive" className="mt-3">
+            <BellSlashIcon size={16} />
+            <div className="col-start-2 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <AlertTitle>{t('subscribesView.notificationBlockedTitle')}</AlertTitle>
+                <AlertDescription>
+                  {t('subscribesView.notificationBlockedDescription')}
+                </AlertDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0 size-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                aria-label={t('subscribesView.notificationBlockedDismiss')}
+                onClick={handleDismissNotificationBanner}
+              >
+                <XIcon size={14} />
+              </Button>
+            </div>
+          </Alert>
+        )}
+      </div>
+
+      <div className="flex-1 min-h-0 relative overflow-hidden">
+        <div
+          ref={scrollContainerRef}
+          className="absolute inset-0 overflow-y-auto"
+          style={{ scrollbarGutter: 'stable' }}
+        >
+          <div className="p-4 pb-20">
+            {isLoading ? (
+              <LoadingScreen />
+            ) : rooms.length === 0 ? (
+              <EmptyState
+                icon={
+                  <span className="text-muted-foreground">
+                    <BellIcon size={40} />
+                  </span>
+                }
+                title={t('subscribesView.emptyTitle')}
+                description={t('subscribesView.emptyDescription')}
+              />
+            ) : filteredRooms.length === 0 ? (
+              <EmptyState
+                icon={
+                  <span className="text-muted-foreground">
+                    <MagnifyingGlassIcon size={40} />
+                  </span>
+                }
+                title={t('subscribesView.emptySearchTitle')}
+                description={t('subscribesView.emptySearchDescription')}
+              />
+            ) : (
+              <div style={{ height: `${Math.max(0, rowVirtualizer.getTotalSize() - GRID_GAP)}px`, position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                      paddingBottom: `${GRID_GAP}px`,
+                    }}
+                  >
+                    <div className="grid gap-4" style={fixedColumnsStyle}>
+                      {rows[virtualRow.index].map((room, colIndex) => {
+                        if (!room) return <div key={`empty-${virtualRow.index}-${colIndex}`} />
+                        const isPinned = room.room_id === pinnedRoomId
+                        return (
+                          <div
+                            key={room.room_id}
+                            className={`w-full rounded-lg transition-shadow duration-300 ${
+                              isPinned ? 'ring-2 ring-primary shadow-md' : ''
+                            }`}
+                          >
+                            <SubscribeCard
+                              roomInfo={room}
+                              isRecording={recordingRoomIds.has(room.room_id)}
+                              autoRecord={autoRecordRoomIdSet.has(room.room_id)}
+                              onUnsubscribe={handleUnsubscribe}
+                              onStartRecord={handleStartRecord}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

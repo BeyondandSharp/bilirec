@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "class": "R4",
+  "fixture": "r4_filler_data.flv",
+  "fixture_bytes": 1537770,
+  "fixture_sha256": "0743147d968ae2e34753a1f8291f57efae921c1e17a9cf6d93aee3d5937f5a38",
+  "base": "clean.flv",
+  "corruption": {
+    "kind": "filler_and_end_tags",
+    "filler_tags_modified": 6,
+    "filler_nalus_added": 12,
+    "zero_size_tags_added": 2,
+    "end_tags_added": 2,
+    "rule": "RemoveFillerDataRule + HandleEndTagRule + zero-size drop"
+  },
+  "input_analysis": {
+    "bytes": 1537770,
+    "sha256": "0743147d968ae2e34753a1f8291f57efae921c1e17a9cf6d93aee3d5937f5a38",
+    "valid_flv_structure": true,
+    "header_flags": 5,
+    "resync_events": 0,
+    "resynced_bytes": 0,
+    "truncated_tail_bytes": 0,
+    "prev_size_mismatches": 0,
+    "tag_count": 1547,
+    "tag_counts": {
+      "video": 605,
+      "audio": 941,
+      "script": 1
+    },
+    "timestamps": {
+      "video": {
+        "count": 605,
+        "first": 0,
+        "last": 19967,
+        "monotonic": true,
+        "jumps": 0,
+        "rollbacks": 0
+      },
+      "audio": {
+        "count": 941,
+        "first": 0,
+        "last": 20056,
+        "monotonic": true,
+        "jumps": 0,
+        "rollbacks": 0
+      }
+    },
+    "raw_last_timestamp_ms": 20056,
+    "video_sequence_headers": 1,
+    "audio_sequence_headers": 1,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "end_tag_count": 3,
+    "zero_size_data_tags": 2,
+    "filler_nalu_count": 12,
+    "adjacent_duplicate_tags": 0,
+    "group_count": 25,
+    "duplicate_groups": 0,
+    "last_tag_is_end": true,
+    "aac_header_index": 2,
+    "first_audio_data_index": 5,
+    "aac_header_before_audio_data": true,
+    "metadata": {
+      "present": true,
+      "parsed": true,
+      "duration_present": true,
+      "duration": 20.067
+    }
+  },
+  "expect": {
+    "class": "R4",
+    "valid_flv": true,
+    "header_flags": 5,
+    "video_codec": "avc",
+    "audio_codec": "aac",
+    "timestamps": {
+      "video": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      },
+      "audio": {
+        "monotonic": true,
+        "negative": false,
+        "first_ms_min": 0,
+        "first_ms_max": 500
+      }
+    },
+    "duration_ms": {
+      "min": 19056,
+      "max": 21056
+    },
+    "tag_count": {
+      "min": 1541,
+      "max": 1545
+    },
+    "output_bytes": {
+      "min": 0,
+      "max": 1541866
+    },
+    "preserved": {
+      "onmetadata": true,
+      "video_sequence_header": true,
+      "audio_sequence_header": true,
+      "terminal_end_tag": true
+    },
+    "anomalies": {
+      "required": [
+        "R4"
+      ],
+      "min_count": 1
+    },
+    "repair_command": "flvrepair file --input fixtures/r4_filler_data.flv --output out.flv --mode best-effort",
+    "filler_nalus_removed": true,
+    "zero_size_tags_removed": true,
+    "midstream_end_tags_removed": true,
+    "notes": [
+      "H.264 filler NALUs (type 12) must be removed from video payloads; zero-size tags and mid-stream AVC end-of-sequence (packet type 2) tags must be dropped. A terminal END tag is preserved so clean input stays byte-identical"
+    ]
+  }
+}

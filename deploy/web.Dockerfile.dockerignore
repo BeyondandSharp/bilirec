@@ -1,0 +1,9 @@
+# Keep the build context small: only the frontend sources + nginx config.
+# The repo root is the build context; the frontend lives in web/ (it was
+# renamed from bilirec-web/ during the root-module restructure).
+**
+!web/**
+!deploy/web/**
+!deploy/web.Dockerfile
+web/node_modules
+web/dist

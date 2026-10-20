@@ -15,6 +15,10 @@ type (
 		StreamProfiles        *[]string `json:"stream_profiles"`
 		StreamProfile         *string   `json:"stream_profile"`
 		DeleteOldestOnLowDisk *bool     `json:"delete_oldest_on_low_disk"`
+		// Downloader overrides the global DOWNLOADER for this recording:
+		// auto|native|ffmpeg|streamlink. auto (or omitted) inherits the
+		// server configuration.
+		Downloader *string `json:"downloader"`
 	}
 
 	Status struct {

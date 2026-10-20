@@ -77,7 +77,7 @@ func (r *Service) segmentWebhookMeta(info *Info) *webhook.SegmentMeta {
 		RoomID:           roomID,
 		ShortID:          info.room.ShortID,
 		Name:             info.room.Uname,
-		Title:            info.room.Title,
+		Title:            info.Title(),
 		AreaNameParent:   info.room.ParentAreaName,
 		AreaNameChild:    info.room.AreaName,
 		RecordDanmaku:    info.startOptions.recordDanmaku,
