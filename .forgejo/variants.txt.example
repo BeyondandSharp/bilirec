@@ -1,0 +1,22 @@
+# 变体表示例：复制成 .forgejo/variants.txt 后按项目修改。
+#
+# workflow 在这里发现所有变体（plan 作业把它变成发布矩阵），所以新增/删除/改名
+# 变体只需要改这个文件，或者改用仓库变量 DOCKER_VARIANTS（变量优先）。
+#
+# 每行一个变体：
+#   <名字>|<Dockerfile>|<target>|<后缀>|<是否默认>|<KEY=VALUE;…>|<平台,平台>
+#   - 只有名字必需；其余默认 Dockerfile.<名字>、无 target、-<名字>、非默认、无额外构建参数；
+#   - 第 5 列在整个表里必须恰好有一个 true（拥有 latest 与无后缀标签）；写 false 表示
+#     “明确不要 latest”，所以多 job 并行时不会有两个变体抢 latest；
+#   - 第 6 列是该变体自己的 build args（分号分隔，值里可以带逗号和分号转义前的普通字符），
+#     Dockerfile 里声明了 ARG 才会被消费；下面注释掉的 NODE_IMAGE 就是这种用法；
+#   - 第 7 列是平台（逗号分隔，如 linux/amd64,linux/arm64）；留空则用仓库变量
+#     DOCKER_PLATFORMS。
+#
+# 例子：
+#   alpine|Dockerfile.alpine||-alpine|false|NODE_IMAGE=node:lts-alpine|linux/amd64,linux/arm64
+#   trixie-slim|Dockerfile.trixie-slim||-trixie-slim|true|NODE_IMAGE=node:lts-trixie-slim|linux/amd64,linux/arm64
+#   bookworm|Dockerfile.bookworm||-bookworm|false||linux/amd64
+
+alpine|Dockerfile.alpine||-alpine|false||linux/amd64,linux/arm64
+trixie-slim|Dockerfile.trixie-slim||-trixie-slim|true||linux/amd64,linux/arm64

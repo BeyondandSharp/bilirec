@@ -1,0 +1,548 @@
+# docker-publish — tag-triggered container image release to ghcr.io / Docker Hub.
+#
+# The programs live as real files in <action>/scripts/*.mjs and are executed with
+# `node "$forgejo_dir/scripts/run.mjs" <subcommand>`; this file only orchestrates
+# them. The reference implementations are the three official Docker Actions
+# (build-push-action v7.4.0, metadata-action v6.2.0, login-action v4.6.0) kept in
+# this repository under ref/docker-build-push/ — they are reference material only
+# and are never copied to a target repository.
+#
+# Usage: copy this docker-build-push/ directory into a target repository, rename
+# it to .forgejo, and the workflow runs there. Nothing in this file names a
+# project: the variants live in `.forgejo/variants.txt` (or the DOCKER_VARIANTS
+# variable), and the workflow discovers them at run time.
+#
+# Flow:
+#   plan    tag push -> validate the variant table, apply the dispatch filter,
+#           publish the ordered variant list (and the matrix form).
+#   build   one job that walks the variants in table order: prepare the job
+#           container -> version check -> preflight -> docker login ->
+#           tags/labels -> one multi-architecture build per variant, pushed to a
+#           STAGING tag (never a final one).
+#   publish only after EVERY variant succeeded: promote the staged manifests to
+#           the final tags (variant suffixes plus, for the default variant, the
+#           unsuffixed names including `latest`).
+#
+# Why build and publish are separate: publication is a registry-side manifest
+# copy (`docker buildx imagetools create`), so when it fails — a registry hiccup,
+# an expired token, a flaky link — it can be retried WITHOUT rebuilding. Every
+# build and every architecture is done before a single final tag exists, so a
+# half-finished run can never move `latest`.
+#
+# Retrying:
+#   * re-run the publish job (Forgejo 17 has
+#     `POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`), or
+#   * re-run the whole run: the build job skips every variant whose staging tag
+#     already exists ("已存在 staging 镜像，跳过构建"), so only what is missing is
+#     rebuilt. `DOCKER_FORCE_BUILD=1` forces a rebuild.
+#
+# Workbench: every job container is plain `docker:dind`. The runner starts job
+# containers with `tail -f /dev/null`, so dockerd is NOT running; the `prepare`
+# step (build job only) starts it inside the container. That requires the runner
+# to allow privileged job containers (runner setting `container.privileged: true`)
+# — workflow-level `options: --privileged` is ignored by the runner:
+#   runner config:
+#     container:
+#       privileged: true
+# No volume mounts and no `valid_volumes` are needed any more. The publish job
+# starts no daemon at all: `imagetools` only talks to registries.
+#
+# The image lacks node, so the first step of every job installs what the scripts
+# need (node, git, curl) with the container's own package manager; `prepare` then
+# adds buildx (normally already in the image), any `DOCKER_JOB_PACKAGES`, and the
+# QEMU binfmt handlers a multi-architecture build needs.
+#
+# Variants: `.forgejo/variants.txt` (or the repository variable DOCKER_VARIANTS)
+# holds one line per variant, in the syntax the scripts use:
+#   name|dockerfile|target|suffix|default|KEY=VALUE;…|platforms
+# The `plan` job validates that table and turns it into the ordered variant list
+# the build job walks, so adding a variant is one line in the table — not an edit
+# here. Exactly one row says `true`; it owns `latest` and the unsuffixed tags.
+#
+# Variants build sequentially, in table order, inside one job.
+# `strategy.max-parallel` is accepted but ignored by the Forgejo runner (runner
+# issue #1540), so a matrix cannot be rate-limited; one job walking the table
+# gives a deterministic order, a single dockerd + buildx builder, and no two QEMU
+# builds competing for the same CPU. The first failing variant stops the run
+# before anything is published. To go back to parallel, mutually independent
+# variants, see the 并行模式 snippet in .forgejo/README.md — the plan job already
+# publishes the matrix form.
+#
+# Repository secrets/variables (tokens may live in either place):
+#   GHCR_TOKEN            GitHub PAT with write:packages -> enables ghcr.io
+#   DOCKERHUB_TOKEN       Docker Hub access token      -> enables Docker Hub
+#   DOCKERHUB_USERNAME    Docker Hub user + namespace  (required with the token)
+#   GHCR_IMAGE            ghcr.io/<account>/<repo>, when the GHCR namespace
+#                         differs from the Forgejo owner (it usually does)
+# Optional variables:
+#   DOCKER_VARIANTS       the variant table (wins over .forgejo/variants.txt)
+#   DOCKER_META_IMAGES, DOCKER_META_TAGS, DOCKER_META_FLAVOR, DOCKER_META_LABELS
+#   DOCKER_BUILD_ARGS, DOCKER_PLATFORMS, DOCKER_HOST, GHCR_IMAGE
+#   DOCKER_JOB_PACKAGES   extra apk/apt/dnf packages the workbench image lacks
+#   DOCKER_SKIP_BINFMT, DOCKER_BINFMT_IMAGE, DOCKER_BUILDKIT_IMAGE
+#   DOCKER_FORCE_BUILD    rebuild even when the staging tag already exists
+#   ALL_PROXY / HTTP_PROXY / HTTPS_PROXY / NO_PROXY / APT_PROXY / NPM_PROXY / PIP_PROXY / GOPROXY
+#   APK_REPO / YUM_REPO (explicit repositories; APK_REPO feeds the APK_PROXY arg)
+#   (see the env blocks below — they are the complete, authoritative list)
+#
+# Platforms: a variant's seventh column decides its architectures (e.g.
+# `linux/amd64,linux/arm64`); DOCKER_PLATFORMS is the fallback for rows without
+# one. More than one platform makes build-push.mjs create a `docker-container`
+# builder for that run.
+
+name: docker-publish
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本，例如 1.4.0；填写时必须与已有 tag 的版本一致'
+        required: false
+        type: string
+      variants:
+        description: '可选：只构建指定变体，逗号分隔（默认变体表里的全部）'
+        required: false
+        type: string
+      dry_run:
+        description: '只验证构建，不登录、不推送'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: docker-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+# `sh`, not `bash`: Alpine and other minimal images ship BusyBox sh but no bash
+# (`/bin/sh` exists everywhere). The few remaining shell lines are POSIX.
+defaults:
+  run:
+    shell: sh
+
+jobs:
+  # -------------------------------------------------------------------- plan
+  # Validate the repository's variant table and turn it into the ordered list the
+  # build and publish jobs walk (it also publishes the matrix form for the
+  # optional parallel mode documented in .forgejo/README.md). This is what keeps
+  # the workflow project-agnostic: no variant name, Dockerfile or platform is
+  # written here.
+  plan:
+    name: plan variants
+    runs-on: docker
+    container:
+      image: docker:dind
+    outputs:
+      # What the build job walks, in table order; publish uses it too, so both
+      # jobs agree on the set even when a dispatch narrowed it.
+      variants: ${{ steps.plan.outputs.variants }}
+      # Unused by the default mode; here so the parallel mode is a one-line change:
+      #   matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    env:
+      # Same package-source and proxy variables as the build/publish jobs: the
+      # bootstrap rewrites the container's package sources from them before it
+      # installs node/git.
+      ALL_PROXY: ${{ vars.ALL_PROXY }}
+      HTTP_PROXY: ${{ vars.HTTP_PROXY }}
+      HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
+      NO_PROXY: ${{ vars.NO_PROXY }}
+      APT_PROXY: ${{ vars.APT_PROXY }}
+      APK_REPO: ${{ vars.APK_REPO }}
+      YUM_REPO: ${{ vars.YUM_REPO }}
+      NPM_PROXY: ${{ vars.NPM_PROXY }}
+      PIP_PROXY: ${{ vars.PIP_PROXY }}
+      GOPROXY: ${{ vars.GOPROXY }}
+    timeout-minutes: 15
+    steps:
+      # The workbench image has docker + buildx + git, but no node, and every
+      # step below runs a node program. Install the runtime with the container's
+      # own package manager; every orchestration job carries this same block.
+      - name: Bootstrap job container
+        run: |
+          # The container's own package installs honour the repository variables,
+          # using the same convention as the Dockerfiles: APK_REPO / APT_PROXY /
+          # YUM_REPO are repository roots, a forward proxy goes through
+          # HTTP(S)_PROXY. Every rewrite is grep-guarded, so the same ones in
+          # prepare (which runs later, with node) are a no-op instead of a
+          # doubled prefix.
+          if [ -n "${APK_REPO:-}" ] && [ -f /etc/apk/repositories ]; then
+            grep -q "^${APK_REPO}/" /etc/apk/repositories || \
+              sed -i "s|^https\?://|${APK_REPO}/|" /etc/apk/repositories
+          fi
+          if [ -n "${APT_PROXY:-}" ] && [ -d /etc/apt ]; then
+            if ! grep -rqs -e "URIs: ${APT_PROXY}/" -e "^deb ${APT_PROXY}/" \
+              /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+              for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                [ -f "$f" ] || continue
+                sed -i -E "s|URIs:[[:space:]]*https?://|URIs: ${APT_PROXY}/|g; s|^deb[[:space:]]+https?://|deb ${APT_PROXY}/|g" "$f"
+              done
+            fi
+          fi
+          if [ -n "${YUM_REPO:-}" ] && [ -d /etc/yum.repos.d ]; then
+            grep -rqs "^baseurl=${YUM_REPO}/" /etc/yum.repos.d 2>/dev/null || \
+              sed -i -E "s|^baseurl=https?://|baseurl=${YUM_REPO}/|" /etc/yum.repos.d/*.repo
+          fi
+          # apk / apt / dnf read the lower-case proxy names, so mirror the upper-case ones
+          [ -n "${HTTP_PROXY:-}" ] && export http_proxy="${HTTP_PROXY}"
+          [ -n "${HTTPS_PROXY:-}" ] && export https_proxy="${HTTPS_PROXY}"
+          [ -n "${NO_PROXY:-}" ] && export no_proxy="${NO_PROXY}"
+          [ -n "${ALL_PROXY:-}" ] && export all_proxy="${ALL_PROXY}"
+          if ! { command -v node >/dev/null 2>&1 && command -v git >/dev/null 2>&1; }; then
+            if command -v apk >/dev/null 2>&1; then
+              apk add --no-cache nodejs npm git curl ca-certificates
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y nodejs npm git curl ca-certificates
+            else
+              yum install -y nodejs npm git curl ca-certificates
+            fi
+          fi
+          node --version && git --version
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # github.action_path is empty for workflows (it is set only for a
+      # `uses: ./path` local action), so the copied .forgejo directory is found by
+      # the program and published as forgejo_dir. The two lines below only locate
+      # the entry point itself: the real search (nested checkouts, parent mounts,
+      # diagnostics) lives in locate-action.mjs.
+      - name: Locate action directory
+        id: locate
+        run: |
+          dir="${{ github.action_path }}"
+          [ -f "$dir/scripts/build-push.mjs" ] || dir="$GITHUB_WORKSPACE/.forgejo"
+          [ -f "$dir/scripts/build-push.mjs" ] || dir="$(dirname "$(dirname "$(find "$GITHUB_WORKSPACE" -maxdepth 6 -name build-push.mjs -path '*/scripts/*' -print -quit)")")"
+          node "$dir/scripts/run.mjs" locate-action
+
+      - name: Verify action scripts
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" verify-action
+
+      - name: Plan variant matrix
+        id: plan
+        env:
+          # The table may live in the repository variable (wins) or in
+          # .forgejo/variants.txt, which locate-action exports as
+          # DOCKER_VARIANTS_FILE for the whole job.
+          DOCKER_VARIANTS: ${{ vars.DOCKER_VARIANTS }}
+          INPUT_VARIANTS: ${{ inputs.variants }}
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" plan-matrix
+
+  # ------------------------------------------------------------------- build
+  # Build every variant (every architecture) and push it to a staging tag. No
+  # final tag is created here.
+  build:
+    name: build variants（构建并推 staging）
+    needs: plan
+    runs-on: docker
+    container:
+      image: docker:dind
+    # One job covers every variant, so the budget spans all of them (each is
+    # still amd64 + arm64, and the foreign-arch stages run under QEMU). The
+    # runner's own `runner.timeout` (default 3h) stays the outer limit.
+    timeout-minutes: 180
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || vars.GHCR_TOKEN }}
+      GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
+      # The variant table: the repository variable when set, otherwise
+      # .forgejo/variants.txt (exported by locate-action). `INPUT_VARIANTS` is the
+      # ordered list the plan job selected (all variants unless the dispatch input
+      # narrowed it); resolve/build-push then walk it one variant at a time.
+      DOCKER_VARIANTS: ${{ vars.DOCKER_VARIANTS }}
+      INPUT_VARIANTS: ${{ needs.plan.outputs.variants }}
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+      # Marks the step for preflight: a build needs a daemon, publication does not.
+      DOCKER_STEP: build
+      # Rebuild even when the staging tag of a variant already exists.
+      DOCKER_FORCE_BUILD: ${{ vars.DOCKER_FORCE_BUILD }}
+      # Where the daemon lives (tcp://… or a non-default unix socket). Unset means
+      # the unix socket prepare's dockerd listens on. A runner-managed daemon
+      # (`container.docker_host: automount`, or DOCKER_HOST) is used as-is.
+      DOCKER_HOST: ${{ vars.DOCKER_HOST }}
+      DOCKER_META_IMAGES: ${{ vars.DOCKER_META_IMAGES }}
+      DOCKER_META_TAGS: ${{ vars.DOCKER_META_TAGS }}
+      DOCKER_META_FLAVOR: ${{ vars.DOCKER_META_FLAVOR }}
+      DOCKER_META_LABELS: ${{ vars.DOCKER_META_LABELS }}
+      DOCKER_BUILD_ARGS: ${{ vars.DOCKER_BUILD_ARGS }}
+      # Fallback platforms for variant rows without their own seventh column.
+      DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS }}
+      # Extra packages for the workbench image (space/comma separated), installed
+      # by prepare with the container's package manager.
+      DOCKER_JOB_PACKAGES: ${{ vars.DOCKER_JOB_PACKAGES }}
+      # QEMU binfmt: prepare registers the handlers the requested platforms need
+      # unless DOCKER_SKIP_BINFMT is set; DOCKER_BINFMT_IMAGE overrides the image
+      # it runs (tonistiigi/binfmt) for an internal mirror.
+      DOCKER_SKIP_BINFMT: ${{ vars.DOCKER_SKIP_BINFMT }}
+      DOCKER_BINFMT_IMAGE: ${{ vars.DOCKER_BINFMT_IMAGE }}
+      # The builder container BuildKit runs in (default moby/buildkit:buildx-stable-1).
+      DOCKER_BUILDKIT_IMAGE: ${{ vars.DOCKER_BUILDKIT_IMAGE }}
+      # Endpoint variables (the same model as npm-publish).
+      #   APT_PROXY / NPM_PROXY / PIP_PROXY — the value may be a real forward
+      #     proxy OR an internal MIRROR/registry/index: the resolve step probes it
+      #     (does it serve its own index?) and uses it accordingly — apt as a
+      #     repository, npm as the build's registry (injected as --build-arg
+      #     NPM_REGISTRY), pip as the build's index (injected as --build-arg
+      #     PIP_INDEX_URL), and only a genuine proxy as a proxy.
+      #   The generic HTTP(S)_PROXY / ALL_PROXY are plain proxies for everything.
+      ALL_PROXY: ${{ vars.ALL_PROXY }}
+      HTTP_PROXY: ${{ vars.HTTP_PROXY }}
+      HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
+      NO_PROXY: ${{ vars.NO_PROXY }}
+      APT_PROXY: ${{ vars.APT_PROXY }}
+      # Explicit repositories (never probed): APK_REPO feeds the APK_PROXY build
+      # arg, YUM_REPO is passed through as `--build-arg YUM_REPO`.
+      APK_REPO: ${{ vars.APK_REPO }}
+      YUM_REPO: ${{ vars.YUM_REPO }}
+      NPM_PROXY: ${{ vars.NPM_PROXY }}
+      # Python package index: a bare host is probed on /simple and /index; the
+      # matching one is injected as --build-arg PIP_INDEX_URL, so a Dockerfile
+      # that declares ARG PIP_INDEX_URL reaches an internal pip cache.
+      PIP_PROXY: ${{ vars.PIP_PROXY }}
+      # Go module proxy: passed into the build as --build-arg GOPROXY, so a
+      # Dockerfile that declares ARG GOPROXY reaches an internal Athens.
+      GOPROXY: ${{ vars.GOPROXY }}
+    steps:
+      - name: Bootstrap job container
+        run: |
+          # The container's own package installs honour the repository variables,
+          # using the same convention as the Dockerfiles: APK_REPO / APT_PROXY /
+          # YUM_REPO are repository roots, a forward proxy goes through
+          # HTTP(S)_PROXY. Every rewrite is grep-guarded, so the same ones in
+          # prepare (which runs later, with node) are a no-op instead of a
+          # doubled prefix.
+          if [ -n "${APK_REPO:-}" ] && [ -f /etc/apk/repositories ]; then
+            grep -q "^${APK_REPO}/" /etc/apk/repositories || \
+              sed -i "s|^https\?://|${APK_REPO}/|" /etc/apk/repositories
+          fi
+          if [ -n "${APT_PROXY:-}" ] && [ -d /etc/apt ]; then
+            if ! grep -rqs -e "URIs: ${APT_PROXY}/" -e "^deb ${APT_PROXY}/" \
+              /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+              for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                [ -f "$f" ] || continue
+                sed -i -E "s|URIs:[[:space:]]*https?://|URIs: ${APT_PROXY}/|g; s|^deb[[:space:]]+https?://|deb ${APT_PROXY}/|g" "$f"
+              done
+            fi
+          fi
+          if [ -n "${YUM_REPO:-}" ] && [ -d /etc/yum.repos.d ]; then
+            grep -rqs "^baseurl=${YUM_REPO}/" /etc/yum.repos.d 2>/dev/null || \
+              sed -i -E "s|^baseurl=https?://|baseurl=${YUM_REPO}/|" /etc/yum.repos.d/*.repo
+          fi
+          # apk / apt / dnf read the lower-case proxy names, so mirror the upper-case ones
+          [ -n "${HTTP_PROXY:-}" ] && export http_proxy="${HTTP_PROXY}"
+          [ -n "${HTTPS_PROXY:-}" ] && export https_proxy="${HTTPS_PROXY}"
+          [ -n "${NO_PROXY:-}" ] && export no_proxy="${NO_PROXY}"
+          [ -n "${ALL_PROXY:-}" ] && export all_proxy="${ALL_PROXY}"
+          if ! { command -v node >/dev/null 2>&1 && command -v git >/dev/null 2>&1; }; then
+            if command -v apk >/dev/null 2>&1; then
+              apk add --no-cache nodejs npm git curl ca-certificates
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y nodejs npm git curl ca-certificates
+            else
+              yum install -y nodejs npm git curl ca-certificates
+            fi
+          fi
+          node --version && git --version
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Locate action directory
+        id: locate
+        run: |
+          dir="${{ github.action_path }}"
+          [ -f "$dir/scripts/build-push.mjs" ] || dir="$GITHUB_WORKSPACE/.forgejo"
+          [ -f "$dir/scripts/build-push.mjs" ] || dir="$(dirname "$(dirname "$(find "$GITHUB_WORKSPACE" -maxdepth 6 -name build-push.mjs -path '*/scripts/*' -print -quit)")")"
+          node "$dir/scripts/run.mjs" locate-action
+
+      - name: Verify action scripts
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" verify-action
+
+      - name: Prepare build environment
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" prepare
+
+      - name: Resolve version and variants
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" resolve
+
+      - name: Preflight checks
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" preflight
+
+      - name: Log in to registries
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" login
+
+      - name: Compute tags and labels
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" meta
+
+      - name: Build and stage
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" build-push
+
+      - name: Summary
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" summary
+
+  # ----------------------------------------------------------------- publish
+  # Promote the staged variants to their final tags. Registry-side only: no
+  # daemon, no rebuild — which is what makes a failed publication cheap to retry.
+  publish:
+    name: publish images（提升为最终标签）
+    needs: [plan, build]
+    runs-on: docker
+    container:
+      image: docker:dind
+    timeout-minutes: 30
+    env:
+      GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || vars.GHCR_TOKEN }}
+      GHCR_IMAGE: ${{ vars.GHCR_IMAGE }}
+      DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
+      DOCKER_VARIANTS: ${{ vars.DOCKER_VARIANTS }}
+      INPUT_VARIANTS: ${{ needs.plan.outputs.variants }}
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_DRY_RUN: ${{ inputs.dry_run }}
+      # preflight knows publication needs no daemon and no QEMU.
+      DOCKER_STEP: publish
+      DOCKER_FORCE_BUILD: ${{ vars.DOCKER_FORCE_BUILD }}
+      DOCKER_HOST: ${{ vars.DOCKER_HOST }}
+      DOCKER_META_IMAGES: ${{ vars.DOCKER_META_IMAGES }}
+      DOCKER_META_TAGS: ${{ vars.DOCKER_META_TAGS }}
+      DOCKER_META_FLAVOR: ${{ vars.DOCKER_META_FLAVOR }}
+      DOCKER_META_LABELS: ${{ vars.DOCKER_META_LABELS }}
+      DOCKER_BUILD_ARGS: ${{ vars.DOCKER_BUILD_ARGS }}
+      DOCKER_PLATFORMS: ${{ vars.DOCKER_PLATFORMS }}
+      DOCKER_JOB_PACKAGES: ${{ vars.DOCKER_JOB_PACKAGES }}
+      DOCKER_SKIP_BINFMT: ${{ vars.DOCKER_SKIP_BINFMT }}
+      DOCKER_BINFMT_IMAGE: ${{ vars.DOCKER_BINFMT_IMAGE }}
+      DOCKER_BUILDKIT_IMAGE: ${{ vars.DOCKER_BUILDKIT_IMAGE }}
+      ALL_PROXY: ${{ vars.ALL_PROXY }}
+      HTTP_PROXY: ${{ vars.HTTP_PROXY }}
+      HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
+      NO_PROXY: ${{ vars.NO_PROXY }}
+      APT_PROXY: ${{ vars.APT_PROXY }}
+      APK_REPO: ${{ vars.APK_REPO }}
+      YUM_REPO: ${{ vars.YUM_REPO }}
+      NPM_PROXY: ${{ vars.NPM_PROXY }}
+      PIP_PROXY: ${{ vars.PIP_PROXY }}
+      GOPROXY: ${{ vars.GOPROXY }}
+    steps:
+      - name: Bootstrap job container
+        run: |
+          # The container's own package installs honour the repository variables,
+          # using the same convention as the Dockerfiles: APK_REPO / APT_PROXY /
+          # YUM_REPO are repository roots, a forward proxy goes through
+          # HTTP(S)_PROXY. Every rewrite is grep-guarded, so the same ones in
+          # prepare (which runs later, with node) are a no-op instead of a
+          # doubled prefix.
+          if [ -n "${APK_REPO:-}" ] && [ -f /etc/apk/repositories ]; then
+            grep -q "^${APK_REPO}/" /etc/apk/repositories || \
+              sed -i "s|^https\?://|${APK_REPO}/|" /etc/apk/repositories
+          fi
+          if [ -n "${APT_PROXY:-}" ] && [ -d /etc/apt ]; then
+            if ! grep -rqs -e "URIs: ${APT_PROXY}/" -e "^deb ${APT_PROXY}/" \
+              /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+              for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+                [ -f "$f" ] || continue
+                sed -i -E "s|URIs:[[:space:]]*https?://|URIs: ${APT_PROXY}/|g; s|^deb[[:space:]]+https?://|deb ${APT_PROXY}/|g" "$f"
+              done
+            fi
+          fi
+          if [ -n "${YUM_REPO:-}" ] && [ -d /etc/yum.repos.d ]; then
+            grep -rqs "^baseurl=${YUM_REPO}/" /etc/yum.repos.d 2>/dev/null || \
+              sed -i -E "s|^baseurl=https?://|baseurl=${YUM_REPO}/|" /etc/yum.repos.d/*.repo
+          fi
+          # apk / apt / dnf read the lower-case proxy names, so mirror the upper-case ones
+          [ -n "${HTTP_PROXY:-}" ] && export http_proxy="${HTTP_PROXY}"
+          [ -n "${HTTPS_PROXY:-}" ] && export https_proxy="${HTTPS_PROXY}"
+          [ -n "${NO_PROXY:-}" ] && export no_proxy="${NO_PROXY}"
+          [ -n "${ALL_PROXY:-}" ] && export all_proxy="${ALL_PROXY}"
+          if ! { command -v node >/dev/null 2>&1 && command -v git >/dev/null 2>&1; }; then
+            if command -v apk >/dev/null 2>&1; then
+              apk add --no-cache nodejs npm git curl ca-certificates
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates
+            elif command -v dnf >/dev/null 2>&1; then
+              dnf install -y nodejs npm git curl ca-certificates
+            else
+              yum install -y nodejs npm git curl ca-certificates
+            fi
+          fi
+          node --version && git --version
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Locate action directory
+        id: locate
+        run: |
+          dir="${{ github.action_path }}"
+          [ -f "$dir/scripts/build-push.mjs" ] || dir="$GITHUB_WORKSPACE/.forgejo"
+          [ -f "$dir/scripts/build-push.mjs" ] || dir="$(dirname "$(dirname "$(find "$GITHUB_WORKSPACE" -maxdepth 6 -name build-push.mjs -path '*/scripts/*' -print -quit)")")"
+          node "$dir/scripts/run.mjs" locate-action
+
+      - name: Verify action scripts
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" verify-action
+
+      - name: Resolve version and variants
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" resolve
+
+      - name: Preflight checks
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" preflight
+
+      - name: Log in to registries
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" login
+
+      - name: Compute tags and labels
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" meta
+
+      - name: Publish images
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" publish
+
+      - name: Summary
+        run: |
+          dir="${{ steps.locate.outputs.forgejo_dir }}"
+          node "$dir/scripts/run.mjs" summary

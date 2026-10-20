@@ -141,6 +141,25 @@ pnpm lint && pnpm build     # dist/ 为静态产物
   `http://<host>:8081` 填后端地址。后端 CORS 由 `FRONTEND_URLS` 控制（compose 默认
   `http://localhost:8081`，反代/域名场景记得改成实际 origin）。
 
+## 自动发布镜像（Forgejo Actions）
+
+推送 **semver tag**（如 `v0.5.0`）会触发
+[.forgejo/workflows/docker-publish.yml](.forgejo/workflows/docker-publish.yml)，
+按 [.forgejo/variants.txt](.forgejo/variants.txt) 构建 8 个变体并发布到 **Docker Hub** 与 **ghcr.io**：
+
+```text
+alpine (latest), trixie,
+alpine-full, trixie-full,
+alpine-headless, trixie-headless,
+alpine-full-headless, trixie-full-headless
+```
+
+- `alpine` 是默认变体：额外拥有 `latest` 与无后缀版本 tag；
+- `headless` = 仅后端；`full` = 含 ffmpeg/streamlink；`trixie` = Debian 13 运行时；
+- 平台默认 `linux/amd64`；需要 arm64 时改 variants.txt 第七列或设 `DOCKER_PLATFORMS`；
+- 一次性配置（Actions、privileged runner、`DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`/`GHCR_TOKEN`/`GHCR_IMAGE`）
+  与 tag 列表详见 [docs/RELEASE-CI.md](docs/RELEASE-CI.md)。
+
 ## 配置
 
 | 环境变量 | 取值 | 默认 | 说明 |
