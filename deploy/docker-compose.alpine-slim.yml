@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# 示例：Alpine + 前后端合一 + slim（不含 ffmpeg/streamlink）的 docker compose。
+#
+# 镜像：local-alpine（build-alpine.sh 默认产物，tag 不带 -full）
+# 特点：单容器内 nginx:80 托管前端，并把非静态请求反代到同容器 bilirec:8080，
+#       所以前端和 API 同源；镜像内没有 ffmpeg/streamlink，只能 native 录制。
+#
+# 用法 A（推荐，先导出 tar 再加载）：
+#   ./build-alpine.sh
+#   docker load -i dist/local-alpine.tar
+#   docker compose -f deploy/docker-compose.alpine-slim.yml up -d
+#
+# 用法 B（直接让 compose 构建，镜像会留在本机 docker images）：
+#   docker compose -f deploy/docker-compose.alpine-slim.yml up -d --build
+#
+# 打开 http://<host>:8080 ，登录页后端地址填 http://<host>:8080（同源）。
+# 端口/时区等可用环境变量覆盖，例如：
+#   ALPINE_WEB_PORT=18080 ALPINE_API_PORT=18081 \
+#     docker compose -f deploy/docker-compose.alpine-slim.yml up -d
+#
+# 注意：本文件不读取 deploy/.env（变量名带 ALPINE_ 前缀，避免和主部署冲突）。
+# 如需登录/鉴权/CORS，直接改下面的 environment（或另建 override 文件）。
+
+name: bilirec-alpine-slim
+
+services:
+  bilirec:
+    build:
+      context: ..
+      dockerfile: deploy/alpine-combined.Dockerfile
+      args:
+        # 0 = slim（不带 ffmpeg/streamlink）；本示例固定为 0。
+        WITH_EXTRA: "0"
+    image: local-alpine:latest
+    container_name: bilirec-alpine-slim
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      # 前端 + 同源 API（nginx 80）
+      - "${ALPINE_WEB_PORT:-8080}:80"
+      # 可选：直接访问后端 API（不经过 nginx）
+      - "${ALPINE_API_PORT:-8081}:8080"
+    environment:
+      TZ: "Asia/Shanghai"
+      # native 录制（镜像内没有 ffmpeg/streamlink，外部下载器会回退 native）
+      DOWNLOADER: native
+      FLV_REPAIR: auto
+      BILIBILI_LOGIN_MODE: anonymous
+      # slim 镜像没有 ffmpeg，转码不可用，保持关闭
+      CONVERT_TO_MP4: "false"
+      FRONTEND_URLS: "http://localhost:8080,http://127.0.0.1:8080"
+      # 可选 API 鉴权（PASSWORD 为明文，见上游说明）
+      # USERNAME: ${USERNAME:-}
+      # PASSWORD: ${PASSWORD:-}
+      # JWT_SECRET: ${JWT_SECRET:-}
+    volumes:
+      - records:/data/records
+      - database:/data/database
+      - secrets:/data/secrets
+
+volumes:
+  records:
+  database:
+  secrets:

@@ -134,3 +134,17 @@ without building (`docker build --check -f deploy/Dockerfile .` on BuildKit
 full 镜像内有 ffmpeg（Alpine 用 apk 版本；Debian 用静态 129MB 版本）与 streamlink；
 slim 只有 native 录制，`downloader=ffmpeg|streamlink` 与 `CONVERT_TO_MP4` 不可用。
 `deploy/docker-compose.yml` 默认 `WITH_EXTRA=1`（full），设置 `WITH_EXTRA=0` 可构建 slim。
+
+## Alpine slim 前后端合一 compose 示例
+
+`deploy/docker-compose.alpine-slim.yml`：基于 `local-alpine`（非 full，无 ffmpeg/streamlink），
+单容器内 nginx 在 80 端口托管前端并把非静态请求反代到 bilirec 8080，因此前端与 API 同源。
+默认映射 8080（Web+API）和 8081（直连 API），可用 `ALPINE_WEB_PORT`/`ALPINE_API_PORT` 覆盖；
+变量名带 `ALPINE_` 前缀且不读取 `deploy/.env`，不会和主部署（50300/50301）冲突。
+
+```bash
+./build-alpine.sh
+docker load -i dist/local-alpine.tar
+docker compose -f deploy/docker-compose.alpine-slim.yml up -d
+# 或者让 compose 直接构建：docker compose -f deploy/docker-compose.alpine-slim.yml up -d --build
+```

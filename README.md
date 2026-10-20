@@ -106,6 +106,12 @@ docker run --rm -p 8080:80 -v bilirec-data:/data local
 # 打开 http://localhost:8080
 ```
 
+**Alpine slim compose 示例**：[deploy/docker-compose.alpine-slim.yml](deploy/docker-compose.alpine-slim.yml)
+—— 单容器前后端同源（nginx 80 + 容器内 bilirec 8080），基于 `local-alpine`（非 full，无 ffmpeg/streamlink），
+端口默认 8080/8081，可用 `ALPINE_WEB_PORT` / `ALPINE_API_PORT` 覆盖；不读取 `deploy/.env`，避免和主部署冲突。
+先用 `./build-alpine.sh && docker load -i dist/local-alpine.tar`，再
+`docker compose -f deploy/docker-compose.alpine-slim.yml up -d`（或直接 `up -d --build`）。
+
 ## 前端（web/，本仓库已内置改造）
 
 `web/` 是上游 `bilirec-web` 的 vendored 副本（MIT，commit `ab62df3`），本地改动：
