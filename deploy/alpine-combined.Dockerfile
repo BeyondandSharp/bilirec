@@ -87,7 +87,7 @@ RUN apk add --no-cache \
          apk add --no-cache ffmpeg streamlink; \
        fi \
     && rm -f /etc/nginx/http.d/default.conf \
-    && mkdir -p /app/web /app/docs /data/records /data/database /data/secrets
+    && mkdir -p /app/web /app/docs /app/records /app/database /app/secrets
 
 COPY deploy/combined/nginx.conf /etc/nginx/http.d/bilirec.conf
 COPY deploy/combined/entrypoint.sh /usr/local/bin/bilirec-combined-entrypoint
@@ -104,7 +104,6 @@ RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair \
        fi
 
 ENV PORT=8080 \
-    HOST=0.0.0.0 \
     DOWNLOADER=auto \
     DOWNLOADER_FALLBACK=native \
     FFMPEG_BIN=ffmpeg \
@@ -114,11 +113,10 @@ ENV PORT=8080 \
     FLV_REPAIR_MODE=best-effort \
     FLV_REPAIR_MAX_BUFFER_MB=64 \
     EXTERNAL_START_TIMEOUT_SECS=20 \
-    OUTPUT_DIR=/data/records \
-    DATABASE_DIR=/data/database \
-    SECRET_DIR=/data/secrets \
-    FRONTEND_URLS=http://localhost,http://127.0.0.1 \
-    BILIBILI_LOGIN_MODE=anonymous \
+    OUTPUT_DIR=records \
+    DATABASE_DIR=database \
+    SECRET_DIR=secrets \
+    FRONTEND_URLS=https://app.bilirec.org \
     TZ=UTC
 
 WORKDIR /app

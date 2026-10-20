@@ -183,9 +183,9 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       BILIBILI_LOGIN_MODE: ${BILIBILI_LOGIN_MODE:-anonymous}
     volumes:
-      - records:/data/records
-      - database:/data/database
-      - secrets:/data/secrets
+      - records:/app/records
+      - database:/app/database
+      - secrets:/app/secrets
 
 volumes:
   records:

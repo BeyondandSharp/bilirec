@@ -157,3 +157,5 @@ if [[ $frontend -eq 1 ]]; then
     echo "  $OUT_DIR/local-frontend-alpine${f}.tar  (frontend only)"
 fi
 [[ $static -eq 1 ]] && echo "  静态文件: $OUT_DIR/"
+
+exit 0

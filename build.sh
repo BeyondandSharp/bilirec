@@ -153,3 +153,5 @@ if [[ $combined -eq 1 ]]; then
     echo "  docker run --rm -p 8080:80 -v bilirec-data:/data local${suffix}"
     echo "  打开 http://localhost:8080"
 fi
+
+exit 0

@@ -106,7 +106,7 @@ RUN apt-get update \
 COPY deploy/combined/nginx.conf /etc/nginx/conf.d/bilirec.conf
 COPY deploy/combined/entrypoint.sh /usr/local/bin/bilirec-combined-entrypoint
 RUN chmod 0755 /usr/local/bin/bilirec-combined-entrypoint \
-    && mkdir -p /app/web /app/docs /data/records /data/database /data/secrets
+    && mkdir -p /app/web /app/docs /app/records /app/database /app/secrets
 
 COPY --from=web-build /web/dist /app/web
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
@@ -122,7 +122,6 @@ RUN --mount=type=bind,from=ffmpeg-static,source=/ffmpeg,target=/tmp/ffmpeg \
 # Same defaults as the backend-only image; the frontend is served on :80 and
 # nginx proxies everything that is not a static file to 127.0.0.1:8080.
 ENV PORT=8080 \
-    HOST=0.0.0.0 \
     DOWNLOADER=auto \
     DOWNLOADER_FALLBACK=native \
     FFMPEG_BIN=ffmpeg \
@@ -132,11 +131,10 @@ ENV PORT=8080 \
     FLV_REPAIR_MODE=best-effort \
     FLV_REPAIR_MAX_BUFFER_MB=64 \
     EXTERNAL_START_TIMEOUT_SECS=20 \
-    OUTPUT_DIR=/data/records \
-    DATABASE_DIR=/data/database \
-    SECRET_DIR=/data/secrets \
-    FRONTEND_URLS=http://localhost,http://127.0.0.1 \
-    BILIBILI_LOGIN_MODE=anonymous \
+    OUTPUT_DIR=records \
+    DATABASE_DIR=database \
+    SECRET_DIR=secrets \
+    FRONTEND_URLS=https://app.bilirec.org \
     TZ=UTC
 
 WORKDIR /app

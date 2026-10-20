@@ -30,7 +30,7 @@ built-in default  <  env value (defaults)  <  DB global override  <  room overri
 `values` (defaults merged with overrides). `values` is what a new global session sees
 before room overrides. Room overrides are applied on top when resolving per room.
 
-Persistence files (volume `/data/database` in the container image):
+Persistence files (volume `/app/database` in the container image):
 
 - `settings.db` — global overrides (survives restarts/upgrades; reset clears it).
 - `subscribes.db` — subscribed rooms **and** their overrides (old records decode with
@@ -241,7 +241,7 @@ Upgrade notes:
 | Settings API returns 401/403 | auth is enabled: login via `POST /login`, send the JWT cookie; viewer role can GET but not PUT/reset. Wrong role/cookie → 403/401. |
 | `PUT /room/<id>/config` → 404 `未订阅该房间` | subscribe the room first (`POST /room/<id>`); overrides are stored per subscribed room. |
 | Settings changed but running recording unaffected | by design: snapshot at session start. Stop/start the recording (or wait for the next auto session). |
-| Settings not visible after restart | check `DATABASE_DIR` points at the persistent volume (`/data/database` in the image); overrides live in `settings.db`. Reset+restart to confirm. |
+| Settings not visible after restart | check `DATABASE_DIR` points at the persistent volume (`/app/database` in the image); overrides live in `settings.db`. Reset+restart to confirm. |
 | Title-based split not triggering | `SEGMENT_BY_TITLE=true`; title poller needs network access to the live room API; `TITLE_POLL_SECS` ≥5 (default 20). Errors are warnings and do not stop recording. |
 | Cover image missing | `SAVE_STREAM_COVER=true`; cover fetch is best-effort (5 s timeout, 20 MB, `image/*`). Check backend warnings; no retries by design. |
 | HEVC stream records but no repair | HEVC-in-FLV is supported by the sidecar, but use `FLV_REPAIR=on`/`auto`; if the sidecar is unavailable the recorder degrades to pass-through (`repair=degraded`) rather than failing. Check `flvrepair --version` and `FLV_REPAIR_BIN`. |

@@ -69,8 +69,8 @@ RUN apk add --no-cache \
        fi \
     && addgroup -g 10001 bilirec \
     && adduser -D -u 10001 -G bilirec -h /app bilirec \
-    && mkdir -p /app/docs /data/records /data/database /data/secrets \
-    && chown -R bilirec:bilirec /app /data
+    && mkdir -p /app/docs /app/records /app/database /app/secrets \
+    && chown -R bilirec:bilirec /app
 
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
@@ -82,7 +82,6 @@ RUN chmod 0755 /usr/local/bin/bilirec /usr/local/bin/flvrepair \
        fi
 
 ENV PORT=8080 \
-    HOST=0.0.0.0 \
     DOWNLOADER=auto \
     DOWNLOADER_FALLBACK=native \
     FFMPEG_BIN=ffmpeg \
@@ -92,9 +91,9 @@ ENV PORT=8080 \
     FLV_REPAIR_MODE=best-effort \
     FLV_REPAIR_MAX_BUFFER_MB=64 \
     EXTERNAL_START_TIMEOUT_SECS=20 \
-    OUTPUT_DIR=/data/records \
-    DATABASE_DIR=/data/database \
-    SECRET_DIR=/data/secrets \
+    OUTPUT_DIR=records \
+    DATABASE_DIR=database \
+    SECRET_DIR=secrets \
     TZ=UTC
 
 WORKDIR /app

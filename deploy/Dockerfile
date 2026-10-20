@@ -13,7 +13,7 @@
 #   go-build   Go backend, with swagger.json generated (gitignored in the repo,
 #              see docs/INTERFACES.md §5). GO builder is CGO-free/static.
 #   rust-build Rust `flvrepair` release binary (GPL-3.0-or-later).
-#   runtime    Debian/Python slim + ffmpeg + streamlink, non-root, /data volumes.
+#   runtime    Debian/Python slim + ffmpeg + streamlink, non-root, /app data dirs.
 #
 # Build args are provided so CI mirrors can be substituted:
 #   --build-arg GO_IMAGE=... --build-arg GOPROXY_URL=... --build-arg RUST_IMAGE=...
@@ -105,12 +105,12 @@ RUN apt-get update \
          && streamlink --version; \
        fi
 
-# Non-root runtime user. /data holds records/database/secrets volumes.
+# Non-root runtime user. records/database/secrets are created under /app.
 RUN groupadd --gid 10001 bilirec \
     && useradd --uid 10001 --gid 10001 --home-dir /app --no-create-home \
         --shell /usr/sbin/nologin bilirec \
-    && mkdir -p /app/docs /data/records /data/database /data/secrets \
-    && chown -R bilirec:bilirec /app /data
+    && mkdir -p /app/docs /app/records /app/database /app/secrets \
+    && chown -R bilirec:bilirec /app
 
 COPY --from=go-build /out/bilirec /usr/local/bin/bilirec
 COPY --from=go-build /src/docs/swagger.json /app/docs/swagger.json
@@ -125,7 +125,6 @@ RUN --mount=type=bind,from=ffmpeg-static,source=/ffmpeg,target=/tmp/ffmpeg \
 
 # Defaults reproduce native v0.3.1 behavior (docs/INTERFACES.md §2.3).
 ENV PORT=8080 \
-    HOST=0.0.0.0 \
     DOWNLOADER=auto \
     DOWNLOADER_FALLBACK=native \
     FFMPEG_BIN=ffmpeg \
@@ -135,9 +134,9 @@ ENV PORT=8080 \
     FLV_REPAIR_MODE=best-effort \
     FLV_REPAIR_MAX_BUFFER_MB=64 \
     EXTERNAL_START_TIMEOUT_SECS=20 \
-    OUTPUT_DIR=/data/records \
-    DATABASE_DIR=/data/database \
-    SECRET_DIR=/data/secrets \
+    OUTPUT_DIR=records \
+    DATABASE_DIR=database \
+    SECRET_DIR=secrets \
     TZ=UTC
 
 WORKDIR /app

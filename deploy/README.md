@@ -65,9 +65,9 @@ and troubleshooting.
 
 ```bash
 docker run --rm -p 8080:8080 \
-  -v bilirec-records:/data/records \
-  -v bilirec-database:/data/database \
-  -v bilirec-secrets:/data/secrets \
+  -v bilirec-records:/app/records \
+  -v bilirec-database:/app/database \
+  -v bilirec-secrets:/app/secrets \
   bilirec-rust:dev
 ```
 
@@ -87,7 +87,7 @@ where the backend expects it when `WORKDIR` is `/app`.
 docker compose -f deploy/docker-compose.yml build --pull
 
 # 2) restart in place; named volumes keep records/database/secrets (settings
-#    overrides live in /data/database/settings.db and survive the upgrade)
+#    overrides live in /app/database/settings.db and survive the upgrade)
 docker compose -f deploy/docker-compose.yml up -d
 
 # 3) smoke checks: version, settings API, recording list, backend health
@@ -159,3 +159,19 @@ docker compose -f deploy/docker-compose.alpine-slim.yml up -d
 
 `enabled=false`（例如 slim 镜像没有 ffmpeg/cloudconvert）时，“转换任务”导航项会自动隐藏；
 full 镜像返回 `{"providers":["ffmpeg"],"enabled":true}`。旧后端没有该接口时前端保持显示（兼容）。
+
+## 镜像环境变量默认值
+
+镜像内的数据目录与上游 bilirec 文档一致：相对 `WORKDIR /app` 解析，即
+
+```text
+OUTPUT_DIR=records     -> /app/records
+DATABASE_DIR=database  -> /app/database
+SECRET_DIR=secrets     -> /app/secrets
+HOST=（空，监听所有网卡）
+BILIBILI_LOGIN_MODE=controller
+FRONTEND_URLS=https://app.bilirec.org
+```
+
+compose 示例把卷挂到 `/app/records`、`/app/database`、`/app/secrets`；如需沿用旧的
+`/data` 布局，显式覆盖这三个变量并把卷挂到对应路径即可。

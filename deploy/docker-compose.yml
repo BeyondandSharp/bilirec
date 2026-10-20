@@ -60,22 +60,21 @@ services:
       BILIBILI_LOGIN_MODE: ${BILIBILI_LOGIN_MODE:-anonymous}
       HOST: 0.0.0.0
       PORT: "8080"
-      OUTPUT_DIR: /data/records
-      DATABASE_DIR: /data/database
-      SECRET_DIR: /data/secrets
       TZ: ${TZ:-UTC}
       # Optional HTTP API auth (leave unset for an open API).
       # USERNAME: ${USERNAME:-}
       # PASSWORD: ${PASSWORD:-}
       # JWT_SECRET: ${JWT_SECRET:-}
     volumes:
-      - records:/data/records
-      - database:/data/database
-      - secrets:/data/secrets
+      # Defaults are the upstream bilirec ones: relative to WORKDIR /app
+      # (records/, database/, secrets/).
+      - records:/app/records
+      - database:/app/database
+      - secrets:/app/secrets
       # Bind-mount alternatives:
-      # - ${RECORDS_DIR:-./data/records}:/data/records
-      # - ${DATABASE_DIR:-./data/database}:/data/database
-      # - ${SECRETS_DIR:-./data/secrets}:/data/secrets
+      # - ${RECORDS_DIR:-./data/records}:/app/records
+      # - ${DATABASE_DIR:-./data/database}:/app/database
+      # - ${SECRETS_DIR:-./data/secrets}:/app/secrets
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8080/version', timeout=4); sys.exit(0 if r.status == 200 else 1)"]
       interval: 30s
