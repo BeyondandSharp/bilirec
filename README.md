@@ -160,6 +160,54 @@ alpine-full-headless, trixie-full-headless
 - 一次性配置（Actions、privileged runner、`DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`/`GHCR_TOKEN`/`GHCR_IMAGE`）
   与 tag 列表详见 [docs/RELEASE-CI.md](docs/RELEASE-CI.md)。
 
+## 使用已发布镜像（latest）
+
+CI 发布后可以直接用 `latest` 镜像起一个“前后端合一”的实例（`latest` = `alpine` 变体，
+slim：不含 ffmpeg/streamlink，native 录制；转码菜单会自动隐藏）。把
+`BILIREC_IMAGE` 换成你的 Docker Hub 命名空间（或 `ghcr.io/<owner>/bilirec:latest`）：
+
+```yaml
+services:
+  bilirec:
+    image: ${BILIREC_IMAGE:-beyondandsharp/bilirec:latest}
+    container_name: bilirec
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      # 前端 + 同源 API（容器内 nginx 80，反代到 bilirec 8080）
+      - "${WEB_PORT:-8080}:80"
+      # 可选：直连后端 API
+      - "${API_PORT:-8081}:8080"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      BILIBILI_LOGIN_MODE: ${BILIBILI_LOGIN_MODE:-anonymous}
+    volumes:
+      - records:/data/records
+      - database:/data/database
+      - secrets:/data/secrets
+
+volumes:
+  records:
+  database:
+  secrets:
+```
+
+```bash
+# 使用自己的镜像名
+BILIREC_IMAGE=yourname/bilirec:latest docker compose -f docker-compose.yml up -d
+
+# 打开 http://localhost:8080 ；登录页后端地址填 http://localhost:8080
+# 需要 ffmpeg/streamlink 与 mp4 转码时，把 image 改为 :alpine-full 或 :trixie-full
+```
+
+- `:latest` / `:alpine`：Alpine 前后端合一，slim；
+- `:trixie`：Debian 13 前后端合一，slim；
+- `:alpine-full` / `:trixie-full`：带 ffmpeg + streamlink（外部下载器、转码可用）；
+- `:alpine-headless` / `:trixie-headless`（及 `-full-headless`）：仅后端，不带前端。
+
+> 完整 tag 列表与发布配置见 [docs/RELEASE-CI.md](docs/RELEASE-CI.md)。
+
 ## 配置
 
 | 环境变量 | 取值 | 默认 | 说明 |
