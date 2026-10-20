@@ -30,6 +30,7 @@
 ├── web/                           # vendored bilirec-web（React PWA）
 ├── deploy/                        # 本仓库部署（Dockerfile/compose/env 示例）
 ├── scripts/ testdata/ refs/       # 回放源/E2E/fixtures/只读参考
+├── build.sh                       # 一键构建镜像/静态文件
 ├── .github/ CONTRIBUTING.md       # 上游 CI/贡献文件（保留）
 ├── LICENSES/Bilirec-MIT.txt       # 上游 MIT 许可
 └── docs/upstream-bilirec-*.md     # 上游 README/Makefile 存档

@@ -2,7 +2,7 @@ SHELL := /bin/bash
 export PATH := /usr/local/go/bin:/root/.cargo/bin:$(PATH)
 export BILIBILI_LOGIN_MODE ?= anonymous
 
-.PHONY: all fmt fmt-go fmt-rust lint lint-go lint-rust test test-go test-rust build build-go build-rust dev e2e image clean
+.PHONY: all fmt fmt-go fmt-rust lint lint-go lint-rust test test-go test-rust build build-go build-rust dev e2e image images clean
 
 all: build
 
@@ -53,7 +53,10 @@ e2e:
 	bash scripts/e2e.sh
 
 image:
-	docker build -f deploy/Dockerfile -t bilirec-rust:dev .
+	./build.sh
+
+images:
+	./build.sh --all
 
 clean:
 	rm -rf dist rust/target

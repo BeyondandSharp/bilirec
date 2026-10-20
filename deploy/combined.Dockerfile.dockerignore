@@ -1,0 +1,45 @@
+# BuildKit ignore rules for deploy/combined.Dockerfile.
+# Context = repo root (Go module root). The combined image needs Go, Rust and
+# web/ sources; only heavy/local artifacts are excluded.
+
+.git
+.github
+.cursor
+.gitignore
+.gitattributes
+
+# developer-local overrides; keep the tracked root `.env` (//go:embed .env)
+.env.local
+.env.example
+
+# large/unrelated trees
+refs
+testdata
+scripts
+backups
+dist
+docs
+deploy/README.md
+deploy/upstream.Dockerfile
+deploy/Dockerfile
+deploy/Dockerfile.dockerignore
+deploy/web.Dockerfile
+deploy/web.Dockerfile.dockerignore
+deploy/docker-compose.yml
+deploy/.env
+deploy/.env.example
+
+# frontend/node/rust build artifacts
+web/node_modules
+web/dist
+**/node_modules
+rust/target
+**/target
+
+# local data and noise
+**/records
+**/database
+**/secrets
+**/*.log
+**/*.tmp
+**/.DS_Store
