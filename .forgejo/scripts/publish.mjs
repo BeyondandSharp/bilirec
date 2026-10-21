@@ -22,7 +22,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { digestFromMetadata, refExists, runDocker } from './build-push.mjs';
+import { digestFromMetadata, refExists, refState, runDockerRetry } from './build-push.mjs';
 import { stagingRefsFor } from './config.mjs';
 import { statePath } from './resolve.mjs';
 
@@ -64,6 +64,17 @@ export function missingStaging(plan, { env = process.env, run = spawnSync } = {}
   return plan.filter((entry) => !refExists(entry.source, { env, run })).map((entry) => entry.source);
 }
 
+/**
+ * Every staging ref of the plan, with its verified state.
+ *
+ * `unknown` (the inspect kept failing with transport errors after the retries)
+ * is kept apart from `missing`: a network outage must not be reported as "the
+ * build never staged anything", which would send the operator to the wrong fix.
+ */
+export function stagingStates(plan, { env = process.env, run = spawnSync } = {}) {
+  return plan.map((entry) => ({ ...entry, state: refState(entry.source, { env, run }) }));
+}
+
 /** `docker buildx imagetools create -t <final…> <staging>` */
 export function promotionArgv({ source, tags, metadataFile = '' }) {
   const argv = ['buildx', 'imagetools', 'create'];
@@ -86,7 +97,18 @@ async function main() {
     return;
   }
 
-  const missing = missingStaging(plan, { env, run: spawnSync });
+  const states = stagingStates(plan, { env, run: spawnSync });
+  const unknown = states.filter((entry) => entry.state === 'unknown').map((entry) => entry.source);
+  if (unknown.length > 0) {
+    process.stderr.write(
+      `查询 staging 镜像时遇到网络错误，未发布任何最终标签：\n  ${unknown.join('\n  ')}\n` +
+        `  查询已经自动重试（DOCKER_RETRY_ATTEMPTS=${process.env.DOCKER_RETRY_ATTEMPTS || '3'}）；` +
+        '仍然失败说明 registry 暂时不可达，稍后重跑 publish 作业即可，不需要重新构建。\n',
+    );
+    process.exit(1);
+  }
+
+  const missing = states.filter((entry) => entry.state === 'missing').map((entry) => entry.source);
   if (missing.length > 0) {
     process.stderr.write(
       `找不到 staging 镜像，未发布任何最终标签：\n  ${missing.join('\n  ')}\n` +
@@ -104,9 +126,12 @@ async function main() {
 
   for (const entry of plan) {
     const metadataFile = join(workDir, `publish-${entry.variant}-${entry.registryId}.json`);
-    const result = runDocker(promotionArgv({ source: entry.source, tags: entry.tags, metadataFile }), {
+    // A promotion is a registry-side manifest copy: retrying it after a
+    // transport failure is safe (same source, same tags) and cheap.
+    const result = runDockerRetry(promotionArgv({ source: entry.source, tags: entry.tags, metadataFile }), {
       env,
       run: spawnSync,
+      label: `发布 ${entry.source} → ${entry.tags.join('、')}`,
     });
     if (result.status !== 0) {
       process.stderr.write(

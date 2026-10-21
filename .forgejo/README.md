@@ -49,6 +49,7 @@ cp -r docker-build-push /path/to/target-repo/.forgejo
 └── scripts/                  # 全部逻辑，普通 .mjs 文件
     ├── run.mjs               # 分发器：每个步骤一行调用它
     ├── endpoints.mjs         # 端点判别（镜像 vs 代理）+ docker/buildx 能力探测
+    ├── retry.mjs             # 网络失败的有界重试（registry / Docker Hub / GitHub）
     ├── locate-action.mjs     # 找 Action 目录，并导出变体表路径
     ├── config.mjs            # 变体表/仓库变量 → 归一化配置
     ├── matrix.mjs            # 变体表 → 顺序列表 + 矩阵（plan 作业）
@@ -264,6 +265,10 @@ FROM ${NODE_IMAGE} AS frontend
 | `DOCKER_BINFMT_IMAGE` | `tonistiigi/binfmt` | 注册 binfmt 用的镜像（内网镜像可覆盖） |
 | `DOCKER_BUILDKIT_IMAGE` | 空（buildx 默认） | 覆盖 BuildKit 容器镜像（`--driver-opt image=`），内网场景有用 |
 | `DOCKER_HOST` | 空 | daemon 地址（`tcp://…` 或非默认 unix socket）；不设即容器内的 `/var/run/docker.sock` |
+| `DOCKER_RETRY_ATTEMPTS` | `3` | registry / Docker Hub / GitHub 调用的总尝试次数（含第一次）；`1` = 不重试 |
+| `DOCKER_RETRY_DELAY` | `2` | 退避基数（秒），第 n 次重试前等待 `2^n × 基数`；限流（429）从 10s 起 |
+| `DOCKER_RETRY_DISABLED` | 空 | 设为 `1/true` 时关闭所有网络重试（排障用） |
+| `DOCKER_BUILD_RETRY_ATTEMPTS` | `2` | 单次 `docker buildx build` 的总尝试次数（含第一次）；**只重试网络错误**，编译错误不重试 |
 | `APT_PROXY` / `NPM_PROXY` / `PIP_PROXY` / `GOPROXY` | 空 | 内网端点（会探测一次），见下面「代理、镜像与 registry」 |
 | `APK_REPO` / `YUM_REPO` | 空 | **显式仓库地址**（不探测）：`APK_REPO` 是 `APK_PROXY` 构建参数的来源，`YUM_REPO` 原样作为 `--build-arg YUM_REPO` 传给 Dockerfile |
 
@@ -293,6 +298,26 @@ runner 没有直连外网时，先分清三件不同的事：**代理**（forwar
 **真正的 HTTP 转发代理**（只当代理，不做判别）：`ALL_PROXY`、`HTTP_PROXY`、`HTTPS_PROXY`、`NO_PROXY`。构建时由本 Action **显式转发**——作为 `--build-arg` 传给每个变体的 `docker buildx build`（BuildKit 会自动补齐小写形式，`RUN` 步骤可见），需要 `docker-container` builder（多架构）时同时作为 `--driver-opt env.<变量>` 传给 builder 容器，让 buildkitd 自己也能拉基础镜像；`DOCKER_BUILD_ARGS` 里写了同名项时以显式项为准。注意 docker CLI 只会从自己的 `~/.docker/config.json`（`proxies`）自动补代理 build arg，**不会**读自己的环境变量，所以这一步必须显式做。
 
 **作业容器自身的包安装**（bootstrap 装的 node/git/curl，以及 `prepare` 装的 `DOCKER_JOB_PACKAGES`、buildx）走的是同一套仓库变量，约定与 Dockerfile 一致——`APK_REPO` / `APT_PROXY` / `YUM_REPO` 是**仓库根**，改写容器的 `/etc/apk/repositories`、apt sources（含 deb822 的 `URIs:`）、yum `baseurl`；真代理走 `HTTP(S)_PROXY`（同时派生一份小写的 `http_proxy`/`https_proxy`/`no_proxy`/`all_proxy`，因为 apk / apt / dnf 读的是小写名）。改写是 grep 守卫、幂等的，bootstrap（node 还不存在）和 `prepare`（node 已存在）各做一次不会叠加前缀；填了哪个变量就改哪个，一个都没填时行为和以前完全一样。`APT_PROXY` 在作业容器里同样按「仓库根」处理（默认工作台是 Alpine，这条通常用不到）。
+
+### 网络重试（Docker Hub / GitHub 抖动时）
+
+发布过程里真正会跨网络的调用都带**有界重试**（`scripts/retry.mjs`）：指数退避、只重试**传输类**失败、认证与「不存在」类答案立即失败。
+
+| 调用 | 目标 | 重试策略 |
+| --- | --- | --- |
+| `docker login` | registry 认证服务（ghcr.io / auth.docker.io） | 默认 3 次；`unauthorized`/`denied` 不重试 |
+| `buildx create`（builder 镜像） | Docker Hub（可用 `DOCKER_BUILDKIT_IMAGE` 换内网） | 默认 3 次；重试前先删同名 builder，避免 `already exists` |
+| `buildx imagetools inspect` | ghcr.io / Docker Hub | 默认 3 次；结果分「存在 / 不存在 / 网络不可达」三态 |
+| `buildx imagetools create`（publish） | ghcr.io / Docker Hub | 默认 3 次；同 source → 同 tags，幂等 |
+| `buildx build --push` | 推镜像 + 拉基础镜像 | `DOCKER_BUILD_RETRY_ATTEMPTS`（默认 2，即 1 次重试）；**只对网络错误重试**，编译错误立刻失败 |
+| `curl` 下载 buildx | GitHub Releases | curl 自带 `--retry 3 --retry-connrefused --connect-timeout 15` |
+| `docker run tonistiigi/binfmt` | 拉 binfmt 镜像（Docker Hub） | 默认 3 次；仍失败只告警 |
+| 作业容器 bootstrap / `prepare` 装包 | 发行版镜像、`DOCKER_JOB_PACKAGES` | workflow 里的 `retry()` 三次 + `prepare` 同一策略 |
+| `actions/checkout` | GitHub | `continue-on-error` + 一个 `Retry checkout` 步骤（再试一次） |
+
+**不会重试的**：认证/权限（`unauthorized`、`denied`、token 失效）、明确的「不存在」（`manifest unknown`、`not found`）、编译/构建错误、磁盘满。判为网络不可达时，publish 会明确报「查询 staging 镜像时遇到网络错误」，而不是误报「找不到 staging 镜像」。
+
+> **唯一管不到的一处**：job 镜像 `docker:dind` 是 **runner** 在启动容器前拉取的（Docker Hub），发生在 workflow 之前，脚本无法重试。 runner 侧不稳定时请用内网镜像 / 预拉取镜像。
 
 ### 自动注入的 build arg
 
@@ -352,7 +377,7 @@ RUN pip install --index-url "${PIP_INDEX_URL}" -r requirements.txt
 
 | 情况 | 做法 |
 | --- | --- |
-| publish 失败（网络/registry 5xx/token 过期） | 只重跑 **publish 作业**（Forgejo 17：`POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`）；秒级完成 |
+| publish 失败（网络/registry 5xx/token 过期） | 先看日志：传输类错误已经自动重试过（`DOCKER_RETRY_ATTEMPTS`）；仍然失败时只重跑 **publish 作业**（Forgejo 17：`POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`），秒级完成 |
 | 实例只支持整轮重跑（Forgejo 16） | 直接重跑整轮：build 作业会打印 `已存在 staging 镜像，跳过构建`，只补建缺失的变体，然后 publish 再试一次 |
 | 想强制重建全部 | 设仓库变量 `DOCKER_FORCE_BUILD=1`（或删掉对应的 staging 标签） |
 
@@ -413,10 +438,10 @@ container:
 只在 `build` 作业里运行，按顺序、幂等：
 
 1. 探测 daemon；不可达且镜像里有 `dockerd` → 在容器内启动它（日志 `/var/log/dockerd.log`，默认等待 90s，可用 `DOCKER_DIND_WAIT` 调整；overlay 起不来时自动用 `--storage-driver=vfs` 再试一次）。失败会打印 dockerd 日志尾部与上面的 runner 前置条件。
-2. 按仓库变量改写容器自身的包源（`APK_REPO` / `APT_PROXY` / `YUM_REPO`，grep 守卫、幂等，与 bootstrap 里的改写一致），并把大写代理变量派生为小写。
-3. 补 `buildx`：优先发行版包（alpine `docker-cli-buildx`、apt/dnf `docker-buildx-plugin`），再不行从 `DOCKER_BUILDX_URL`（默认 buildx 官方 latest）下载插件。
+2. 按仓库变量改写容器自身的包源（`APK_REPO` / `APT_PROXY` / `YUM_REPO`，grep 守卫、幂等，与 bootstrap 里的改写一致），并把大写代理变量派生为小写；`DOCKER_JOB_PACKAGES` 的安装遇到网络错误会自动重试。
+3. 补 `buildx`：优先发行版包（alpine `docker-cli-buildx`、apt/dnf `docker-buildx-plugin`，安装失败会重试），再不行从 `DOCKER_BUILDX_URL`（默认 buildx 官方 latest）下载插件（curl 自带重试与连接超时）。
 4. 安装 `DOCKER_JOB_PACKAGES`。
-5. 按需注册 QEMU binfmt（镜像 `DOCKER_BINFMT_IMAGE`，默认 `tonistiigi/binfmt`）。
+5. 按需注册 QEMU binfmt（镜像 `DOCKER_BINFMT_IMAGE`，默认 `tonistiigi/binfmt`；拉取失败会重试，仍失败只告警）。
 6. 打一行摘要：`[prepare] docker=27.0.0（本次启动） buildx=image packages=- platforms=linux/amd64,linux/arm64 binfmt=ok`。
 
 ### 两种接法
@@ -515,7 +540,7 @@ for (const build of computeBuilds({ state })) console.log(build.variant.padEnd(1
 
 ## 首次使用需要在真实实例上确认的点
 
-本目录的代码在源仓库经过了 141 个用例的单元测试与假 docker 端到端，但以下几项只有真实 Forgejo + runner + registry 才能确认，建议先 `dry_run: true` 演练一次：
+本目录的代码在源仓库经过了 167 个用例的单元测试与假 docker 端到端，但以下几项只有真实 Forgejo + runner + registry 才能确认，建议先 `dry_run: true` 演练一次：
 
 1. runner 是否打开了 `container.privileged: true` 并重启过：日志里 `prepare` 应打印 `docker=…（本次启动）`，否则会带着 runner 侧清单失败。
 2. `actions/checkout@v4` 在该实例是否可达（Bootstrap 已装好 node/git）。
@@ -529,7 +554,7 @@ for (const build of computeBuilds({ state })) console.log(build.variant.padEnd(1
 ## 测试
 
 ```bash
-node --test test/docker-*.test.mjs                        # 本 Action 的 141 个用例
+node --test test/docker-*.test.mjs                        # 本 Action 的 167 个用例
 node --test test/*.test.mjs test/npm-publish/*.test.mjs   # 本仓库全部用例
 ```
 

@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildOptionsFrom, isTruthy, parseVariants, platformsFor, readOptional, variantTableRaw } from './config.mjs';
 import { hasBinary, probeDocker } from './endpoints.mjs';
+import { retryConfig, retryLine, retrySync, sleepSync } from './retry.mjs';
 
 // Run directly (argv[1] is this file) rather than imported by a test.
 // Compare real paths: /tmp is a symlink on some hosts, and path.resolve
@@ -136,6 +137,40 @@ function packageManagerInstall(manager, packages) {
   }
 }
 
+/**
+ * Run one command, retrying transport failures.
+ *
+ * The job container's own package installs and the binfmt image pull go to
+ * mirrors / Docker Hub just like the release itself, so they get the same
+ * bounded-retry policy. `label` names the action in the retry log line.
+ */
+function runWithRetry(argv, { env = process.env, run = spawnSync, sleep = sleepSync, label = argv.join(' ') } = {}) {
+  const [command, ...args] = argv;
+  const config = retryConfig(env);
+  return retrySync(
+    () => {
+      const result = run(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env });
+      return {
+        ok: Boolean(result) && result.status === 0,
+        text: String((result && (result.stderr || result.stdout)) || result?.error?.message || ''),
+      };
+    },
+    {
+      attempts: config.attempts,
+      delayMs: config.delayMs,
+      maxDelayMs: config.maxDelayMs,
+      sleep,
+      onRetry: (info) => process.stderr.write(`${retryLine(label, info)}\n`),
+    },
+  );
+}
+
+/** Run a `[command, args]` package-manager argv through `runWithRetry`. */
+function runArgvWithRetry(argv, options = {}) {
+  if (!argv) return null;
+  return runWithRetry([argv[0], ...(argv[1] || [])], options);
+}
+
 /** The lower-case proxy names apk / apt / dnf actually read. */
 const PROXY_ALIASES = [
   ['HTTP_PROXY', 'http_proxy'],
@@ -211,7 +246,7 @@ export function configurePackageSources(env = process.env, { run = spawnSync, ex
  * Install `DOCKER_JOB_PACKAGES` (space / comma / semicolon separated). Empty
  * means "nothing extra", which is the docker:dind default.
  */
-export function installPackages(raw, { run = spawnSync, packages = [] } = {}) {
+export function installPackages(raw, { run = spawnSync, packages = [], env = process.env, sleep = sleepSync } = {}) {
   const wanted = packages.length > 0
     ? packages
     : String(raw ?? '')
@@ -224,9 +259,9 @@ export function installPackages(raw, { run = spawnSync, packages = [] } = {}) {
     throw new Error(`要安装额外的包（${wanted.join(' ')}），但容器里没有 apk / apt-get / dnf / yum`);
   }
   const argv = packageManagerInstall(manager, wanted);
-  const result = run(argv[0], argv[1], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  if (!result || result.status !== 0) {
-    throw new Error(`安装额外的包失败（${manager} ${wanted.join(' ')}）：${String((result && result.stderr) || '')}`);
+  const outcome = runArgvWithRetry(argv, { run, env, sleep, label: `安装额外的包（${manager} ${wanted.join(' ')}）` });
+  if (!outcome.ok) {
+    throw new Error(`安装额外的包失败（${manager} ${wanted.join(' ')}）：${outcome.text}`);
   }
   return { manager, packages: wanted };
 }
@@ -236,11 +271,14 @@ export function installPackages(raw, { run = spawnSync, packages = [] } = {}) {
  * only runs for a swapped-in minimal image. Tries the distribution package
  * first, then the stand-alone release binary.
  */
-export function ensureBuildx({ env = process.env, run = spawnSync } = {}) {
+export function ensureBuildx({ env = process.env, run = spawnSync, sleep = sleepSync } = {}) {
   if (hasBinary('buildx', run)) return { source: 'image' };
   const manager = detectManager(run);
-  if (manager === 'apk') run('apk', ['add', '--no-cache', 'docker-cli-buildx'], { stdio: 'inherit' });
-  else if (manager) packageManagerInstallRun(manager, ['docker-buildx-plugin'], run);
+  if (manager === 'apk') {
+    runWithRetry(['apk', 'add', '--no-cache', 'docker-cli-buildx'], { run, env, sleep, label: '安装 docker-cli-buildx' });
+  } else if (manager) {
+    packageManagerInstallRetry(manager, ['docker-buildx-plugin'], { run, env, sleep });
+  }
   if (hasBinary('buildx', run)) return { source: manager || 'image' };
 
   const arch = hostArch(run);
@@ -248,7 +286,9 @@ export function ensureBuildx({ env = process.env, run = spawnSync } = {}) {
     || `https://github.com/docker/buildx/releases/latest/download/buildx-linux-${arch}`;
   const dest = readOptional(env.DOCKER_BUILDX_PATH) || '/usr/local/libexec/docker/cli-plugins/docker-buildx';
   process.stdout.write(`==> 安装 buildx 插件：${url} → ${dest}\n`);
-  run('sh', ['-c', `mkdir -p "$(dirname '${dest}')" && curl -fsSL '${url}' -o '${dest}' && chmod +x '${dest}'`], {
+  // curl does the retrying here: it re-issues a failed transfer on transport
+  // errors (GitHub Releases included) without re-running the whole install.
+  run('sh', ['-c', `mkdir -p "$(dirname '${dest}')" && curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 15 --max-time 300 '${url}' -o '${dest}' && chmod +x '${dest}'`], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -261,9 +301,9 @@ export function ensureBuildx({ env = process.env, run = spawnSync } = {}) {
   );
 }
 
-function packageManagerInstallRun(manager, packages, run) {
+function packageManagerInstallRetry(manager, packages, { run = spawnSync, env = process.env, sleep = sleepSync } = {}) {
   const argv = packageManagerInstall(manager, packages);
-  if (argv) run(argv[0], argv[1], { stdio: 'inherit' });
+  if (argv) runArgvWithRetry(argv, { run, env, sleep, label: `安装 ${packages.join(' ')}` });
 }
 
 function readLogTail(path, readFile = readFileSync, lines = 20) {
@@ -356,6 +396,7 @@ export async function ensureBinfmt({
   arch = '',
   platforms = [],
   root = BINFMT_ROOT,
+  sleep = sleepSync,
 } = {}) {
   const host = arch || hostArch(run);
   const wanted = archesOf(platforms).filter((candidate) => candidate !== host);
@@ -365,17 +406,20 @@ export async function ensureBinfmt({
 
   const image = readOptional(env.DOCKER_BINFMT_IMAGE) || 'tonistiigi/binfmt';
   process.stdout.write(`==> 注册 QEMU binfmt：${missing.join(',')}（${image}）\n`);
-  const result = run('docker', ['run', '--privileged', '--rm', image, '--install', missing.join(',')], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // The image is pulled from Docker Hub; a rate-limited or timed-out pull gets
+  // the same bounded retry as the rest of the run (re-running --install on an
+  // already-registered handler is harmless).
+  const outcome = runWithRetry(
+    ['docker', 'run', '--privileged', '--rm', image, '--install', missing.join(',')],
+    { run, env, sleep, label: `注册 QEMU binfmt（${image}）` },
+  );
   const remaining = missing.filter((candidate) => !exists(join(root, binfmtHandler(candidate))));
   return {
     skipped: false,
     wanted,
     registered: missing.filter((candidate) => !remaining.includes(candidate)),
     remaining,
-    error: result && result.status === 0 ? '' : String((result && result.stderr) || ''),
+    error: outcome.ok ? '' : outcome.text,
   };
 }
 
@@ -388,6 +432,7 @@ export async function prepare({
   run = spawnSync,
   spawnDetached = spawn,
   sleep = defaultSleep,
+  retrySleep = sleepSync,
   exists = existsSync,
   readFile = readFileSync,
   probe = probeDocker,
@@ -396,11 +441,11 @@ export async function prepare({
 } = {}) {
   const daemon = await ensureDaemon({ env, run, spawnDetached, sleep, exists, readFile, probe });
   const packageSources = configurePackageSources(env, { run, exists });
-  const buildx = ensureBuildx({ env, run });
-  const extra = installPackages(env.DOCKER_JOB_PACKAGES, { run });
+  const buildx = ensureBuildx({ env, run, sleep: retrySleep });
+  const extra = installPackages(env.DOCKER_JOB_PACKAGES, { run, env, sleep: retrySleep });
   const platforms = requestedPlatforms(env, { table });
   const host = arch || hostArch(run);
-  const binfmt = await ensureBinfmt({ env, run, exists, arch: host, platforms });
+  const binfmt = await ensureBinfmt({ env, run, exists, arch: host, platforms, sleep: retrySleep });
   if (binfmt.remaining.length > 0) {
     process.stderr.write(
       `[WARN] 未能注册 ${binfmt.remaining.join(',')} 的 QEMU 处理器：跨架构构建可能在 RUN 步骤报 "exec format error"。\n` +

@@ -53,6 +53,7 @@ const PROGRAMS = {
 /** Everything the Action ships; verify-action insists on all of it. */
 export const REQUIRED_SCRIPTS = [
   'endpoints.mjs',
+  'retry.mjs',
   'locate-action.mjs',
   'run.mjs',
   'config.mjs',

@@ -15,6 +15,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { statePath } from './resolve.mjs';
+import { retryConfig, retryLine, retrySync, sleepSync } from './retry.mjs';
 
 // Run directly (argv[1] is this file) rather than imported by a test.
 // Compare real paths: /tmp is a symlink on some hosts, and path.resolve
@@ -63,6 +64,31 @@ export function login({ entry, token, env = process.env, run = spawnSync }) {
   };
 }
 
+/**
+ * `docker login` with bounded retries.
+ *
+ * The registry's token service is as flaky as any other endpoint: a TLS
+ * handshake timeout or a 503 here would fail the whole release. Only transport
+ * failures are retried; a rejected token (`unauthorized`/`denied`) is returned
+ * on the first attempt, because retrying cannot fix a credential.
+ */
+export function loginWithRetry(entry, token, { env = process.env, run = spawnSync, sleep = sleepSync, onRetry } = {}) {
+  const config = retryConfig(env);
+  return retrySync(
+    () => {
+      const result = login({ entry, token, env, run });
+      return { ok: result.ok, text: `${result.stdout}\n${result.stderr}`, ...result };
+    },
+    {
+      attempts: config.attempts,
+      delayMs: config.delayMs,
+      maxDelayMs: config.maxDelayMs,
+      sleep,
+      onRetry: onRetry || ((info) => process.stderr.write(`${retryLine(`登录 ${entry.registry}`, info)}\n`)),
+    },
+  );
+}
+
 const HINTS = {
   ghcr: 'ghcr.io 需要 GitHub PAT（classic 勾选 write:packages，或 fine-grained 勾选 Packages: write）；镜像名用 GHCR_IMAGE（用户名即命名空间）',
   dockerhub: 'Docker Hub 需要 access token（不是账号密码）；用户名填 DOCKERHUB_USERNAME',
@@ -87,7 +113,7 @@ async function main() {
   for (const entry of plan) {
     const token = process.env[entry.tokenVar] || '';
     process.stdout.write(`$ docker login ${entry.registry} -u ${entry.user} --password-stdin\n`);
-    const result = login({ entry, token });
+    const result = loginWithRetry(entry, token, { env: process.env, run: spawnSync });
     if (!result.ok) {
       process.stderr.write(`登录 ${entry.registry} 失败：${result.stderr || `退出码 ${result.status}`}\n`);
       process.stderr.write(`提示：${HINTS[entry.id] || ''}\n`);

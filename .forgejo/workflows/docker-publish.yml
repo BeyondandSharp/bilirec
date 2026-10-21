@@ -30,11 +30,25 @@
 # half-finished run can never move `latest`.
 #
 # Retrying:
-#   * re-run the publish job (Forgejo 17 has
+#   * every call that leaves the container — docker login, the builder image
+#     pull, the staging existence check, `imagetools create`, `buildx build
+#     --push`, the binfmt pull, the buildx download, package installs — retries
+#     transport failures with exponential backoff (`scripts/retry.mjs`). Auth
+#     refusals and "not found" answers are never retried. Knobs (all optional):
+#       DOCKER_RETRY_ATTEMPTS         total attempts, default 3
+#       DOCKER_RETRY_DELAY            backoff unit in seconds, default 2
+#       DOCKER_RETRY_DISABLED         1/true turns the retries off
+#       DOCKER_BUILD_RETRY_ATTEMPTS   total attempts of one `buildx build`,
+#                                     default 2 (one retry; a compile error is
+#                                     never retried, only transport failures)
+#   * if all attempts fail: re-run the publish job (Forgejo 17 has
 #     `POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`), or
 #   * re-run the whole run: the build job skips every variant whose staging tag
 #     already exists ("已存在 staging 镜像，跳过构建"), so only what is missing is
 #     rebuilt. `DOCKER_FORCE_BUILD=1` forces a rebuild.
+#   The job image (`docker:dind`) is pulled by the RUNNER before this workflow
+#   starts, so that one pull cannot be retried here: use a pre-pulled image or an
+#   internal mirror on the runner if it is flaky.
 #
 # Workbench: every job container is plain `docker:dind`. The runner starts job
 # containers with `tail -f /dev/null`, so dockerd is NOT running; the `prepare`
@@ -83,6 +97,8 @@
 #   DOCKER_FORCE_BUILD    rebuild even when the staging tag already exists
 #   ALL_PROXY / HTTP_PROXY / HTTPS_PROXY / NO_PROXY / APT_PROXY / NPM_PROXY / PIP_PROXY / GOPROXY
 #   APK_REPO / YUM_REPO (explicit repositories; APK_REPO feeds the APK_PROXY arg)
+#   DOCKER_RETRY_ATTEMPTS / DOCKER_RETRY_DELAY / DOCKER_RETRY_DISABLED
+#   DOCKER_BUILD_RETRY_ATTEMPTS   network retry policy (see "Retrying" above)
 #   (see the env blocks below — they are the complete, authoritative list)
 #
 # Platforms: a variant's seventh column decides its architectures (e.g.
@@ -191,20 +207,35 @@ jobs:
           [ -n "${HTTPS_PROXY:-}" ] && export https_proxy="${HTTPS_PROXY}"
           [ -n "${NO_PROXY:-}" ] && export no_proxy="${NO_PROXY}"
           [ -n "${ALL_PROXY:-}" ] && export all_proxy="${ALL_PROXY}"
+          # The distro mirrors are as flaky as any other endpoint: retry the
+          # install a few times instead of failing the job on the first trip.
+          retry() { n=0; until "$@"; do n=$((n + 1)); [ "$n" -ge 3 ] && return 1; sleep $((n * 2)); done; }
           if ! { command -v node >/dev/null 2>&1 && command -v git >/dev/null 2>&1; }; then
             if command -v apk >/dev/null 2>&1; then
-              apk add --no-cache nodejs npm git curl ca-certificates
+              retry apk add --no-cache nodejs npm git curl ca-certificates
             elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates
+              retry sh -c 'apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates'
             elif command -v dnf >/dev/null 2>&1; then
-              dnf install -y nodejs npm git curl ca-certificates
+              retry dnf install -y nodejs npm git curl ca-certificates
             else
-              yum install -y nodejs npm git curl ca-certificates
+              retry yum install -y nodejs npm git curl ca-certificates
             fi
           fi
           node --version && git --version
 
+      # GitHub can hiccup; a failed checkout is retried once instead of failing
+      # the whole run on the first transport error. (continue-on-error keeps the
+      # job going so the retry step can run; the retry step is a normal step, so
+      # its failure fails the job as before.)
       - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+        continue-on-error: true
+
+      - name: Retry checkout
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -267,6 +298,12 @@ jobs:
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
       # Marks the step for preflight: a build needs a daemon, publication does not.
       DOCKER_STEP: build
+      # Network retries: every Docker Hub / GHCR / GitHub call is retried on
+      # transport failures (see retry.mjs); auth and "not found" are not retried.
+      DOCKER_RETRY_ATTEMPTS: ${{ vars.DOCKER_RETRY_ATTEMPTS }}
+      DOCKER_RETRY_DELAY: ${{ vars.DOCKER_RETRY_DELAY }}
+      DOCKER_RETRY_DISABLED: ${{ vars.DOCKER_RETRY_DISABLED }}
+      DOCKER_BUILD_RETRY_ATTEMPTS: ${{ vars.DOCKER_BUILD_RETRY_ATTEMPTS }}
       # Rebuild even when the staging tag of a variant already exists.
       DOCKER_FORCE_BUILD: ${{ vars.DOCKER_FORCE_BUILD }}
       # Where the daemon lives (tcp://… or a non-default unix socket). Unset means
@@ -346,20 +383,35 @@ jobs:
           [ -n "${HTTPS_PROXY:-}" ] && export https_proxy="${HTTPS_PROXY}"
           [ -n "${NO_PROXY:-}" ] && export no_proxy="${NO_PROXY}"
           [ -n "${ALL_PROXY:-}" ] && export all_proxy="${ALL_PROXY}"
+          # The distro mirrors are as flaky as any other endpoint: retry the
+          # install a few times instead of failing the job on the first trip.
+          retry() { n=0; until "$@"; do n=$((n + 1)); [ "$n" -ge 3 ] && return 1; sleep $((n * 2)); done; }
           if ! { command -v node >/dev/null 2>&1 && command -v git >/dev/null 2>&1; }; then
             if command -v apk >/dev/null 2>&1; then
-              apk add --no-cache nodejs npm git curl ca-certificates
+              retry apk add --no-cache nodejs npm git curl ca-certificates
             elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates
+              retry sh -c 'apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates'
             elif command -v dnf >/dev/null 2>&1; then
-              dnf install -y nodejs npm git curl ca-certificates
+              retry dnf install -y nodejs npm git curl ca-certificates
             else
-              yum install -y nodejs npm git curl ca-certificates
+              retry yum install -y nodejs npm git curl ca-certificates
             fi
           fi
           node --version && git --version
 
+      # GitHub can hiccup; a failed checkout is retried once instead of failing
+      # the whole run on the first transport error. (continue-on-error keeps the
+      # job going so the retry step can run; the retry step is a normal step, so
+      # its failure fails the job as before.)
       - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+        continue-on-error: true
+
+      - name: Retry checkout
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -433,6 +485,12 @@ jobs:
       INPUT_DRY_RUN: ${{ inputs.dry_run }}
       # preflight knows publication needs no daemon and no QEMU.
       DOCKER_STEP: publish
+      # Network retries: every Docker Hub / GHCR call is retried on transport
+      # failures (see retry.mjs); auth and "not found" are not retried.
+      DOCKER_RETRY_ATTEMPTS: ${{ vars.DOCKER_RETRY_ATTEMPTS }}
+      DOCKER_RETRY_DELAY: ${{ vars.DOCKER_RETRY_DELAY }}
+      DOCKER_RETRY_DISABLED: ${{ vars.DOCKER_RETRY_DISABLED }}
+      DOCKER_BUILD_RETRY_ATTEMPTS: ${{ vars.DOCKER_BUILD_RETRY_ATTEMPTS }}
       DOCKER_FORCE_BUILD: ${{ vars.DOCKER_FORCE_BUILD }}
       DOCKER_HOST: ${{ vars.DOCKER_HOST }}
       DOCKER_META_IMAGES: ${{ vars.DOCKER_META_IMAGES }}
@@ -486,20 +544,35 @@ jobs:
           [ -n "${HTTPS_PROXY:-}" ] && export https_proxy="${HTTPS_PROXY}"
           [ -n "${NO_PROXY:-}" ] && export no_proxy="${NO_PROXY}"
           [ -n "${ALL_PROXY:-}" ] && export all_proxy="${ALL_PROXY}"
+          # The distro mirrors are as flaky as any other endpoint: retry the
+          # install a few times instead of failing the job on the first trip.
+          retry() { n=0; until "$@"; do n=$((n + 1)); [ "$n" -ge 3 ] && return 1; sleep $((n * 2)); done; }
           if ! { command -v node >/dev/null 2>&1 && command -v git >/dev/null 2>&1; }; then
             if command -v apk >/dev/null 2>&1; then
-              apk add --no-cache nodejs npm git curl ca-certificates
+              retry apk add --no-cache nodejs npm git curl ca-certificates
             elif command -v apt-get >/dev/null 2>&1; then
-              apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates
+              retry sh -c 'apt-get update && apt-get install -y --no-install-recommends nodejs npm git curl ca-certificates'
             elif command -v dnf >/dev/null 2>&1; then
-              dnf install -y nodejs npm git curl ca-certificates
+              retry dnf install -y nodejs npm git curl ca-certificates
             else
-              yum install -y nodejs npm git curl ca-certificates
+              retry yum install -y nodejs npm git curl ca-certificates
             fi
           fi
           node --version && git --version
 
+      # GitHub can hiccup; a failed checkout is retried once instead of failing
+      # the whole run on the first transport error. (continue-on-error keeps the
+      # job going so the retry step can run; the retry step is a normal step, so
+      # its failure fails the job as before.)
       - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+        continue-on-error: true
+
+      - name: Retry checkout
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1

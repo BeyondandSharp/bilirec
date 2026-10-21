@@ -21,18 +21,31 @@
 // list entries. When more than one platform is requested, a `docker-container`
 // builder is created for the run and removed afterwards.
 //
+// Everything that crosses the network — the builder image pull (Docker Hub), the
+// staging-existence check, the multi-architecture push — is retried a bounded
+// number of times on transport failures (see retry.mjs). An auth refusal or a
+// compile error is never retried: a later attempt cannot fix either.
+//
 // Re-running the workflow is cheap by design: a variant whose staging tag
 // already exists is not rebuilt (DOCKER_FORCE_BUILD=1 overrides that), so the
 // usual "publish failed, push the tag again" flow only re-runs publication.
 
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, realpathSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isTruthy, platformsFor, readOptional, stagingRefsFor } from './config.mjs';
 import { probeDocker } from './endpoints.mjs';
 import { statePath } from './resolve.mjs';
+import {
+  classifyFailure,
+  delayFor,
+  retryConfig,
+  retryLine,
+  retrySync,
+  sleepSync,
+} from './retry.mjs';
 
 // Run directly (argv[1] is this file) rather than imported by a test.
 // Compare real paths: /tmp is a symlink on some hosts, and path.resolve
@@ -153,9 +166,132 @@ export function runDocker(args, { env = process.env, run = spawnSync, capture = 
   };
 }
 
+/**
+ * Run one registry-facing docker command with bounded retries.
+ *
+ * Only transport failures are retried (see retry.mjs): a timed-out push, a 503
+ * from the token/registry service, a rate-limit answer. An auth refusal or a
+ * "manifest unknown" answer returns at once — a later attempt cannot fix it.
+ * `label` names the action in the retry log line.
+ */
+export function runDockerRetry(args, {
+  env = process.env,
+  run = spawnSync,
+  label = `docker ${args.slice(0, 2).join(' ')}`,
+  attempts,
+  delayMs,
+  sleep = sleepSync,
+  onRetry,
+} = {}) {
+  const config = retryConfig(env);
+  const outcome = retrySync(
+    () => {
+      const result = runDocker(args, { env, run, capture: true });
+      return { ok: result.status === 0, text: `${result.stdout}\n${result.stderr}`, ...result };
+    },
+    {
+      attempts: attempts ?? config.attempts,
+      delayMs: delayMs ?? config.delayMs,
+      maxDelayMs: config.maxDelayMs,
+      sleep,
+      onRetry: onRetry || ((info) => process.stderr.write(`${retryLine(label, info)}\n`)),
+    },
+  );
+  if (!outcome.ok) {
+    // The final attempt's output, once: the retry lines only carry the verdict.
+    const detail = `${outcome.stdout || ''}${outcome.stderr || ''}`.trim();
+    if (detail) process.stderr.write(`${detail.slice(-4000)}\n`);
+  }
+  return outcome;
+}
+
+/**
+ * Stream one docker command (a build must show progress) and keep the tail of
+ * its output, so a failure can be classified without swallowing the live log.
+ */
+export function runDockerStream(args, { env = process.env, spawnImpl = spawn } = {}) {
+  process.stdout.write(`$ docker ${args.join(' ')}\n`);
+  return new Promise((resolve) => {
+    let tail = '';
+    const collect = (chunk, stream) => {
+      const text = String(chunk);
+      if (!text) return;
+      stream.write(text);
+      tail = `${tail}${text}`.slice(-16_384);
+    };
+    let child;
+    try {
+      child = spawnImpl('docker', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      resolve({ status: 1, tail: String(error?.message || error) });
+      return;
+    }
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => collect(chunk, process.stdout));
+    child.stderr?.on('data', (chunk) => collect(chunk, process.stderr));
+    child.on('error', (error) => resolve({ status: 1, tail: `${tail}\n${error?.message || error}` }));
+    child.on('close', (code) => resolve({ status: code === 0 ? 0 : code ?? 1, tail }));
+  });
+}
+
+/** Total attempts for one `buildx build`; `DOCKER_BUILD_RETRY_ATTEMPTS` (default 2). */
+export function buildAttempts(env = process.env) {
+  const raw = readOptional(env.DOCKER_BUILD_RETRY_ATTEMPTS);
+  if (raw === '') return 2;
+  const number = Number(raw);
+  if (!Number.isFinite(number)) return 2;
+  return Math.min(5, Math.max(1, Math.floor(number)));
+}
+
+const sleepAsync = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
+
+/**
+ * Is a registry ref present? `exists`, `missing` or `unknown`.
+ *
+ * The third state matters: a transient network error must not be reported as
+ * "this variant was never staged" (build would rebuild needlessly) nor as
+ * "staging missing" (publish would abort with the wrong advice).
+ */
+export function refState(ref, { env = process.env, run = spawnSync, sleep = sleepSync, attempts, delayMs, onRetry } = {}) {
+  const config = retryConfig(env);
+  const outcome = retrySync(
+    () => {
+      const result = runDocker(['buildx', 'imagetools', 'inspect', ref], { env, run, capture: true });
+      return { ok: result.status === 0, text: `${result.stdout}\n${result.stderr}` };
+    },
+    {
+      attempts: attempts ?? config.attempts,
+      delayMs: delayMs ?? config.delayMs,
+      maxDelayMs: config.maxDelayMs,
+      sleep,
+      onRetry: onRetry || ((info) => process.stderr.write(`${retryLine(`查询 ${ref}`, info)}\n`)),
+    },
+  );
+  if (outcome.ok) return 'exists';
+  // "not found"/"manifest unknown" is a result; anything else that exhausted the
+  // retries is a transport problem.
+  return classifyFailure(outcome.text) === 'permanent' ? 'missing' : 'unknown';
+}
+
 /** Does a ref already exist in its registry? (registry-only buildx call) */
-export function refExists(ref, { env = process.env, run = spawnSync } = {}) {
-  return runDocker(['buildx', 'imagetools', 'inspect', ref], { env, run, capture: true }).status === 0;
+export function refExists(ref, deps = {}) {
+  return refState(ref, deps) === 'exists';
+}
+
+/**
+ * Per-ref state of one variant's staging refs, plus the aggregated verdict.
+ * `unknown` is kept apart from `missing` so the caller can tell a network
+ * outage from a genuinely absent staging image.
+ */
+export function stagingStatus(refs = [], deps = {}) {
+  const states = (refs || []).map((entry) => ({ ref: entry.ref, state: refState(entry.ref, deps) }));
+  return {
+    total: states.length,
+    complete: states.length > 0 && states.every((entry) => entry.state === 'exists'),
+    missing: states.filter((entry) => entry.state === 'missing').map((entry) => entry.ref),
+    unknown: states.filter((entry) => entry.state === 'unknown').map((entry) => entry.ref),
+  };
 }
 
 /**
@@ -164,32 +300,59 @@ export function refExists(ref, { env = process.env, run = spawnSync } = {}) {
  * which is what makes "publish failed, re-run" cheap.
  */
 export function stagingComplete(refs = [], deps = {}) {
-  return refs.length > 0 && refs.every((entry) => refExists(entry.ref, deps));
+  return stagingStatus(refs, deps).complete;
 }
 
-function buildOneVariant({ build, options, env, run, builder, workDir, staging }) {
-  const metadataFile = join(workDir, `metadata-${build.variant}.json`);
-  const result = runDocker(buildxArgv({ build, options, metadataFile, builder, images: staging, env }), { run, env });
-  if (result.status !== 0) throw new Error(`变体 ${build.variant} 构建失败（docker buildx build 退出码 ${result.status}）`);
-
-  let digest = '';
-  if (existsSync(metadataFile)) {
-    try {
-      digest = digestFromMetadata(JSON.parse(readFileSync(metadataFile, 'utf8')));
-    } catch {
-      digest = '';
-    }
+function readDigest(metadataFile) {
+  if (!existsSync(metadataFile)) return '';
+  try {
+    return digestFromMetadata(JSON.parse(readFileSync(metadataFile, 'utf8')));
+  } catch {
+    return '';
   }
-  return {
-    variant: build.variant,
-    builder: 'buildx',
-    digest,
-    platforms: platformsFor(build, options),
-    staging: staging.map((entry) => entry.ref),
-    tagNames: build.tagNames,
-    images: build.images,
-    skipped: false,
-  };
+}
+
+/**
+ * Build one variant and push it to its staging tag.
+ *
+ * `buildx build --push` is the most expensive call of the run, so it gets its
+ * own (small) budget: one retry by default, and only for a transport failure —
+ * a compile error or an auth refusal ends the variant immediately. Re-pushing
+ * the same staging tag is idempotent (version+sha+variant decide the tag), so a
+ * retry can never publish a different artifact.
+ */
+async function buildOneVariant({ build, options, env, builder, workDir, staging }) {
+  const config = retryConfig(env);
+  const attempts = buildAttempts(env);
+  const metadataFile = join(workDir, `metadata-${build.variant}.json`);
+  const argv = buildxArgv({ build, options, metadataFile, builder, images: staging, env });
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const result = await runDockerStream(argv, { env });
+    if (result.status === 0) {
+      return {
+        variant: build.variant,
+        builder: 'buildx',
+        digest: readDigest(metadataFile),
+        platforms: platformsFor(build, options),
+        staging: staging.map((entry) => entry.ref),
+        tagNames: build.tagNames,
+        images: build.images,
+        skipped: false,
+        attempts: attempt,
+      };
+    }
+    const kind = classifyFailure(result.tail);
+    const retryable = (kind === 'network' || kind === 'rate-limit') && attempt < attempts;
+    if (!retryable) {
+      const hint = kind === 'network' || kind === 'rate-limit' ? '，网络错误且重试次数已用尽' : '';
+      throw new Error(`变体 ${build.variant} 构建失败（docker buildx build 退出码 ${result.status}${hint}）`);
+    }
+    const wait = delayFor(attempt, config, kind);
+    process.stderr.write(`${retryLine(`变体 ${build.variant} 构建`, { attempt, attempts, kind, wait })}\n`);
+    await sleepAsync(wait);
+  }
+  throw new Error(`变体 ${build.variant} 构建失败（重试已用尽）`);
 }
 
 async function main() {
@@ -219,7 +382,24 @@ async function main() {
 
   try {
     if (builder) {
-      const created = runDocker(buildxCreateArgv(builder, env.DOCKER_BUILDKIT_IMAGE, env), { run: spawnSync, env });
+      // The builder image comes from Docker Hub; a failed create may also have
+      // left a half-registered builder behind, so a retry removes it first.
+      const createConfig = retryConfig(env);
+      const created = retrySync(
+        () => {
+          const result = runDocker(buildxCreateArgv(builder, env.DOCKER_BUILDKIT_IMAGE, env), { env, run: spawnSync, capture: true });
+          return { ok: result.status === 0, text: `${result.stdout}\n${result.stderr}`, status: result.status };
+        },
+        {
+          attempts: createConfig.attempts,
+          delayMs: createConfig.delayMs,
+          maxDelayMs: createConfig.maxDelayMs,
+          onRetry: (info) => {
+            runDocker(buildxRemoveArgv(builder), { env, run: spawnSync, capture: true });
+            process.stderr.write(`${retryLine(`创建 buildx builder ${builder}`, info)}\n`);
+          },
+        },
+      );
       if (created.status !== 0) throw new Error(`创建 buildx builder 失败（${builder}）`);
       createdBuilder = true;
     }
@@ -233,24 +413,33 @@ async function main() {
       );
 
       // Nothing was pushed in a dry run, so there is nothing to reuse.
-      if (options.push && !force && stagingComplete(staging, { env, run: spawnSync })) {
-        const refs = staging.map((entry) => entry.ref).join('、');
-        process.stdout.write(`    已存在 staging 镜像，跳过构建（DOCKER_FORCE_BUILD=1 可强制重建）：${refs}\n`);
-        state.results.push({
-          variant: build.variant,
-          builder: 'buildx',
-          digest: '',
-          platforms,
-          staging: staging.map((entry) => entry.ref),
-          tagNames: build.tagNames,
-          images: build.images,
-          skipped: true,
-        });
-        writeFileSync(statePath(env), JSON.stringify(state, null, 2));
-        continue;
+      if (options.push && !force) {
+        const status = stagingStatus(staging, { env, run: spawnSync });
+        if (status.unknown.length > 0) {
+          process.stderr.write(
+            `[WARN] 查询 staging 状态时遇到网络错误（${status.unknown.join('、')}），按「未 staged」处理并重建；` +
+              '若这是误判，可稍后重跑（或设 DOCKER_FORCE_BUILD=1 跳过查询）\n',
+          );
+        }
+        if (status.complete) {
+          const refs = staging.map((entry) => entry.ref).join('、');
+          process.stdout.write(`    已存在 staging 镜像，跳过构建（DOCKER_FORCE_BUILD=1 可强制重建）：${refs}\n`);
+          state.results.push({
+            variant: build.variant,
+            builder: 'buildx',
+            digest: '',
+            platforms,
+            staging: staging.map((entry) => entry.ref),
+            tagNames: build.tagNames,
+            images: build.images,
+            skipped: true,
+          });
+          writeFileSync(statePath(env), JSON.stringify(state, null, 2));
+          continue;
+        }
       }
 
-      const result = buildOneVariant({ build, options, env, run: spawnSync, builder, workDir, staging });
+      const result = await buildOneVariant({ build, options, env, builder, workDir, staging });
       state.results.push(result);
       writeFileSync(statePath(env), JSON.stringify(state, null, 2));
       process.stdout.write(`    完成：${result.digest || '(未取到 digest)'}\n`);
