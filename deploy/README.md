@@ -102,10 +102,11 @@ environment:
 (`deploy/entrypoint/docker-entrypoint.sh`, used by both Debian and Alpine and by
 the backend-only and combined images):
 
-1. validates that both values are numeric and fails with a clear message if the
-   requested id is already used by another user/group;
-2. adjusts the `bilirec` user/group ids (`usermod`/`groupmod` on Debian,
-   `adduser`/`addgroup` on Alpine);
+1. validates that both values are numeric (no uniqueness check);
+2. adjusts the `bilirec` user/group ids with `groupmod -o` / `usermod -o`, i.e.
+   LinuxServer.io-style non-unique ids, so `PGID=100` (the image's `users`
+   group) and other host ids reuse the existing numeric id instead of failing;
+   Alpine installs `shadow` to provide these tools;
 3. creates and chowns `/app/config`, `/app/secrets`, `/app/database`,
    `/app/records` (records recursively only when its top-level owner differs, so
    large recording trees stay cheap);

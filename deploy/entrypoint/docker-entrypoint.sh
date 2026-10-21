@@ -10,10 +10,10 @@
 #   docker-entrypoint.sh combined                # nginx (root) + bilirec (PUID)
 #
 # Responsibilities:
-#   1. Validate PUID/PGID (numeric, default 10001) and fail clearly on conflict
-#      with an existing user/group that is not `bilirec`.
-#   2. Adjust the `bilirec` user/group ids to PUID/PGID (Debian: usermod/groupmod,
-#      Alpine: adduser/addgroup).
+#   1. Validate PUID/PGID (numeric, default 10001).
+#   2. Adjust the `bilirec` user/group ids to PUID/PGID using
+#      `groupmod -o` / `usermod -o` (LinuxServer.io-style non-unique ids), so a
+#      host gid such as 100 (the image's `users` group) is accepted.
 #   3. Create and chown the runtime dirs: /app/config, /app/secrets,
 #      /app/database, /app/records. `records` is chowned recursively only when
 #      its top-level owner differs (large recording trees stay cheap).
@@ -70,16 +70,8 @@ else
     die "neither gosu nor su-exec is installed (backend/combined images require one)"
 fi
 
-if command -v usermod >/dev/null 2>&1 && command -v groupmod >/dev/null 2>&1; then
-    PLATFORM=debian
-elif command -v adduser >/dev/null 2>&1 && command -v addgroup >/dev/null 2>&1; then
-    PLATFORM=alpine
-else
-    die "cannot adjust users/groups: no usermod/groupmod (Debian) or adduser/addgroup (Alpine)"
-fi
-
-passwd_name_for_uid() { awk -F: -v id="$1" '$3 == id { print $1; exit }' /etc/passwd; }
-group_name_for_gid() { awk -F: -v id="$1" '$3 == id { print $1; exit }' /etc/group; }
+command -v groupmod >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1 \
+    || die "cannot adjust users/groups: shadow groupmod/usermod not installed"
 
 CURRENT_UID=$(id -u "$BILIREC_USER" 2>/dev/null || true)
 CURRENT_GID=$(id -g "$BILIREC_USER" 2>/dev/null || true)
@@ -87,47 +79,29 @@ CURRENT_GID=$(id -g "$BILIREC_USER" 2>/dev/null || true)
 [ -n "$CURRENT_GID" ] || die "image is broken: group '$BILIREC_GROUP' not found"
 
 # ---------------------------------------------------------------------------
-# Validate PUID/PGID and detect conflicts with pre-existing accounts
+# Adjust bilirec user/group ids (LinuxServer.io abc mapping).
+#
+# `-o` (non-unique) is deliberate: the image already owns gid 100 as `users`
+# and may own other host ids. Letting the bilirec group/user reuse that numeric
+# id is exactly what LinuxServer.io's groupmod/usermod -o does; the app still
+# runs with the requested numeric PUID:PGID and files get that ownership.
 # ---------------------------------------------------------------------------
-existing_user=$(passwd_name_for_uid "$PUID")
-if [ -n "$existing_user" ] && [ "$existing_user" != "$BILIREC_USER" ]; then
-    die "PUID $PUID is already used by user '$existing_user'; choose a free uid"
+if [ "$CURRENT_GID" != "$PGID" ]; then
+    log "adjusting group $BILIREC_GROUP gid $CURRENT_GID -> $PGID (non-unique allowed)"
+    groupmod -o -g "$PGID" "$BILIREC_GROUP" \
+        || die "failed to change gid of $BILIREC_GROUP to $PGID"
 fi
-existing_group=$(group_name_for_gid "$PGID")
-if [ -n "$existing_group" ] && [ "$existing_group" != "$BILIREC_GROUP" ]; then
-    die "PGID $PGID is already used by group '$existing_group'; choose a free gid"
-fi
-
-# ---------------------------------------------------------------------------
-# Adjust bilirec user/group ids
-# ---------------------------------------------------------------------------
-if [ "$PLATFORM" = alpine ]; then
-    # BusyBox adduser/addgroup: recreate both when either id changes; deleting
-    # the user first also frees its primary group.
-    if [ "$CURRENT_UID" != "$PUID" ] || [ "$CURRENT_GID" != "$PGID" ]; then
-        log "adjusting $BILIREC_USER to uid $PUID gid $PGID (alpine)"
-        deluser "$BILIREC_USER" 2>/dev/null || true
-        delgroup "$BILIREC_GROUP" 2>/dev/null || true
-        addgroup -g "$PGID" "$BILIREC_GROUP" \
-            || die "failed to create group $BILIREC_GROUP with gid $PGID"
-        adduser -D -H -u "$PUID" -G "$BILIREC_GROUP" -h /app -s /sbin/nologin "$BILIREC_USER" \
-            || die "failed to create user $BILIREC_USER with uid $PUID"
-    fi
-else
-    if [ "$CURRENT_GID" != "$PGID" ]; then
-        log "adjusting group $BILIREC_GROUP gid $CURRENT_GID -> $PGID"
-        groupmod -g "$PGID" "$BILIREC_GROUP" || die "failed to change gid of $BILIREC_GROUP to $PGID"
-    fi
-    if [ "$CURRENT_UID" != "$PUID" ]; then
-        log "adjusting user $BILIREC_USER uid $CURRENT_UID -> $PUID"
-        # usermod -u recursively chowns the user's home directory (/app), which
-        # would walk a potentially huge records/ tree even when its top-level
-        # owner already matches. Point the home at a nonexistent dir during the
-        # id change; the explicit chown below handles /app.
-        usermod -d /nonexistent "$BILIREC_USER" || die "failed to detach home dir of $BILIREC_USER"
-        usermod -u "$PUID" "$BILIREC_USER" || die "failed to change uid of $BILIREC_USER to $PUID"
-        usermod -d /app "$BILIREC_USER" || die "failed to restore home dir of $BILIREC_USER"
-    fi
+if [ "$CURRENT_UID" != "$PUID" ]; then
+    USERHOME=$(awk -F: -v n="$BILIREC_USER" '$1 == n { print $6; exit }' /etc/passwd)
+    [ -n "$USERHOME" ] || USERHOME=/app
+    log "adjusting user $BILIREC_USER uid $CURRENT_UID -> $PUID (non-unique allowed)"
+    # usermod -u recursively chowns the user's home directory (/app), which
+    # would walk a potentially huge records/ tree. Point the home at a
+    # nonexistent dir during the id change; the explicit chown below handles
+    # /app, matching LinuxServer.io's `usermod -d /root` trick.
+    usermod -d /nonexistent "$BILIREC_USER" || die "failed to detach home dir of $BILIREC_USER"
+    usermod -o -u "$PUID" "$BILIREC_USER" || die "failed to change uid of $BILIREC_USER to $PUID"
+    usermod -d "$USERHOME" "$BILIREC_USER" || die "failed to restore home dir of $BILIREC_USER"
 fi
 
 [ "$(id -u "$BILIREC_USER")" = "$PUID" ] || die "uid adjustment failed (got $(id -u "$BILIREC_USER"), want $PUID)"

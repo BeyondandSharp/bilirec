@@ -161,8 +161,9 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 
 ## 6. PUID / PGID
 
-- `PUID`/`PGID` 默认 `10001`，由 POSIX-sh 入口读取；非法（非数字）或与镜像内已有用户/组冲突时，
-  容器会以清晰错误退出，不会静默以错误身份运行。
+- `PUID`/`PGID` 默认 `10001`，由 POSIX-sh 入口读取；必须为数字。ID 映射采用 LinuxServer.io
+  的 `groupmod -o` / `usermod -o` 语义：**允许与镜像内已有用户/组重复**。例如 `PGID=100` 会复用
+  镜像里的 `users` 组（gid 100），不会被拒绝。
 - 入口行为：调整 `bilirec` 用户/组 → 创建并 chown `/app/config`、`/app/secrets`、`/app/database`、
   `/app/records`（`records` 仅当顶层属主不一致时递归 chown，避免大目录每次启动全量遍历）→
   `gosu`/`su-exec` 降权。`config.json` 保持 0644，`secrets.json` 保持 0600。
@@ -239,7 +240,7 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
 | 改了配置但行为没变 | 非特性键需要重启（看 `restart_required`）；特性键只对新会话生效。 |
 | `.env` 不生效 | 搜索顺序 `ENV_FILE` → `./.env.local` → `./.env` → exe 同目录；同名键系统环境变量优先。 |
 | `config.json` 损坏/被忽略 | 启动日志有告警，文件被当作空；修复 JSON 后重启（未知键会被保留写入）。 |
-| 容器启动报 PUID/PGID 冲突 | 目标 uid/gid 已被镜像内其他用户/组占用；换一个空闲 id，或改用默认 10001。 |
+| `PUID/PGID` 与镜像内 ID 重复 | 入口按 LinuxServer.io 的 `-o` 语义允许重复，如 `PGID=100` 复用 `users` 组；若不想重复，换一个空闲 id（默认 10001）。 |
 | records 启动很慢 | `records` 顶层属主与 PUID/PGID 不一致触发递归 chown；首次修正后可避免，或用宿主机提前 chown。 |
 | `GET /convert/providers` 为空 | slim 镜像无转码后端（`enabled=false`），转码入口/相关配置会禁用；需换 `-full` 镜像。 |
 | 文件名不是期望的新模板 | 默认模板为 `{roomid}-{uname}/{date}_{time}_{title}`；显式空模板=旧版命名；旧文件不会重命名。 |

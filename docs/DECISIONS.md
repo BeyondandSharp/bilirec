@@ -131,3 +131,12 @@ compose 增加 `config:/app/config` 卷，数据目录统一在 `/app/{records,d
 卷/端口、运维链接、许可），构建/测试/架构/验证移到 `docs/DEVELOPMENT.md`；`docs/OPERATIONS-V2.md`
 按配置中心/生效语义/目录/PUID/API/升级排障重写。理由：面向使用者的根 README 不应包含开发指令，配置/密钥
 需要可持久化且可热更新的统一入口，容器需要可配置 uid/gid 以便宿主机卷权限。
+
+## D014 (2026-10-21, Lead) — PUID/PGID 对齐 LinuxServer.io 的 `-o` 语义
+
+入口脚本原先在 PUID/PGID 与镜像内已有用户/组重复时直接报错（例如基础镜像的 `users` 组占用 gid 100，
+设置 `PGID=100` 无法启动）。现改为与 LinuxServer.io Jackett/baseimage 相同的做法：使用
+`groupmod -o -g "$PGID"` 和 `usermod -o -u "$PUID"` 允许非唯一 UID/GID；不再做冲突校验，仅校验数字。
+Alpine 运行时镜像安装 `shadow` 以获得 groupmod/usermod；Debian 已有。默认仍为 10001（LSIO 为 911），
+home 目录在改 uid 时临时指向 `/nonexistent` 以避免递归 chown，之后恢复。理由：宿主 gid 100 很常见，
+LSIO 兼容用法应当可用；重复 ID 下进程仍按请求的数值 UID/GID 运行、文件按数值归属。

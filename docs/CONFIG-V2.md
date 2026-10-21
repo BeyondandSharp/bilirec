@@ -149,8 +149,10 @@ feature form; generic env fields render from `/config`.
 
 ## 7. PUID / PGID (backend + combined images only)
 
-- `PUID`/`PGID` default `10001`; read by a POSIX-sh entrypoint; validate numeric; fail with clear
-  message on conflict.
+- `PUID`/`PGID` default `10001`; read by a POSIX-sh entrypoint; values must be numeric.
+- Entrypoint follows LinuxServer.io mapping semantics: `groupmod -o` / `usermod -o` allow
+  non-unique UID/GID, so host ids already present in the image (e.g. `PGID=100` = `users`) are
+  accepted instead of rejected. Alpine installs `shadow` to provide these tools.
 - Entrypoint adjusts bilirec user/group, creates/chowns `/app/config`, `/app/secrets`,
   `/app/database`, `/app/records` (records recursive only when top-level owner differs from PUID),
   then drops privileges via `gosu` (Debian) or `su-exec` (Alpine).

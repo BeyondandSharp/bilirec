@@ -68,6 +68,7 @@ ARG WITH_EXTRA=0
 
 RUN apk add --no-cache \
         ca-certificates \
+        shadow \
         su-exec \
         tzdata \
     && if [ "$WITH_EXTRA" = "1" ]; then \

@@ -110,7 +110,7 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 
 ## PUID / PGID（后端与前后端合一镜像）
 
-- `PUID`/`PGID` 默认 `10001`；容器入口会校验数值并在与已有系统用户/组冲突时报错退出。
+- `PUID`/`PGID` 默认 `10001`；入口允许与镜像内已有用户/组重复 ID（LinuxServer.io 风格 `groupmod -o` / `usermod -o`），因此 `PGID=100`（`users` 组）也可用。
 - 入口会调整镜像内 `bilirec` 用户/组为该 uid/gid，创建并 chown `/app/config`、`/app/secrets`、
   `/app/database`、`/app/records`，然后用 `gosu`/`su-exec` 降权运行。
 - 前后端合一镜像里 **nginx 保持 root**（绑定 80），只有 bilirec 子进程降权到 `PUID`/`PGID`。
