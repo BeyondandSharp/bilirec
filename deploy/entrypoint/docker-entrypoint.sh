@@ -14,9 +14,11 @@
 #   2. Adjust the `bilirec` user/group ids to PUID/PGID using
 #      `groupmod -o` / `usermod -o` (LinuxServer.io-style non-unique ids), so a
 #      host gid such as 100 (the image's `users` group) is accepted.
-#   3. Create and chown the runtime dirs: /app/config, /app/secrets,
-#      /app/database, /app/records. `records` is chowned recursively only when
-#      its top-level owner differs (large recording trees stay cheap).
+#   3. Create the runtime dirs: /app/config, /app/secrets, /app/database,
+#      /app/records. Never walk mounted trees: fix only the mount point itself
+#      when PUID/PGID cannot write it, and exact config/secrets/*.db files when
+#      the target user cannot read/write them. New files are created by the app
+#      as PUID with umask 0022 (0644 files / 0755 dirs).
 #   4. Drop privileges with gosu (Debian) or su-exec (Alpine). Backend images
 #      exec the app as PID 1; combined images keep nginx running as root and run
 #      the bilirec child as PUID:PGID, preserving the existing signal handling.
@@ -28,6 +30,9 @@
 #   BILIREC_BIN           app binary for `combined` mode (default /usr/local/bin/bilirec)
 #   BILIREC_ENTRYPOINT_DRY_RUN=1  validate/chown only, do not start processes
 set -eu
+
+# Deterministic new-file modes: 0644 files / 0755 dirs for recordings and DBs.
+umask 0022
 
 BILIREC_USER=bilirec
 BILIREC_GROUP=bilirec
@@ -108,34 +113,58 @@ fi
 [ "$(id -g "$BILIREC_USER")" = "$PGID" ] || die "gid adjustment failed (got $(id -g "$BILIREC_USER"), want $PGID)"
 
 # ---------------------------------------------------------------------------
-# Runtime dirs + ownership
+# Runtime dirs + ownership (never walk mounted trees)
+#
+# Only the mount point itself is touched when the target PUID/PGID cannot write
+# it; existing files inside bind mounts are left alone. New files are created
+# by the app (running as PUID/PGID) with umask 0022. Config/secrets/DB files are
+# fixed only when they are not readable+writable by the target user.
 # ---------------------------------------------------------------------------
 mkdir -p "$CONFIG_DIR" "$SECRETS_DIR" "$DATABASE_DIRECTORY" "$RECORDS_DIR"
-chmod 0755 "$CONFIG_DIR" "$DATABASE_DIRECTORY" "$RECORDS_DIR" 2>/dev/null || true
-chmod 0700 "$SECRETS_DIR" 2>/dev/null || true
 
-# config/secrets/database are small; make them fully writable by the app user.
-chown -R "$PUID:$PGID" "$CONFIG_DIR" "$SECRETS_DIR" "$DATABASE_DIRECTORY"
+ensure_dir_writable() {
+    dir=$1
+    fix_mode=$2
+    if [ -d "$dir" ] && "$PRIV" "$PUID:$PGID" test -w "$dir" 2>/dev/null; then
+        return
+    fi
+    log "adjusting ownership of mount point $dir (top level only)"
+    chown "$PUID:$PGID" "$dir" 2>/dev/null || log "WARN: cannot chown $dir"
+    if [ -n "$fix_mode" ]; then
+        chmod "$fix_mode" "$dir" 2>/dev/null || true
+    fi
+}
 
-# records can be huge: only recurse when the top-level owner/group is wrong.
-records_owner=$(stat -c '%u:%g' "$RECORDS_DIR" 2>/dev/null || echo '')
-if [ "$records_owner" != "$PUID:$PGID" ]; then
-    log "chown -R $PUID:$PGID $RECORDS_DIR (top-level owner was ${records_owner:-unknown})"
-    chown -R "$PUID:$PGID" "$RECORDS_DIR"
-else
-    chown "$PUID:$PGID" "$RECORDS_DIR"
-fi
-chown "$PUID:$PGID" "$APP_DIR" 2>/dev/null || true
+ensure_file_rw() {
+    file=$1
+    fix_mode=$2
+    [ -f "$file" ] || return 0
+    if "$PRIV" "$PUID:$PGID" test -r "$file" 2>/dev/null &&
+       "$PRIV" "$PUID:$PGID" test -w "$file" 2>/dev/null; then
+        return 0
+    fi
+    log "adjusting permissions of $file only"
+    chown "$PUID:$PGID" "$file" 2>/dev/null || log "WARN: cannot chown $file"
+    if [ -n "$fix_mode" ]; then
+        chmod "$fix_mode" "$file" 2>/dev/null || log "WARN: cannot chmod $file"
+    fi
+}
 
-# Enforce CONFIG-V2 modes on existing files (write paths enforce this too).
-if [ -f "$CONFIG_FILE" ]; then
-    chown "$PUID:$PGID" "$CONFIG_FILE" 2>/dev/null || log "WARN: cannot chown $CONFIG_FILE"
-    chmod 0644 "$CONFIG_FILE" 2>/dev/null || log "WARN: cannot chmod $CONFIG_FILE to 0644"
-fi
-if [ -f "$SECRETS_FILE" ]; then
-    chown "$PUID:$PGID" "$SECRETS_FILE" 2>/dev/null || log "WARN: cannot chown $SECRETS_FILE"
-    chmod 0600 "$SECRETS_FILE" 2>/dev/null || log "WARN: cannot chmod $SECRETS_FILE to 0600"
-fi
+ensure_dir_writable "$CONFIG_DIR" 0755
+ensure_dir_writable "$SECRETS_DIR" 0700
+ensure_dir_writable "$DATABASE_DIRECTORY" 0755
+# Existing recordings are never recursively chowned; only the mount point.
+ensure_dir_writable "$RECORDS_DIR" 0755
+
+# Exact config/secrets files (atomic writes create new PUID-owned files later).
+ensure_file_rw "$CONFIG_FILE" 0644
+ensure_file_rw "$SECRETS_FILE" 0600
+
+# bbolt files are flat and needed for startup; fix only those exact files.
+for db_file in "$DATABASE_DIRECTORY"/*.db; do
+    [ -f "$db_file" ] || continue
+    ensure_file_rw "$db_file" ""
+done
 
 if [ "${BILIREC_ENTRYPOINT_DRY_RUN:-0}" = 1 ]; then
     log "dry run: uid/gid + dirs ready, not starting any process"

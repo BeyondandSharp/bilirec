@@ -118,10 +118,14 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 ## PUID / PGID（后端与前后端合一镜像）
 
 - `PUID`/`PGID` 默认 `10001`；入口允许与镜像内已有用户/组重复 ID（LinuxServer.io 风格 `groupmod -o` / `usermod -o`），因此 `PGID=100`（`users` 组）也可用。
-- 入口会调整镜像内 `bilirec` 用户/组为该 uid/gid，创建并 chown `/app/config`、`/app/secrets`、
-  `/app/database`、`/app/records`，然后用 `gosu`/`su-exec` 降权运行。
+- 入口会调整镜像内 `bilirec` 用户/组为该 uid/gid，然后用 `gosu`/`su-exec` 降权运行。
+- **不会递归修改挂载目录里的文件**：只在挂载点目录对 PUID/PGID 不可写时修改该目录本身；
+  已存在的 config/secrets/数据库文件仅在目标用户不可读写时修改该文件；录像文件不 chown。
+- 新写入的配置/密钥文件由应用以 PUID 创建，权限分别为 0644/0600；新录制文件由 bilirec
+  以 PUID 创建（`umask 0022`，通常 0644），不需要 owner 迁移。
 - 前后端合一镜像里 **nginx 保持 root**（绑定 80），只有 bilirec 子进程降权到 `PUID`/`PGID`。
-- 卷的属主建议与 `PUID`/`PGID` 一致，避免每次启动递归 chown（`records` 仅当顶层属主不一致时才递归）。
+- 如果修改 PUID/PGID，旧录像目录可能仍属于旧用户；需要写入旧目录时请在宿主机自行
+  `chown -R` 或调整目录权限，容器不会自动递归处理。
 
 ## 本地日志查看（web 日志页 / 下载）
 

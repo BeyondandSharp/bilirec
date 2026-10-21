@@ -107,9 +107,10 @@ the backend-only and combined images):
    LinuxServer.io-style non-unique ids, so `PGID=100` (the image's `users`
    group) and other host ids reuse the existing numeric id instead of failing;
    Alpine installs `shadow` to provide these tools;
-3. creates and chowns `/app/config`, `/app/secrets`, `/app/database`,
-   `/app/records` (records recursively only when its top-level owner differs, so
-   large recording trees stay cheap);
+3. creates `/app/config`, `/app/secrets`, `/app/database`, `/app/records` and
+   only fixes the mount point directory itself when PUID/PGID cannot write it;
+   existing config/secrets/*.db files are touched only when the target user
+   cannot read/write them, and recording files are never recursively chowned;
 4. drops privileges via `gosu` (Debian) / `su-exec` (Alpine). Backend images exec
    `bilirec` as `PUID:PGID`; combined images keep nginx running as root and run
    the bilirec child as `PUID:PGID`, forwarding SIGTERM/SIGINT to both.

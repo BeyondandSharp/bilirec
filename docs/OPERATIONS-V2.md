@@ -212,13 +212,15 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 - `PUID`/`PGID` 默认 `10001`，由 POSIX-sh 入口读取；必须为数字。ID 映射采用 LinuxServer.io
   的 `groupmod -o` / `usermod -o` 语义：**允许与镜像内已有用户/组重复**。例如 `PGID=100` 会复用
   镜像里的 `users` 组（gid 100），不会被拒绝。
-- 入口行为：调整 `bilirec` 用户/组 → 创建并 chown `/app/config`、`/app/secrets`、`/app/database`、
-  `/app/records`（`records` 仅当顶层属主不一致时递归 chown，避免大目录每次启动全量遍历）→
-  `gosu`/`su-exec` 降权。`config.json` 保持 0644，`secrets.json` 保持 0600。
+- 入口行为：调整 `bilirec` 用户/组 → 创建 `/app/config`、`/app/secrets`、`/app/database`、
+  `/app/records` → `gosu`/`su-exec` 降权。
+- **不递归修改挂载内容**：挂载点目录仅在 PUID/PGID 不可写时 chown 该目录本身；已存在的
+  `config.json`/`secrets.json` 和各 `*.db` 文件仅在目标用户不可读写时修改该文件；录像文件不 chown。
+  新配置/密钥文件由应用以 PUID 原子写入（0644/0600）；新录制文件以 PUID 创建，`umask 0022`。
+- 更换 PUID/PGID 后，旧录像目录可能属于旧用户；如需继续写入请在宿主机自行处理这些目录。
 - 前后端合一镜像：nginx 以 root 启动并绑定 80，bilirec 子进程降权到 `PUID`/`PGID`；SIGTERM/SIGINT
   会转发给两个子进程，停止时正常退出。
-- 卷属主：宿主机 bind mount 时把卷目录 `chown` 成 `PUID:PGID` 可避免启动时递归 chown；命名卷首次启动
-  会被入口修正。
+- 卷属主：宿主机 bind mount 时把卷目录 `chown` 成 `PUID:PGID` 可避免入口修改目录本身；容器不会递归修改卷内文件。
 - 前端 nginx-only 镜像不涉及 PUID/PGID。
 
 ## 7. 镜像、部署与版本
@@ -293,7 +295,7 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
 | `.env` 不生效 | 搜索顺序 `ENV_FILE` → `./.env.local` → `./.env` → exe 同目录；同名键系统环境变量优先。 |
 | `config.json` 损坏/被忽略 | 启动日志有告警，文件被当作空；修复 JSON 后重启（未知键会被保留写入）。 |
 | `PUID/PGID` 与镜像内 ID 重复 | 入口按 LinuxServer.io 的 `-o` 语义允许重复，如 `PGID=100` 复用 `users` 组；若不想重复，换一个空闲 id（默认 10001）。 |
-| records 启动很慢 | `records` 顶层属主与 PUID/PGID 不一致触发递归 chown；首次修正后可避免，或用宿主机提前 chown。 |
+| records 启动很慢 | 入口不会递归 chown 录像目录；若旧目录属主不同，请宿主机自行 `chown -R` 或调整目录权限。 |
 | `GET /convert/providers` 为空 | slim 镜像无转码后端（`enabled=false`），转码入口/相关配置会禁用；需换 `-full` 镜像。 |
 | 文件名不是期望的新模板 | 默认模板为 `{roomid}-{uname}/{date}_{time}_{title}`；显式空模板=旧版命名；旧文件不会重命名。 |
 | 标题正则/模板 400 | `TITLE_FILTER_PATTERNS` 每行须为合法 RE2；模板禁止绝对路径、`..`、反斜杠、控制字符、空段。 |
