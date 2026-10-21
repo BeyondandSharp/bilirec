@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Code generated from docs/CONFIG-V2.md managed env keys; keep in sync with the os.Getenv keys.
 

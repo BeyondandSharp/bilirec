@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // `flvrepair analyze`: parse an FLV file and emit the schema v1 report (see
 // docs/INTERFACES.md §1.4). The report is generated from a single streaming pass.

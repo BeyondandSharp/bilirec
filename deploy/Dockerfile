@@ -1,5 +1,5 @@
 # check=skip=SecretsUsedInArgOrEnv  (SECRET_DIR is a directory path, not a secret value)
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Multi-stage image for bilirec + the Rust `flvrepair` sidecar.
 #
@@ -13,7 +13,7 @@
 # Stages:
 #   go-build   Go backend, with swagger.json generated (gitignored in the repo,
 #              see docs/INTERFACES.md §5). GO builder is CGO-free/static.
-#   rust-build Rust `flvrepair` release binary (GPL-3.0-or-later).
+#   rust-build Rust `flvrepair` release binary (GPL-3.0-only).
 #   runtime    Debian/Python slim + ffmpeg + streamlink, non-root, /app data dirs.
 #
 # Build args are provided so CI mirrors can be substituted:

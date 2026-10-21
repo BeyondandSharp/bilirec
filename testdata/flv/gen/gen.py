@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Generate the R1-R8 FLV repair fixtures for `flvrepair` (see docs/INTERFACES.md §1.3).
 
 Pipeline:

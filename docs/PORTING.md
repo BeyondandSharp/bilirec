@@ -2,7 +2,7 @@
 
 Owner: `port-spec` (this document), `rust-flv` (keeps the module table current as the crate
 lands). Contract: `docs/INTERFACES.md` §1. Reference sources are read-only at
-`refs/BililiveRecorder` (GPL-3.0). The Rust crate is GPL-3.0-or-later; every file needs an
+`refs/BililiveRecorder` (GPL-3.0-only). The Rust crate is GPL-3.0-only; every file needs an
 SPDX header and a short attribution comment naming the C# file it was derived from.
 
 Read this together with:

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Fixture-driven tests: every `testdata/flv/fixtures/*.expect.json` is the oracle.
 // Tests skip gracefully when the fixtures are absent (they are owned by port-spec).

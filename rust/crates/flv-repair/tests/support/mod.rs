@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Shared test helpers: minimal JSON reader (for `.expect.json`), synthetic FLV builder,
 // strict FLV validator, and binary/library drivers. No external dependencies by design.

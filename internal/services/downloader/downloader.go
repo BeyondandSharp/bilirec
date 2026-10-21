@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Package downloader provides external stream downloaders for recording
 // sessions. It implements the contract in docs/INTERFACES.md §2.1: an ffmpeg

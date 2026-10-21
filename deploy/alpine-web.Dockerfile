@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Alpine frontend-only image (nginx:alpine). Exported as
 # dist/local-frontend-alpine.tar by build-alpine.sh.

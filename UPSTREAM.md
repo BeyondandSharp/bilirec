@@ -10,7 +10,7 @@
   - To re-sync: re-clone upstream at the pinned commit, re-apply our patches, update this file.
 
 - Reference sources (read-only, NOT distributed, gitignored under `refs/`):
-  - https://github.com/BililiveRecorder/BililiveRecorder — GPL-3.0; FLV repair behavior reference.
+  - https://github.com/BililiveRecorder/BililiveRecorder — GPL-3.0-only; FLV repair behavior reference.
   - https://github.com/biliup/biliup — MIT; streamlink/ffmpeg downloader reference.
 
 - Frontend (vendored, source only): `web/`
@@ -21,6 +21,6 @@
     downloader/repair/source-format badges on recording cards (T8).
   - Built with pnpm; `node_modules/` and `dist/` are gitignored.
 
-- License of this repository: GPL-3.0-or-later (because `rust/crates/flv-repair` is a port of
+- License of this repository: GPL-3.0-only (because `rust/crates/flv-repair` is a port of
   BililiveRecorder.Flv processing logic). MIT notices for Bilirec and bilirec-web are preserved
   in NOTICE.

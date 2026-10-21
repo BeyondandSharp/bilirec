@@ -1,5 +1,5 @@
 #!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Unified POSIX-sh entrypoint for the bilirec backend and combined images
 # (CONFIG-V2 §7). It is used by both the Debian and Alpine variants and by the

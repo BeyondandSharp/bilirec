@@ -275,7 +275,7 @@ secret_labels = {
 }
 
 lines = []
-lines.append('// SPDX-License-Identifier: GPL-3.0-or-later\n')
+lines.append('// SPDX-License-Identifier: GPL-3.0-only\n')
 lines.append('// Code generated from docs/CONFIG-V2.md managed env keys; keep in sync with the os.Getenv keys.\n')
 lines.append('package settings\n')
 lines.append('\nimport (\n\t"fmt"\n\t"strconv"\n\t"strings"\n)\n')

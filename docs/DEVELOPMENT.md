@@ -14,7 +14,7 @@
 ├── cmd/ internal/ pkg/ utils/     # Bilirec fork 主体（Go）
 ├── dotenv.go swagger.go go.mod    # 上游根文件
 ├── docs/                          # 契约/决策/运维文档 + 生成的 swagger（gitignored）
-├── rust/crates/flv-repair/        # flvrepair 侧车（Rust，GPL-3.0-or-later）
+├── rust/crates/flv-repair/        # flvrepair 侧车（Rust，GPL-3.0-only）
 ├── web/                           # vendored bilirec-web（React PWA，MIT）
 ├── deploy/                        # 部署：多阶段 Dockerfile/compose/env 示例/entrypoint
 ├── scripts/ testdata/ refs/       # 回放源/E2E/fixtures/只读参考
@@ -185,5 +185,5 @@ docker build -f deploy/alpine-web.Dockerfile -t local-frontend-alpine .
 
 ## 许可证
 
-本仓库整体 **GPL-3.0-or-later**（`rust/crates/flv-repair` 移植自 GPL-3.0 的录播姬 FLV 规则）。
+本仓库整体 **GPL-3.0-only**（`rust/crates/flv-repair` 移植自 GPL-3.0-only 的录播姬 FLV 规则）。
 Bilirec / biliup / bilirec-web 的 MIT 归属保留在 `NOTICE`。上游来源见 `UPSTREAM.md`。

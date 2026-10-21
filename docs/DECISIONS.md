@@ -169,3 +169,20 @@ LSIO 兼容用法应当可用；重复 ID 下进程仍按请求的数值 UID/GID
 - 配置文件由 configfile 原子写入时自行设置 0644，secrets 设置 0600。
 
 理由：挂载内容属于用户，容器只应修复自身启动/写入所必需的最小权限；迁移 PUID 后旧录像目录由用户自行处理。
+
+## D017 (2026-10-22, Lead) — 许可证修正为 GPL-3.0-only
+
+录播姬（BililiveRecorder）的 `LICENSE` 是标准 GPLv3 全文，项目界面明确写 “GPLv3”，
+源码没有 “or any later version” 声明，GitHub 许可元数据对应 `GPL-3.0-only`，因此上游按
+**GPL-3.0-only** 处理。`rust/crates/flv-repair` 是其 FLV 规则的移植，整体仓库不能
+单方面授予 `or-later`。
+
+本次将仓库声明从旧的 `or-later` 表述统一修正为 `GPL-3.0-only`：
+
+- `LICENSE` 保持 FSF GPLv3 全文不变，项目声明写在 `NOTICE`/`README`；
+- 根 README、NOTICE、UPSTREAM、开发/接口文档、CONTRIBUTING 同步；
+- Rust workspace `license` 与全部项目 SPDX 头改为 `GPL-3.0-only`；
+- Swagger 元数据改为 GPL-3.0-only；
+- Bilirec、biliup、bilirec-web 的 MIT 许可与声明保持不变。
+
+理由：衍生作品必须遵守上游的 only 许可；修正声明不影响代码行为。

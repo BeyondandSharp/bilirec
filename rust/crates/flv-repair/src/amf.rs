@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Minimal AMF0 codec required for FLV script tags (`onMetaData`).
-// Ported from `refs/BililiveRecorder/BililiveRecorder.Flv/Amf/**` (GPL-3.0).
+// Ported from `refs/BililiveRecorder/BililiveRecorder.Flv/Amf/**` (GPL-3.0-only).
 
 use std::fmt;
 

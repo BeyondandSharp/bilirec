@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Alpine/musl build script (sibling of build.sh; same flags, different
 # Dockerfiles; images are exported as docker-loadable tar files under ./dist/).

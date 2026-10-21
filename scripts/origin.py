@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Local replay origin for offline E2E tests (Python 3 stdlib only).
 
 Serves the committed replay fixtures and can inject network faults so the

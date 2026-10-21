@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Process contract tests: CLI arguments, exit codes, stream/file/analyze behavior.
 

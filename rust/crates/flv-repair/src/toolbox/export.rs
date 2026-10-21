@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // `flvrepair export`: dump FLV tags into the BililiveRecorder `XmlFlvFile` XML schema
 // (or a `.zip` containing that XML). Schema derived from
 // `refs/BililiveRecorder/BililiveRecorder.Flv/Xml/XmlFlvFile.cs`, `Tag.cs` and
-// `BililiveRecorder.ToolBox/Tool/Export/ExportHandler.cs` (GPL-3.0).
+// `BililiveRecorder.ToolBox/Tool/Export/ExportHandler.cs` (GPL-3.0-only).
 //
 // Documented substitutions:
 // - `DataHash`/`NaluHash` use FNV-1a 64 (uppercase hex) instead of FarmHash64, because the

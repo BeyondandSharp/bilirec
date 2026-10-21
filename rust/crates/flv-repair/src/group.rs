@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Tag grouping, ported from `refs/BililiveRecorder/BililiveRecorder.Flv/Grouping/**`
-// (GPL-3.0). Groups are the unit of processing for the repair rules.
+// (GPL-3.0-only). Groups are the unit of processing for the repair rules.
 
 use crate::parser::{ParseError, TagReader};
 use crate::tag::{Tag, TagType};

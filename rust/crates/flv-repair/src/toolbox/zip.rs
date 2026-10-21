@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Minimal ZIP writer (stored/no compression) used by `flvrepair export --output *.zip`.
 // Implemented from the PKWARE APPNOTE structure; no external dependencies.

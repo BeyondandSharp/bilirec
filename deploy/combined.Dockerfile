@@ -1,5 +1,5 @@
 # check=skip=SecretsUsedInArgOrEnv  (SECRET_DIR is a directory path, not a secret value)
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # All-in-one local image: bilirec backend + flvrepair sidecar + the React
 # frontend served by nginx on the same origin (nginx proxies API calls to the

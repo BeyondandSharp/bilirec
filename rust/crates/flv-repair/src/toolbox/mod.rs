@@ -1,9 +1,9 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Toolbox subcommands (docs/FEATURES-V2.md §5.3): FLV tag export to the
 // BililiveRecorder `XmlFlvFile` XML schema, plus Bilibili danmaku XML utilities.
 // Behavior derived from `refs/BililiveRecorder/BililiveRecorder.ToolBox/Tool/**`
-// (GPL-3.0) and the in-tree Go danmaku XML writer (`internal/services/danmaku`).
+// (GPL-3.0-only) and the in-tree Go danmaku XML writer (`internal/services/danmaku`).
 
 pub mod danmaku;
 pub mod export;

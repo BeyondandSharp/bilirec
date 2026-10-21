@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Repair pipeline implementing the ported BililiveRecorder FLV rules:
 //   R1/R2 timestamp jump + rollback repair (UpdateTimestampJumpRule, UpdateTimestampOffsetRule)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Package configfile implements the unified configuration center introduced by
 // docs/CONFIG-V2.md: bootstrap of a flat JSON config file, a separate secrets

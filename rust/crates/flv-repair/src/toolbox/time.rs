@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Date/time helpers shared by the toolbox commands. Dependency-free implementations of
 // RFC 3339 parsing and of the .NET `DateTimeOffset` formats used by the reference

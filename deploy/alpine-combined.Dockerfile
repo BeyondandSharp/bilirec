@@ -1,5 +1,5 @@
 # check=skip=SecretsUsedInArgOrEnv  (SECRET_DIR is a directory path, not a secret value)
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Alpine/musl all-in-one image: backend (Go static) + flvrepair (Rust musl) +
 # frontend (React build) served by nginx on :80, API proxied to :8080.

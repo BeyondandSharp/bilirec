@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Dependency-free XML helpers for the toolbox commands: a small pull parser (enough for
 // Bilibili danmaku XML) plus escaping/writing helpers used by the export and merge

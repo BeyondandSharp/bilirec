@@ -7,8 +7,8 @@ Owners must implement against this document; do not redesign without approval.
 
 - Repo: `/root/tmp11` (single git repo). The repository root **is** the Bilirec v0.3.1 fork (Go module at root).
   (upstream commit `26f4f8d`, MIT). See `UPSTREAM.md`.
-- Reference-only, gitignored: `refs/BililiveRecorder` (GPL-3.0), `refs/biliup` (MIT).
-- Project license: GPL-3.0-or-later, because `rust/crates/flv-repair` is a port of
+- Reference-only, gitignored: `refs/BililiveRecorder` (GPL-3.0-only), `refs/biliup` (MIT).
+- Project license: GPL-3.0-only, because `rust/crates/flv-repair` is a port of
   BililiveRecorder.Flv logic. See `NOTICE`.
 - Scope: recording only. No upload, no mobile, no WebUI changes, no DB schema change in v1.
 - Native Bilirec behavior must remain byte-for-byte unchanged when the new features are off
@@ -16,7 +16,7 @@ Owners must implement against this document; do not redesign without approval.
 
 ## 1. Rust sidecar `flvrepair` (owner: rust-flv)
 
-Crate: `rust/crates/flv-repair` (lib + bin `flvrepair`). GPL-3.0-or-later headers required.
+Crate: `rust/crates/flv-repair` (lib + bin `flvrepair`). GPL-3.0-only headers required.
 
 ### 1.1 CLI
 
@@ -93,7 +93,7 @@ flvrepair --version
   `Pipeline/Rules/`, parser under `Parser/`). Record the mapping C# file -> Rust module in
   `docs/PORTING.md` (owner: port-spec writes, rust-flv keeps updated).
 - Every Rust source file starts with:
-  `// SPDX-License-Identifier: GPL-3.0-or-later`
+  `// SPDX-License-Identifier: GPL-3.0-only`
   plus a short attribution comment when directly derived from a specific C# file.
 
 ## 2. Go integration in the repo root (owner: go-integration)

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Robustness: arbitrary malformed input must never panic and best-effort output must
 // always be a structurally valid FLV.

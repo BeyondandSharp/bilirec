@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Toolbox command tests: FLV XML/zip export and Bilibili danmaku start-time/merge,
 // including golden fixtures under `tests/fixtures/danmaku/`.

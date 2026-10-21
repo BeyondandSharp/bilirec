@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Package logs exposes the admin-only local log viewer API introduced by
 // docs/LOGS-VIEW.md: tail of the current local log file and a download endpoint.

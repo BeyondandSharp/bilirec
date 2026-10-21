@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Package naming renders recording file paths from configurable templates
 // (docs/FEATURES-V2.md §3.2, amended: the template is a PATH template relative

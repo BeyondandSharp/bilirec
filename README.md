@@ -2,7 +2,7 @@
 
 以 [Bilirec](https://github.com/bilirec/bilirec) 为底座（调度 / REST API / WebUI 后端 / 三格式原生拉流），
 吸收录播姬的 FLV 修复能力与 biliup 的 streamlink/ffmpeg 拉流方式。**仅专注录制**：不做上传、不做移动端。
-整体 **GPL-3.0-or-later**（`flvrepair` 移植自 GPL-3.0 的录播姬 FLV 规则），MIT 归属见 `NOTICE`。
+整体 **GPL-3.0-only**（`flvrepair` 移植自 GPL-3.0-only 的录播姬 FLV 规则），MIT 归属见 `NOTICE`。
 
 本文档面向**部署与使用**。开发/测试/架构/验证见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；
 配置契约见 [docs/CONFIG-V2.md](docs/CONFIG-V2.md)，运维/排障见 [docs/OPERATIONS-V2.md](docs/OPERATIONS-V2.md)。
@@ -171,5 +171,5 @@ compose 默认把四个卷挂到上述路径；直接 `docker run` 时同样建�
 
 ## 许可证
 
-本仓库整体 **GPL-3.0-or-later**；Bilirec / biliup / bilirec-web 的 MIT 归属保留在 `NOTICE`，
+本仓库整体 **GPL-3.0-only**；Bilirec / biliup / bilirec-web 的 MIT 归属保留在 `NOTICE`，
 上游来源见 `UPSTREAM.md`。

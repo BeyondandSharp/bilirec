@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Codec configuration parsing: AVC/HEVC decoder configuration records, SPS dimensions,
 // AAC AudioSpecificConfig and H.264/H.265 filler NAL unit removal.

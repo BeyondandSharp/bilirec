@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Incremental FLV tag reader with bounded buffering and best-effort resynchronisation.
 // Behaviour derived from `refs/BililiveRecorder/BililiveRecorder.Flv/Parser/FlvTagPipeReader.cs`
-// (GPL-3.0), extended with resync for corruption classes R7.
+// (GPL-3.0-only), extended with resync for corruption classes R7.
 
 use crate::tag::{Tag, TagType, FLV_HEADER_LEN, PREVIOUS_TAG_SIZE_LEN, TAG_HEADER_LEN};
 use std::io::{self, Read};

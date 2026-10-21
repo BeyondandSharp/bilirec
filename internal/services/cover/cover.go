@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Package cover fetches Bilibili live-room covers for recordings
 // (docs/FEATURES-V2.md §3.4). It is strictly best effort: every failure is a

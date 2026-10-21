@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Static build of the frontend (web/, the React PWA formerly bilirec-web/)
 # served by nginx.

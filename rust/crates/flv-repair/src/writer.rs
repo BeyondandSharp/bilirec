@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // FLV output writer: correct file header, `PreviousTagSize` fields, metadata duration
 // patching. Ported from `refs/BililiveRecorder/BililiveRecorder.Flv/Writer/**`
-// (GPL-3.0), simplified to a single output stream instead of file splitting.
+// (GPL-3.0-only), simplified to a single output stream instead of file splitting.
 
 use crate::amf::{self, AmfValue};
 use crate::parser::encode_file_header;

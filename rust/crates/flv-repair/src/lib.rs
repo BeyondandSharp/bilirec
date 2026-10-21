@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // `flv-repair` library: FLV stream repair/analysis sidecar.
 //
-// This crate is a Rust port of `BililiveRecorder.Flv` (GPL-3.0-or-later), see
+// This crate is a Rust port of `BililiveRecorder.Flv` (GPL-3.0-only), see
 // `docs/PORTING.md` and `NOTICE`. Behavior contract: `docs/INTERFACES.md` §1.
 
 pub mod amf;

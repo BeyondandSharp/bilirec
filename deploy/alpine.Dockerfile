@@ -1,5 +1,5 @@
 # check=skip=SecretsUsedInArgOrEnv  (SECRET_DIR is a directory path, not a secret value)
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # Alpine/musl backend-only image (Go static binary + Rust musl binary +
 # apk ffmpeg/streamlink). Exported as dist/local-backend-alpine.tar by

@@ -1,7 +1,7 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // FLV tag model. Ported from `refs/BililiveRecorder/BililiveRecorder.Flv/Tag.cs`,
-// `TagExtentions.cs`, `TagFlag.cs`, `TagType.cs` (GPL-3.0). Enhanced-FLV (E-RTMP) video
+// `TagExtentions.cs`, `TagFlag.cs`, `TagType.cs` (GPL-3.0-only). Enhanced-FLV (E-RTMP) video
 // classification follows `pkg/flv/video_tag.go` (MIT), see docs/PORTING.md §3.3.
 
 /// Size of an FLV tag header in bytes (`type` + 24-bit size + timestamp + stream id).

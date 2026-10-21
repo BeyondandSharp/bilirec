@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 
 // Package config exposes the unified configuration API introduced by
 // docs/CONFIG-V2.md §4: /config (non-secret env keys) and /config/secrets

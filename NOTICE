@@ -1,3 +1,7 @@
+This repository as a whole is licensed under the GNU General Public License,
+version 3 only (SPDX: GPL-3.0-only). See LICENSE. No "any later version"
+permission is granted.
+
 This repository combines and derives work from the following projects.
 
 1. Bilirec — https://github.com/bilirec/bilirec
@@ -15,7 +19,7 @@ This repository combines and derives work from the following projects.
 
 3. BililiveRecorder (录播姬) — https://github.com/BililiveRecorder/BililiveRecorder
    Copyright (c) BililiveRecorder contributors
-   License: GPL-3.0
+   License: GPL-3.0-only
    Usage: reference only (`refs/BililiveRecorder`, not distributed). The Rust FLV repair engine
    in `rust/crates/flv-repair` is a port of its FLV processing pipeline rules
    (timestamp jump/offset, duplicate removal, filler removal, header/script handling,
@@ -27,6 +31,6 @@ This repository combines and derives work from the following projects.
    Usage: vendored frontend at `web/` (React PWA). Local changes: downloader picker on
    the record-start form and downloader/repair/source-format badges on recording cards.
 
-Because of item 3, this repository as a whole is licensed under GPL-3.0-or-later (see LICENSE).
+Because of item 3, this repository as a whole is licensed under GPL-3.0-only (see LICENSE).
 The MIT-licensed components above (Bilirec, biliup reference, bilirec-web) keep their original
 licenses and copyright notices.

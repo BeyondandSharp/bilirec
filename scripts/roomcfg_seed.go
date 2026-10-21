@@ -1,6 +1,6 @@
 //go:build ignore
 
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Offline test helper for scripts/e2e.sh: seed a bilirec `subscribes.db` with a
 // subscribed room so that the room-config REST API can be exercised without

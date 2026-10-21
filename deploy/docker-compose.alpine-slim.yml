@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 #
 # 示例：Alpine + 前后端合一 + slim（不含 ffmpeg/streamlink）的 docker compose。
 #

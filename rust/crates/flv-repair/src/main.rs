@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // `flvrepair` executable: FLV stream repair/analysis sidecar (docs/INTERFACES.md §1).
 

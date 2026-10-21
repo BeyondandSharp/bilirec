@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // `flvrepair` command line interface and process contract (docs/INTERFACES.md §1.1/§1.2,
 // docs/FEATURES-V2.md §5.1/§5.3).

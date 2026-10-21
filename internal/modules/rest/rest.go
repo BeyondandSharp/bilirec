@@ -6,8 +6,8 @@
 // @contact.name API Support
 // @contact.url http://github.com/bilirec/bilirec
 
-// @license.name MIT
-// @license.url https://opensource.org/licenses/MIT
+// @license.name GPL-3.0-only
+// @license.url https://www.gnu.org/licenses/gpl-3.0.html
 
 // @securityDefinitions.apikey BearerAuth
 // @in header

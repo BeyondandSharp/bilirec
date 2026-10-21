@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Synthetic R1-R8 class tests: each corruption class is constructed in memory (no
 // fixtures required) and the repaired output is validated structurally.

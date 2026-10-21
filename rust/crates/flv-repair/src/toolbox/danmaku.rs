@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-only
 //
 // Bilibili danmaku XML utilities: start-time extraction and merging.
 // Reference behavior: `refs/BililiveRecorder/BililiveRecorder.ToolBox/Tool/DanmakuStartTime`
-// and `.../DanmakuMerger` (GPL-3.0). Output element layout follows the in-tree Go writer
+// and `.../DanmakuMerger` (GPL-3.0-only). Output element layout follows the in-tree Go writer
 // `internal/services/danmaku/format_xml.go`.
 
 use crate::log::{EventLog, LogSink};

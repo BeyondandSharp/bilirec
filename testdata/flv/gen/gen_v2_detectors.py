@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: GPL-3.0-only
 """Generate synthetic FLV fixtures for the Go split detectors (FEATURES-V2 §5.2).
 
 The Go recording pipeline gains two streaming detectors:
