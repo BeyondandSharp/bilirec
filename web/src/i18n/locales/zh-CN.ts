@@ -656,6 +656,8 @@ export const common = {
   "logs": {
     "title": "日志",
     "description": "查看后端当前的日志文件（仅限管理员）。",
+    "source": "来源",
+    "sourceMain": "主日志",
     "refresh": "刷新",
     "refreshing": "刷新中…",
     "autoRefresh": "自动刷新",

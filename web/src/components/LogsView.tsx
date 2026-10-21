@@ -29,7 +29,7 @@ import { usePageVisibility } from '@/hooks/use-visibility'
 import { useLanguage } from '@/hooks/use-language'
 import { getDateLocale } from '@/lib/language'
 import { cn, formatFileSize } from '@/lib/utils'
-import type { LogsResponse } from '@/lib/types'
+import type { LogsResponse, LogsSource, LogsSourcesResponse } from '@/lib/types'
 
 /** Auto-refresh interval required by the LOGS-VIEW contract. */
 const AUTO_REFRESH_MS = 3000
@@ -111,6 +111,9 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
   const isVisible = usePageVisibility()
 
   const [data, setData] = useState<LogsResponse | null>(null)
+  const [sourceReport, setSourceReport] = useState<LogsSourcesResponse | null>(null)
+  const [sources, setSources] = useState<LogsSource[]>([])
+  const [selectedSource, setSelectedSource] = useState('main')
   const [isLoading, setIsLoading] = useState(true)
   const [isDownloading, setIsDownloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -122,8 +125,37 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const inFlightRef = useRef(false)
+  const sourcesInFlightRef = useRef(false)
   const hasLoadedRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const fetchSources = useCallback(async (options?: { silent?: boolean }) => {
+    if (sourcesInFlightRef.current) {
+      return
+    }
+    sourcesInFlightRef.current = true
+    try {
+      const response = await apiClient.getLogSources()
+      setSourceReport(response)
+      setSources(response.sources)
+      setSelectedSource((current) => {
+        if (response.sources.some((item) => item.name === current)) {
+          return current
+        }
+        if (response.sources.some((item) => item.name === 'main')) {
+          return 'main'
+        }
+        return response.sources[0]?.name ?? 'main'
+      })
+    } catch (err) {
+      // Older backends do not expose /logs/sources; /logs remains usable.
+      if (!options?.silent) {
+        console.error('Failed to load log sources:', err)
+      }
+    } finally {
+      sourcesInFlightRef.current = false
+    }
+  }, [])
 
   const fetchLogs = useCallback(
     async (options?: { silent?: boolean }) => {
@@ -136,7 +168,7 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
       }
       setError(null)
       try {
-        const response = await apiClient.getLogs(lineCount)
+        const response = await apiClient.getLogs(lineCount, selectedSource)
         setData(response)
         setLastUpdated(new Date())
         hasLoadedRef.current = true
@@ -148,10 +180,14 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
         setIsLoading(false)
       }
     },
-    [lineCount, t],
+    [lineCount, selectedSource, t],
   )
 
-  // Initial load and refetch when the line-count selection changes.
+  // Initial load and refetch when the line count or selected source changes.
+  useEffect(() => {
+    void fetchSources()
+  }, [fetchSources])
+
   useEffect(() => {
     void fetchLogs()
   }, [fetchLogs])
@@ -165,10 +201,11 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
       if (document.visibilityState === 'hidden') {
         return
       }
+      void fetchSources({ silent: true })
       void fetchLogs({ silent: true })
     }, AUTO_REFRESH_MS)
     return () => window.clearInterval(timer)
-  }, [autoRefresh, fetchLogs])
+  }, [autoRefresh, fetchLogs, fetchSources])
 
   // Refresh immediately when the tab becomes visible again.
   useEffect(() => {
@@ -221,11 +258,11 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
   const handleDownload = async () => {
     setIsDownloading(true)
     try {
-      const blob = await apiClient.downloadLogs()
+      const blob = await apiClient.downloadLogs(selectedSource)
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = 'bilirec.log'
+      anchor.download = selectedSource === 'main' ? 'bilirec.log' : `${selectedSource}.log`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
@@ -250,6 +287,18 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
       console.error('Failed to copy logs:', err)
       toast.error(t('logs.copyFailed'), { position: 'bottom-center' })
     }
+  }
+
+  const sourceLabel = (source: string | undefined): string => {
+    if (!source || source === 'main') {
+      return t('logs.sourceMain')
+    }
+    return source
+  }
+
+  const handleSourceChange = (source: string) => {
+    setSelectedSource(source)
+    setFollow(true)
   }
 
   const formatMtime = (mtime: string | undefined): string => {
@@ -283,7 +332,26 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            {sourceReport?.split && sources.length > 0 && (
+              <div className="space-y-1">
+                <Label htmlFor="logs-source" className="text-xs text-muted-foreground">
+                  {t('logs.source')}
+                </Label>
+                <Select value={selectedSource} onValueChange={handleSourceChange}>
+                  <SelectTrigger id="logs-source" className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sources.map((source) => (
+                      <SelectItem key={source.name} value={source.name}>
+                        {sourceLabel(source.name)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={() => void fetchLogs()}
@@ -461,6 +529,9 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
 
             {/* File metadata */}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              <span>
+                {t('logs.source')}: <strong className="font-medium">{sourceLabel(data?.source)}</strong>
+              </span>
               <span className="min-w-0 truncate font-mono" title={data?.path}>
                 {t('logs.path')}: {data?.path}
               </span>

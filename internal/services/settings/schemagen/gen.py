@@ -40,6 +40,7 @@ special = {
  'UPDATE_CHECK_API_URL': ('string',''),
  'CHECK_UPDATE': ('bool','true'),
  'MAX_RETRY_SECONDS': ('number','30'),
+ 'LOCAL_LOGS_SPLIT': ('bool','true'),
 }
 keys.update({k:{'kind':v[0],'default':v[1]} for k,v in special.items()})
 

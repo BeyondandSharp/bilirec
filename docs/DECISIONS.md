@@ -186,3 +186,21 @@ LSIO 兼容用法应当可用；重复 ID 下进程仍按请求的数值 UID/GID
 - Bilirec、biliup、bilirec-web 的 MIT 许可与声明保持不变。
 
 理由：衍生作品必须遵守上游的 only 许可；修正声明不影响代码行为。
+
+## D018 (2026-10-22, Lead) — 本地日志按来源拆分，HTTP access 独立
+
+原 `wireLocalLogger` 只有一个文件，`rest` 的每个 HTTP 请求 access 日志与业务日志混在
+`bilirec.log` 中，导致日志页/文件被请求日志淹没。现改为按 logger source 拆分：
+
+- `LOCAL_LOGS_SPLIT=true`（默认）：
+  - 主日志 `LOCAL_LOGS_PATH` 保留无名称日志、所有非 `rest` named logger 日志、全部 WARN/ERROR；
+  - 每个 named logger 写 `<LOCAL_LOGS_PATH>.d/<source>/current.log`；
+  - `rest` 的 INFO/DEBUG access 只写 `rest/current.log`，不进入主日志；WARN/ERROR 仍进主日志。
+- `LOCAL_LOGS_SPLIT=false` 保留旧单文件行为。
+- 每个来源使用独立 lumberjack/async sink，按首次写入懒创建；最多 64 个来源，失败回退主日志。
+- `/logs/sources` 列来源，`/logs?source=` 读取指定来源，`/logs/download?source=` 下载指定来源；
+  只暴露 `current.log`，不暴露轮转备份，不接受任意路径。
+- 前端日志页增加来源选择，默认 `main`。
+
+原因：请求日志是高频来源，必须与应用日志分离；main 仍保留非网络日志和所有错误，避免默认页面失去可用性。
+代价：main 保留非 `rest` 日志副本，磁盘占用约增加。

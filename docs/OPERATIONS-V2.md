@@ -141,32 +141,42 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 
 ## 4b. 本地日志查看（LOGS-VIEW）
 
-日志页面/下载读取 `internal/modules/logging` 写出的**当前本地日志文件**，仅在
+日志页面/下载读取 `internal/modules/logging` 写出的**当前本地日志文件/来源文件**，仅在
 `LOCAL_LOGS_ENABLED=true` 时启用；不会接受任意路径，也不会暴露轮转/压缩备份。
 
 | 配置键 | 默认 | 说明 |
 |---|---|---|
 | `LOCAL_LOGS_ENABLED` | `false` | 是否写本地日志（启用后日志页/下载可用；修改需重启） |
-| `LOCAL_LOGS_PATH` | 空 = `<DATABASE_DIR>/bilirec.log` | 日志文件路径；目录需对 `PUID`/`PGID` 可写 |
+| `LOCAL_LOGS_SPLIT` | `true` | 按 logger 来源拆分；`false` = 旧版单文件 |
+| `LOCAL_LOGS_PATH` | 空 = `<DATABASE_DIR>/bilirec.log` | 主日志路径；拆分文件在其旁 `<path>.d/<source>/current.log` |
 | `LOCAL_LOGS_FORMAT` | `pretty` | `pretty` 或 `json`（响应里的 `format` 字段） |
 | `LOCAL_LOGS_MAX_SIZE_MB` | `20` | 单文件轮转阈值 |
 | `LOCAL_LOGS_MAX_AGE_DAYS` / `LOCAL_LOGS_MAX_BACKUPS` / `LOCAL_LOGS_COMPRESS` | `7` / `3` / `false` | 轮转后的保留/压缩 |
 | `LOCAL_LOGS_FLUSH_INTERVAL` / `LOCAL_LOGS_BATCH_BYTES` / `LOCAL_LOGS_BUFFER_SIZE` / `LOCAL_LOGS_OVERFLOW` | `1s` / `65536` / `4096` / 空 | 写入刷新与溢出策略 |
 
+- 拆分规则（`LOCAL_LOGS_SPLIT=true`）：
+  - `main`（`LOCAL_LOGS_PATH`）：无 logger name 的日志 + 所有非 `rest` named logger 日志 +
+    所有 WARN/ERROR；
+  - `<source>/current.log`：该 logger 的全部日志；
+  - `rest` 的 INFO/DEBUG HTTP access log **不进入 main**，避免请求日志淹没应用日志；
+  - `rest` 的 WARN/ERROR 仍会进入 main。
+- `LOCAL_LOGS_SPLIT=false`：所有日志写入单个 `LOCAL_LOGS_PATH`，兼容旧行为。
 - 修改配置：环境变量 / `deploy/.env`，或 web 设置 → 系统配置 → 日志；该组键均为
   `restart_required`，修改后重启容器生效。
 - 页面/API 权限：仅管理员（admin）。viewer 看不到“日志”导航，直接请求 `/logs` 返回 403；
   未登录返回 401。
 - API：
-  - `GET /logs?lines=N`：`lines` 默认 500、范围 1–2000，非法值 400；返回
-    `{enabled,path,exists,size,mtime,format,lines,truncated}`；每次最多读取当前文件尾部 2 MiB，
-    丢弃截断的半行；`truncated=true` 表示窗口或请求行数截断。
-  - `GET /logs/download`：以 `text/plain; charset=utf-8` + `Content-Disposition: attachment;
-    filename="bilirec.log"` 下载当前文件的完整内容（不受上面 2 MiB 尾部窗口限制）；`enabled=false`
-    或文件不存在返回 404。
+  - `GET /logs/sources`：返回 `{enabled,split,base_path,sources_dir,sources[]}`；
+    只列 `main` 与 `<sources_dir>/<source>/current.log` 普通文件。
+  - `GET /logs?lines=N&source=S`：`source` 默认 `main`；非法/不存在的来源 400；
+    返回 `{source,split,enabled,path,exists,size,mtime,format,lines,truncated}`；
+    `lines` 默认 500、范围 1–2000；每次最多读取文件尾部 2 MiB。
+  - `GET /logs/download?source=S`：下载当前来源完整文件；`main` 文件名 `bilirec.log`，
+    其他来源 `<source>.log`；未启用或文件不存在 404。
 - 未启用（`enabled=false`）：`GET /logs` 仍返回 200，`lines=[]`，`exists` 反映文件是否存在；
   下载 404。启用但文件尚未写入：`exists=false`、`lines=[]`，页面显示“等待日志写入”并继续轮询。
-- 只读取当前文件；`lumberjack` 轮转出的备份文件（`bilirec-*.log[.gz]`）不会通过 API 暴露。
+- 只读取当前文件；`lumberjack` 轮转出的备份文件不会通过 API 暴露。
+- 拆分后磁盘占用约增加一倍：main 保留非网络日志副本，来源文件各自保存完整日志。
 
 ## 5. FEATURES-V2 设置与房间覆盖
 

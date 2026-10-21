@@ -316,3 +316,67 @@ func TestLogsRoutesRequireAdmin(t *testing.T) {
 	logsRequest(t, app, "/logs/download", mintLogsJWT(t, "viewer"), http.StatusForbidden)
 	logsRequest(t, app, "/logs/download", mintLogsJWT(t, "admin"), http.StatusOK)
 }
+
+func TestLogsSourcesSplitAndSelection(t *testing.T) {
+	withNoAuth(t)
+	base := filepath.Join(t.TempDir(), "bilirec.log")
+	writeLines(t, base, []string{"main-line"})
+	sourceDir := base + ".d"
+	writeLines(t, filepath.Join(sourceDir, "rest", "current.log"), []string{"rest-line"})
+	writeLines(t, filepath.Join(sourceDir, "recorder", "current.log"), []string{"recorder-line"})
+	// Rotated backups must never appear as sources.
+	writeLines(t, filepath.Join(sourceDir, "rest", "rest-2026-01-01T00-00-00.000.log"), []string{"old-rest"})
+	cfg := &config.Config{LocalLogsEnabled: true, LocalLogsSplit: true, LocalLogsPath: base}
+	app := newLogsApp(t, cfg, false)
+
+	raw, _ := logsRequest(t, app, "/logs/sources", "", http.StatusOK)
+	var sources LogSourcesResponse
+	if err := json.Unmarshal(raw, &sources); err != nil {
+		t.Fatal(err)
+	}
+	if !sources.Enabled || !sources.Split || sources.BasePath != base || sources.SourcesDir != sourceDir {
+		t.Fatalf("sources metadata = %+v", sources)
+	}
+	names := make([]string, 0, len(sources.Sources))
+	for _, source := range sources.Sources {
+		names = append(names, source.Name)
+	}
+	if strings.Join(names, ",") != "main,recorder,rest" {
+		t.Fatalf("sources = %v", names)
+	}
+
+	raw, _ = logsRequest(t, app, "/logs?source=rest&lines=10", "", http.StatusOK)
+	resp := decodeLogs(t, raw)
+	if resp.Source != "rest" || !resp.Split || len(resp.Lines) != 1 || resp.Lines[0] != "rest-line" {
+		t.Fatalf("rest response = %+v", resp)
+	}
+
+	raw, header := logsRequest(t, app, "/logs/download?source=rest", "", http.StatusOK)
+	if string(raw) != "rest-line\n" || !strings.Contains(header.Get("Content-Disposition"), `filename="rest.log"`) {
+		t.Fatalf("rest download = %q disposition=%q", raw, header.Get("Content-Disposition"))
+	}
+
+	// Request input never becomes an arbitrary path.
+	for _, source := range []string{"../rest", "missing", "rest/current.log"} {
+		logsRequest(t, app, "/logs?source="+source, "", http.StatusBadRequest)
+	}
+	logsRequest(t, app, "/logs/download?source=missing", "", http.StatusBadRequest)
+}
+
+func TestLogsSourcesDisabledSplit(t *testing.T) {
+	withNoAuth(t)
+	base := filepath.Join(t.TempDir(), "bilirec.log")
+	writeLines(t, base, []string{"main-line"})
+	cfg := &config.Config{LocalLogsEnabled: true, LocalLogsSplit: false, LocalLogsPath: base}
+	app := newLogsApp(t, cfg, false)
+
+	raw, _ := logsRequest(t, app, "/logs/sources", "", http.StatusOK)
+	var sources LogSourcesResponse
+	if err := json.Unmarshal(raw, &sources); err != nil {
+		t.Fatal(err)
+	}
+	if sources.Split || len(sources.Sources) != 1 || sources.Sources[0].Name != "main" {
+		t.Fatalf("unsplit sources = %+v", sources)
+	}
+	logsRequest(t, app, "/logs?source=rest", "", http.StatusBadRequest)
+}

@@ -141,3 +141,19 @@ func TestParseMaxRetrySeconds(t *testing.T) {
 		})
 	}
 }
+
+func TestParseLocalLogsSplit(t *testing.T) {
+	cases := map[string]bool{
+		"":        true,
+		"true":    true,
+		"false":   false,
+		" FALSE ": false,
+		"0":       true,
+		"1":       true,
+	}
+	for raw, want := range cases {
+		if got := parseLocalLogsSplit(raw); got != want {
+			t.Errorf("parseLocalLogsSplit(%q) = %v, want %v", raw, got, want)
+		}
+	}
+}

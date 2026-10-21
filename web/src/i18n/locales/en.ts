@@ -669,6 +669,8 @@ export const common = {
   logs: {
     title: "Logs",
     description: "View the backend's current log file (admins only).",
+    source: "Source",
+    sourceMain: "Main log",
     refresh: "Refresh",
     refreshing: "Refreshing…",
     autoRefresh: "Auto-refresh",

@@ -435,11 +435,33 @@ export interface BilibiliAuthStatus {
   lastError?: string
 }
 
-/** GET /logs response: tail of the current local log file (admin only, LOGS-VIEW contract). */
+/** One current file returned by GET /logs/sources. */
+export interface LogsSource {
+  name: string
+  path: string
+  exists: boolean
+  size: number
+  mtime: string
+}
+
+/** GET /logs/sources response (admin only). */
+export interface LogsSourcesResponse {
+  enabled: boolean
+  split: boolean
+  base_path: string
+  sources_dir: string
+  sources: LogsSource[]
+}
+
+/** GET /logs response: tail of one local log source (admin only, LOGS-VIEW contract). */
 export interface LogsResponse {
+  /** Selected source name; "main" for the aggregate/main file. */
+  source: string
+  /** True when the backend has LOCAL_LOGS_SPLIT enabled. */
+  split: boolean
   /** Effective LOCAL_LOGS_ENABLED (changing it requires a backend restart). */
   enabled: boolean
-  /** Absolute path of the current log file. */
+  /** Absolute path of the selected log file. */
   path: string
   /** Whether the current log file exists yet. */
   exists: boolean

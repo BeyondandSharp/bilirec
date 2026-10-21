@@ -131,19 +131,27 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 
 镜像默认**不写本地日志文件**。需要在线查看/下载日志时：
 
-- 设置 `LOCAL_LOGS_ENABLED=true`（默认 `false`）；可选 `LOCAL_LOGS_PATH` 指定文件路径，
+- 设置 `LOCAL_LOGS_ENABLED=true`（默认 `false`）；可选 `LOCAL_LOGS_PATH` 指定主日志路径，
   默认是 `<DATABASE_DIR>/bilirec.log`（镜像内即 `/app/database/bilirec.log`）。路径所在目录需
   对 `PUID`/`PGID` 可写；`database` 卷会保留日志文件。
+- `LOCAL_LOGS_SPLIT=true`（默认）会按 logger 来源拆分日志：
+  - 主日志：`/app/database/bilirec.log`，包含所有非网络日志和所有 WARN/ERROR；
+  - 来源文件：`/app/database/bilirec.log.d/<source>/current.log`；
+  - HTTP 请求日志（`rest` 的 INFO access log）只写入 `bilirec.log.d/rest/current.log`，
+    不再进入主日志；
+  - 如需旧版单文件行为，设置 `LOCAL_LOGS_SPLIT=false` 并重启。
 - 该开关属于需要重启的配置：可在 `deploy/.env`/环境变量中设置，或在 web 的
   设置 → 系统配置 → 日志 中修改后重启容器。相关键还有 `LOCAL_LOGS_FORMAT`（`pretty`/`json`）、
   `LOCAL_LOGS_MAX_SIZE_MB`/`LOCAL_LOGS_MAX_AGE_DAYS`/`LOCAL_LOGS_MAX_BACKUPS`/`LOCAL_LOGS_COMPRESS`
   （轮转/保留）与刷新/缓冲相关项。
-- 开启后，管理员在 web 侧边栏会看到“日志”页：可自动刷新、按级别过滤、搜索、跟随尾部、复制与下载。
-  只读（viewer）账号不会看到该入口。
-- API（仅管理员）：`GET /logs?lines=N`（默认 500，范围 1–2000，超出返回 400）返回当前日志尾部；
-  `GET /logs/download` 下载当前日志文件（`text/plain` 附件）。`GET /logs` 每次最多读取当前文件尾部
-  2 MiB；下载接口返回当前文件完整内容。两者都只针对当前文件，不会暴露轮转/压缩后的备份；
-  未启用或文件不存在时下载返回 404。
+- 开启后，管理员在 web 侧边栏会看到“日志”页：可选择日志来源，自动刷新、按级别过滤、搜索、
+  跟随尾部、复制与下载。只读（viewer）账号不会看到该入口。
+- API（仅管理员）：
+  - `GET /logs/sources` 列出主日志和各来源；
+  - `GET /logs?lines=N&source=rest` 读取指定来源（默认 `main`）；
+  - `GET /logs/download?source=rest` 下载指定来源当前文件；
+  - `lines` 默认 500、范围 1–2000；`/logs` 每次最多读取文件尾部 2 MiB，下载返回完整当前文件；
+  - 只暴露当前文件，不暴露轮转/压缩备份；未启用或文件不存在时下载 404。
 
 ## 数据目录、端口与卷
 

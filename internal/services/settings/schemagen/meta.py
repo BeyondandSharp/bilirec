@@ -62,6 +62,7 @@ META.update({
 "DANMAKU_WRITER_MIN_PERIODIC_FLUSH_BYTES": ("弹幕最小周期刷新字节", "低于该字节数时不进行周期刷新。", "彈幕最小週期刷新位元組", "低於該位元組數時不進行週期刷新。", "Danmaku min periodic flush bytes", "Minimum bytes before a periodic danmaku flush happens."),
 "DANMAKU_WRITER_SYNC_PERIOD_SECS": ("弹幕同步周期（秒）", "弹幕写入器 fsync 周期（秒）。", "彈幕同步週期（秒）", "彈幕寫入器 fsync 週期（秒）。", "Danmaku sync period", "Danmaku writer fsync period in seconds."),
 # --- logging ---
+"LOCAL_LOGS_SPLIT": ("按来源拆分日志", "按 logger 来源拆分本地日志；网络请求日志单独存放。", "依來源拆分日誌", "依 logger 來源拆分本機日誌；網路請求日誌單獨存放。", "Split logs by source", "Split local logs by logger source; network request logs go to separate files."),
 "LOCAL_LOGS_ENABLED": ("启用本地日志", "把日志写入本地文件（带轮转）。", "啟用本機日誌", "把日誌寫入本機檔案（含輪替）。", "Enable local logs", "Write logs to local rotating files."),
 "LOCAL_LOGS_PATH": ("本地日志路径", "本地日志文件路径。", "本機日誌路徑", "本機日誌檔案路徑。", "Local log path", "Path of the local log file."),
 "LOCAL_LOGS_FORMAT": ("本地日志格式", "pretty 或 json。", "本機日誌格式", "pretty 或 json。", "Local log format", "pretty or json."),

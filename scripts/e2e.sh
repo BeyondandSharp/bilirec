@@ -787,17 +787,21 @@ PY
 
 # logs_download <jar-or-"-"> <body-out> <headers-out>: prints HTTP status.
 logs_download() {
-  local jar=$1 body=$2 headers=$3
+  local jar=$1 body=$2 headers=$3 source=${4:-}
   local args=(-sS -D "$headers" -o "$body" -w '%{http_code}' --max-time 30)
   if [[ "$jar" != "-" && -f "$jar" ]]; then
     args+=(-b "$jar")
   fi
-  curl "${args[@]}" "http://127.0.0.1:$BPORT/logs/download"
+  local url="http://127.0.0.1:$BPORT/logs/download"
+  if [[ -n "$source" ]]; then
+    url+="?source=$source"
+  fi
+  curl "${args[@]}" "$url"
 }
 
 # logs_download_headers_ok <headers-file> <body-file>
 logs_download_headers_ok() {
-  python3 - "$1" "$2" <<'PY'
+  python3 - "$1" "$2" "${3:-bilirec.log}" <<'PY'
 import os
 import sys
 
@@ -806,8 +810,9 @@ body = open(sys.argv[2], "rb").read()
 errs = []
 if "content-type: text/plain" not in headers:
     errs.append("missing text/plain content-type")
-if 'content-disposition: attachment; filename="bilirec.log"' not in headers:
-    errs.append("missing attachment Content-Disposition")
+want_name = sys.argv[3]
+if 'content-disposition: attachment; filename="%s"' % want_name not in headers:
+    errs.append("missing attachment Content-Disposition for %s" % want_name)
 if not body:
     errs.append("empty download body")
 if errs:
@@ -1768,6 +1773,96 @@ else
     pass "GET /logs default line count within 1..500"
   else
     fail "GET /logs default line count out of range ($(json_get "$API_BODY" lines | cut -c1-40))"
+  fi
+
+  # Split-by-source files: /logs/sources plus selecting the REST access source.
+  LOGS_SOURCE_DIR="$LOGS_PATH.d"
+  SOURCE_READY=0
+  for _ in $(seq 1 100); do
+    if [[ -s "$LOGS_SOURCE_DIR/rest/current.log" ]] && [[ -f "$LOGS_SOURCE_DIR/logging/current.log" ]]; then
+      SOURCE_READY=1
+      break
+    fi
+    sleep 0.2
+  done
+  if (( SOURCE_READY != 1 )); then
+    fail "split log sources were not created under $LOGS_SOURCE_DIR"
+  else
+    pass "split log sources exist under $LOGS_SOURCE_DIR"
+    code=$(api GET /logs/sources)
+    expect_status 200 "$code" "GET /logs/sources"
+    if python3 - "$API_BODY" "$LOGS_PATH" "$LOGS_SOURCE_DIR" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+errs = []
+if d.get("split") is not True:
+    errs.append("split is not true")
+if d.get("enabled") is not True:
+    errs.append("enabled is not true")
+if d.get("base_path") != sys.argv[2]:
+    errs.append("base_path=%r" % d.get("base_path"))
+if d.get("sources_dir") != sys.argv[3]:
+    errs.append("sources_dir=%r" % d.get("sources_dir"))
+names = [s.get("name") for s in d.get("sources") or []]
+for name in ("main", "rest"):
+    if name not in names:
+        errs.append("missing source %s (got %r)" % (name, names))
+if errs:
+    sys.exit("; ".join(errs))
+print("sources=%s" % ",".join(names))
+PY
+    then
+      pass "GET /logs/sources split metadata and main/rest sources"
+    else
+      fail "GET /logs/sources metadata invalid"
+    fi
+
+    code=$(api GET "/logs?source=rest&lines=2000")
+    expect_status 200 "$code" "GET /logs?source=rest"
+    if python3 - "$API_BODY" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+if d.get("source") != "rest" or d.get("split") is not True:
+    sys.exit("source/split mismatch: %r %r" % (d.get("source"), d.get("split")))
+lines = d.get("lines") or []
+if not any("GET" in line and "/version" in line for line in lines):
+    sys.exit("no access-log line found in rest source")
+print("rest lines=%d" % len(lines))
+PY
+    then
+      pass "GET /logs?source=rest contains HTTP access log lines"
+    else
+      fail "GET /logs?source=rest missing access lines"
+    fi
+
+    if python3 - "$LOGS_PATH" <<'PY'
+import sys
+
+body = open(sys.argv[1], "r", errors="replace").read()
+sys.exit(0 if "| GET | /version |" not in body else 1)
+PY
+    then
+      pass "main aggregate excludes REST INFO access lines"
+    else
+      fail "main aggregate contains REST access lines"
+    fi
+
+    code=$(logs_download - "$WORK/out/logs-rest-download.log" "$WORK/out/logs-rest-download.headers" rest)
+    expect_status 200 "$code" "GET /logs/download?source=rest"
+    if out=$(logs_download_headers_ok "$WORK/out/logs-rest-download.headers" "$WORK/out/logs-rest-download.log" rest.log 2>&1); then
+      pass "GET /logs/download?source=rest headers/body: $out"
+    else
+      fail "GET /logs/download?source=rest headers/body: $out"
+    fi
+
+    code=$(api GET "/logs?source=../etc")
+    expect_status 400 "$code" "GET /logs invalid source traversal -> 400"
+    code=$(api GET "/logs?source=missing")
+    expect_status 400 "$code" "GET /logs missing source -> 400"
   fi
 
   code=$(api GET "/logs?lines=5")

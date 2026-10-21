@@ -43,6 +43,7 @@ type Config struct {
 	VictoriaLogsRetryMax     int
 
 	LocalLogsEnabled       bool
+	LocalLogsSplit         bool
 	LocalLogsPath          string
 	LocalLogsFormat        string
 	LocalLogsMaxSizeMB     int
@@ -225,6 +226,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		VictoriaLogsTimeout:      parseDurationOrDefault(os.Getenv("VICTORIALOGS_TIMEOUT"), 10*time.Second),
 		VictoriaLogsRetryMax:     utils.MustAtoi(utils.EmptyOrElse(os.Getenv("VICTORIALOGS_RETRY_MAX"), "2")),
 		LocalLogsEnabled:         os.Getenv("LOCAL_LOGS_ENABLED") == "true",
+		LocalLogsSplit:           parseLocalLogsSplit(os.Getenv("LOCAL_LOGS_SPLIT")),
 		LocalLogsPath:            strings.TrimSpace(os.Getenv("LOCAL_LOGS_PATH")),
 		LocalLogsFormat:          strings.ToLower(strings.TrimSpace(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_FORMAT"), "pretty"))),
 		LocalLogsMaxSizeMB:       utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_SIZE_MB"), "20")),
@@ -429,6 +431,10 @@ func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {
 // MAX_RETRY_SECONDS is the current key (default 30). MAX_RETRY_MINUTES is kept
 // as a compatibility alias for existing deployments; when both are set the
 // seconds key wins. A non-positive value disables the recovery retry loop.
+func parseLocalLogsSplit(raw string) bool {
+	return !strings.EqualFold(strings.TrimSpace(raw), "false")
+}
+
 func parseMaxRetrySeconds() int {
 	if raw := strings.TrimSpace(os.Getenv("MAX_RETRY_SECONDS")); raw != "" {
 		return max(utils.MustAtoi(raw), 0)

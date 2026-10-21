@@ -27,6 +27,7 @@ import type {
   GlobalSettings,
   SettingsResponse,
   LogsResponse,
+  LogsSourcesResponse,
   ConfigUpdateRequest,
   SecretStatusResponse,
   SystemConfigResponse
@@ -607,15 +608,29 @@ class ApiClient {
     await this.client.post('/settings/reset');
   }
 
-  /** Tail of the current local log file (admin only, LOGS-VIEW contract). */
-  async getLogs(lines: number = 500): Promise<LogsResponse> {
-    const response = await this.client.get<LogsResponse>('/logs', { params: { lines } });
+  /** List current local log sources (admin only, LOGS-VIEW contract). */
+  async getLogSources(): Promise<LogsSourcesResponse> {
+    const response = await this.client.get<LogsSourcesResponse>('/logs/sources');
     return response.data;
   }
 
-  /** Download the current local log file (admin only; 404 when disabled/missing). */
-  async downloadLogs(): Promise<Blob> {
-    const response = await this.client.get('/logs/download', { responseType: 'blob' });
+  /** Tail one local log source (admin only; default main aggregate). */
+  async getLogs(lines: number = 500, source?: string): Promise<LogsResponse> {
+    const params: Record<string, string | number> = { lines };
+    if (source) {
+      params.source = source;
+    }
+    const response = await this.client.get<LogsResponse>('/logs', { params });
+    return response.data;
+  }
+
+  /** Download one local log source (admin only; 404 when disabled/missing). */
+  async downloadLogs(source?: string): Promise<Blob> {
+    const params: Record<string, string> = {};
+    if (source) {
+      params.source = source;
+    }
+    const response = await this.client.get('/logs/download', { params, responseType: 'blob' });
     return response.data as Blob;
   }
 

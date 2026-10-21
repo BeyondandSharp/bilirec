@@ -212,6 +212,8 @@ var fieldSpecs = []Field{
 
 	{Key: "LOCAL_LOGS_PATH", Group: "logging", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "本地日志路径", ZhTW: "本機日誌路徑", En: "Local log path"}, Description: LangText{ZhCN: "本地日志文件路径。", ZhTW: "本機日誌檔案路徑。", En: "Path of the local log file."}},
 
+	{Key: "LOCAL_LOGS_SPLIT", Group: "logging", Kind: "bool", Default: "true", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "按来源拆分日志", ZhTW: "依來源拆分日誌", En: "Split logs by source"}, Description: LangText{ZhCN: "按 logger 来源拆分本地日志；网络请求日志单独存放。", ZhTW: "依 logger 來源拆分本機日誌；網路請求日誌單獨存放。", En: "Split local logs by logger source; network request logs go to separate files."}},
+
 	{Key: "MAX_CONCURRENT_RECORDINGS", Group: "recording", Kind: "number", Default: "3", Min: ptrInt(1), Max: ptrInt(1000), Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "最大并发录制数", ZhTW: "最大並發錄製數", En: "Max concurrent recordings"}, Description: LangText{ZhCN: "同时进行的录制任务上限。", ZhTW: "同時進行的錄製任務上限。", En: "Upper bound of simultaneous recordings."}},
 
 	{Key: "MAX_RECORDING_HOURS", Group: "recording", Kind: "number", Default: "5", Min: ptrInt(1), Max: ptrInt(100000), Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "单次录制最长小时", ZhTW: "單次錄製最長小時", En: "Max recording hours"}, Description: LangText{ZhCN: "单个录制会话的最长时长（小时）。", ZhTW: "單一錄製工作階段的最長時長（小時）。", En: "Maximum duration of a single recording session in hours."}},
