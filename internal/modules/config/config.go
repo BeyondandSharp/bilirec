@@ -64,7 +64,7 @@ type Config struct {
 	MaxConcurrentRecordings   int
 	MaxRecordingHours         int
 	MaxRecoveryAttempts       int
-	MaxRetryMinutes           int
+	MaxRetrySeconds           int
 	RecordingRecoveryDuration string // preserve or reset (default: preserve)
 
 	OutputDir   string
@@ -244,7 +244,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		MaxConcurrentRecordings:  utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_CONCURRENT_RECORDINGS"), "3")),
 		MaxRecordingHours:        utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_RECORDING_HOURS"), "5")),
 		MaxRecoveryAttempts:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_RECOVERY_ATTEMPTS"), "15")),
-		MaxRetryMinutes:          utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_RETRY_MINUTES"), "10")),
+		MaxRetrySeconds:          parseMaxRetrySeconds(),
 		RecordingRecoveryDuration: strings.ToLower(strings.TrimSpace(
 			utils.EmptyOrElse(os.Getenv("RECORDING_RECOVERY_DURATION"), "preserve"),
 		)),
@@ -422,6 +422,21 @@ func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+// parseMaxRetrySeconds returns the stream-disconnect recovery window.
+//
+// MAX_RETRY_SECONDS is the current key (default 30). MAX_RETRY_MINUTES is kept
+// as a compatibility alias for existing deployments; when both are set the
+// seconds key wins. A non-positive value disables the recovery retry loop.
+func parseMaxRetrySeconds() int {
+	if raw := strings.TrimSpace(os.Getenv("MAX_RETRY_SECONDS")); raw != "" {
+		return max(utils.MustAtoi(raw), 0)
+	}
+	if raw := strings.TrimSpace(os.Getenv("MAX_RETRY_MINUTES")); raw != "" {
+		return max(utils.MustAtoi(raw), 0) * 60
+	}
+	return 30
 }
 
 func parseLocalLogsOverflow(raw string) string {

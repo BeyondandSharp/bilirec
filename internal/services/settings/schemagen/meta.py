@@ -37,7 +37,7 @@ META = {
 "MAX_CONCURRENT_RECORDINGS": ("最大并发录制数", "同时进行的录制任务上限。", "最大並發錄製數", "同時進行的錄製任務上限。", "Max concurrent recordings", "Upper bound of simultaneous recordings."),
 "MAX_RECORDING_HOURS": ("单次录制最长小时", "单个录制会话的最长时长（小时）。", "單次錄製最長小時", "單一錄製工作階段的最長時長（小時）。", "Max recording hours", "Maximum duration of a single recording session in hours."),
 "MAX_RECOVERY_ATTEMPTS": ("最大恢复尝试次数", "录制中断后的最大恢复尝试次数。", "最大恢復嘗試次數", "錄製中斷後的最大恢復嘗試次數。", "Max recovery attempts", "Maximum recovery attempts after a recording interruption."),
-"MAX_RETRY_MINUTES": ("最大重试分钟数", "录制失败后的最大重试时长（分钟）。", "最大重試分鐘數", "錄製失敗後的最大重試時長（分鐘）。", "Max retry minutes", "Maximum retry window after a failed recording, in minutes."),
+"MAX_RETRY_SECONDS": ("最大恢复时长（秒）", "断流但直播仍在时的恢复尝试窗口（秒）；0 表示不重试。", "最大恢復時長（秒）", "斷流但直播仍在時的恢復嘗試視窗（秒）；0 表示不重試。", "Max recovery window", "Recovery retry window in seconds while the room is still live; 0 disables retries."),
 "READ_STREAM_BYTES_POOL_SIZE": ("读取字节池大小", "读取流字节池的初始容量。", "讀取位元組池大小", "讀取串流位元組池的初始容量。", "Read stream bytes pool", "Initial capacity of the read stream bytes pool."),
 "READ_STREAM_BYTES_POOL_SIZE_HIGH": ("读取字节池上限", "读取流字节池的最大容量。", "讀取位元組池上限", "讀取串流位元組池的最大容量。", "Read stream bytes pool (high)", "Maximum capacity of the read stream bytes pool."),
 "READ_STREAM_CHAN_BUFFER_SIZE": ("读取通道缓冲", "读取流通道的缓冲条目数。", "讀取通道緩衝", "讀取串流通道的緩衝條目數。", "Read stream channel buffer", "Number of buffered entries in the read stream channel."),

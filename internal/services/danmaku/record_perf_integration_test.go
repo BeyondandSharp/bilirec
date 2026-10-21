@@ -3,8 +3,8 @@
 package danmaku_test
 
 import (
-	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"fmt"
+	"github.com/bilirec/bilirec/internal/testutil/recording"
 	"os"
 	"sort"
 	"strconv"
@@ -145,7 +145,7 @@ func runDanmakuProfiledRecordTest(t *testing.T, format string, recordDuration ti
 	bytesWritten := sess.Danmaku.GetBytesWritten(roomID)
 
 	// Same as runFormatRecordTest: a live room may already have auto-stopped
-	// (streamer offline past MaxRetryMinutes). Stop() returning false is not a failure.
+	// (streamer offline past MaxRetrySeconds). Stop() returning false is not a failure.
 	t.Log("stopping recording")
 	t.Logf("stop success: %v", sess.Recorder.Stop(roomID))
 	recording.WaitUntilNoActiveRecordings(t, sess.Recorder, 30*time.Second)

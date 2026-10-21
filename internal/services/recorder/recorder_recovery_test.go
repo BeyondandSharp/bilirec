@@ -399,3 +399,41 @@ func TestStartFailureReason(t *testing.T) {
 		}
 	}
 }
+
+func TestRecoveryStopReason(t *testing.T) {
+	r := newTestRecorderService(t)
+	r.cfg.MaxRetrySeconds = 30
+	r.cfg.MaxRecoveryAttempts = 3
+
+	cases := []struct {
+		name    string
+		err     error
+		attempt int
+		elapsed time.Duration
+		want    string
+		stop    bool
+	}{
+		{name: "stream ended is final", err: ErrStreamNotLive, attempt: 1, elapsed: 0, want: metrics.ReasonNotLive, stop: true},
+		{name: "still live transient retry", err: ErrStreamURLsUnreachable, attempt: 1, elapsed: 10 * time.Second},
+		{name: "recovery window expires", err: ErrStreamURLsUnreachable, attempt: 2, elapsed: 30 * time.Second, want: metrics.ReasonRetryTimeout, stop: true},
+		{name: "max attempts after window", err: ErrLiveAPI, attempt: 3, elapsed: 10 * time.Second, want: metrics.ReasonMaxAttempts, stop: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason, stop := r.recoveryStopReason(tc.err, tc.attempt, tc.elapsed)
+			if reason != tc.want || stop != tc.stop {
+				t.Fatalf("recoveryStopReason() = %q, %v; want %q, %v", reason, stop, tc.want, tc.stop)
+			}
+		})
+	}
+}
+
+func TestRecoveryStopReasonZeroWindow(t *testing.T) {
+	r := newTestRecorderService(t)
+	r.cfg.MaxRetrySeconds = 0
+	r.cfg.MaxRecoveryAttempts = 15
+	reason, stop := r.recoveryStopReason(ErrLiveAPI, 1, 0)
+	if !stop || reason != metrics.ReasonRetryTimeout {
+		t.Fatalf("zero window should stop immediately, got %q, %v", reason, stop)
+	}
+}

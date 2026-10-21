@@ -37,6 +37,7 @@ const (
 	ReasonOther          = "other"
 	ReasonMaxAttempts    = "max_attempts"
 	ReasonNotLiveTimeout = "not_live_timeout"
+	ReasonRetryTimeout   = "retry_timeout"
 	ReasonTiny           = "tiny"
 	ReasonSkippedSmall   = "skipped_small"
 	ReasonStatError      = "stat_error"
@@ -62,7 +63,9 @@ var (
 
 	gaveUpReasons = [...]string{
 		ReasonMaxAttempts,
+		ReasonNotLive,
 		ReasonNotLiveTimeout,
+		ReasonRetryTimeout,
 		ReasonConcurrent,
 		ReasonBanned,
 		ReasonEncrypted,
@@ -264,7 +267,7 @@ func isStartFailureReason(reason string) bool {
 
 func isGaveUpReason(reason string) bool {
 	switch reason {
-	case ReasonMaxAttempts, ReasonNotLiveTimeout, ReasonConcurrent, ReasonBanned, ReasonEncrypted:
+	case ReasonMaxAttempts, ReasonNotLive, ReasonNotLiveTimeout, ReasonRetryTimeout, ReasonConcurrent, ReasonBanned, ReasonEncrypted:
 		return true
 	default:
 		return false

@@ -97,6 +97,9 @@ func TestConfigGetIncludesSchemaValuesSources(t *testing.T) {
 	if _, ok := resp.Values["MAX_RECOVERY_ATTEMPTS"]; !ok {
 		t.Fatal("values should include MAX_RECOVERY_ATTEMPTS")
 	}
+	if got := resp.Values["MAX_RETRY_SECONDS"]; got != "30" {
+		t.Fatalf("MAX_RETRY_SECONDS default = %q, want 30", got)
+	}
 	if _, ok := resp.Values["JWT_SECRET"]; ok {
 		t.Fatal("/config must never expose secret values")
 	}
@@ -275,4 +278,18 @@ func TestConfigResetAndSecretsResetRequireAdmin(t *testing.T) {
 
 func featureSchemaKeysForTest() []string {
 	return settingssvc.FeatureSchemaKeys()
+}
+
+func TestConfigRetrySecondsLegacyAlias(t *testing.T) {
+	withNoAuth(t)
+	t.Setenv("MAX_RETRY_SECONDS", "")
+	t.Setenv("MAX_RETRY_MINUTES", "2")
+	app, _ := newTestController(t)
+	resp := decodeConfig(t, request(t, app, http.MethodGet, "/config", "", http.StatusOK))
+	if got := resp.Values["MAX_RETRY_SECONDS"]; got != "120" {
+		t.Fatalf("legacy MAX_RETRY_MINUTES mapping = %q, want 120", got)
+	}
+	if got := resp.Sources["MAX_RETRY_SECONDS"]; got != "env" {
+		t.Fatalf("legacy alias source = %q, want env", got)
+	}
 }

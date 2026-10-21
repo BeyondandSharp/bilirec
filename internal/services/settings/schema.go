@@ -218,7 +218,7 @@ var fieldSpecs = []Field{
 
 	{Key: "MAX_RECOVERY_ATTEMPTS", Group: "recording", Kind: "number", Default: "15", Min: ptrInt(0), Max: ptrInt(1000), Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "最大恢复尝试次数", ZhTW: "最大恢復嘗試次數", En: "Max recovery attempts"}, Description: LangText{ZhCN: "录制中断后的最大恢复尝试次数。", ZhTW: "錄製中斷後的最大恢復嘗試次數。", En: "Maximum recovery attempts after a recording interruption."}},
 
-	{Key: "MAX_RETRY_MINUTES", Group: "recording", Kind: "number", Default: "10", Min: ptrInt(1), Max: ptrInt(100000), Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "最大重试分钟数", ZhTW: "最大重試分鐘數", En: "Max retry minutes"}, Description: LangText{ZhCN: "录制失败后的最大重试时长（分钟）。", ZhTW: "錄製失敗後的最大重試時長（分鐘）。", En: "Maximum retry window after a failed recording, in minutes."}},
+	{Key: "MAX_RETRY_SECONDS", Group: "recording", Kind: "number", Default: "30", Min: ptrInt(0), Max: ptrInt(86400), Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "最大恢复时长（秒）", ZhTW: "最大恢復時長（秒）", En: "Max recovery window"}, Description: LangText{ZhCN: "断流但直播仍在时的恢复尝试窗口（秒）；0 表示不重试。", ZhTW: "斷流但直播仍在時的恢復嘗試視窗（秒）；0 表示不重試。", En: "Recovery retry window in seconds while the room is still live; 0 disables retries."}},
 
 	{Key: "METRICS_ENABLED", Group: "metrics", Kind: "bool", Default: "false", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "启用 Prometheus 指标", ZhTW: "啟用 Prometheus 指標", En: "Enable Prometheus metrics"}, Description: LangText{ZhCN: "暴露 Prometheus 指标端点。", ZhTW: "暴露 Prometheus 指標端點。", En: "Expose the Prometheus metrics endpoint."}},
 

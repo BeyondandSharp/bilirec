@@ -140,3 +140,18 @@ compose 增加 `config:/app/config` 卷，数据目录统一在 `/app/{records,d
 Alpine 运行时镜像安装 `shadow` 以获得 groupmod/usermod；Debian 已有。默认仍为 10001（LSIO 为 911），
 home 目录在改 uid 时临时指向 `/nonexistent` 以避免递归 chown，之后恢复。理由：宿主 gid 100 很常见，
 LSIO 兼容用法应当可用；重复 ID 下进程仍按请求的数值 UID/GID 运行、文件按数值归属。
+
+## D015 (2026-10-22, Lead) — 断流恢复只对“直播仍在”生效，默认 30 秒
+
+原 Bilirec 的 `recover()` 在直播已下线时仍以 `ErrStreamNotLive` 反复重试，最长等待
+`MAX_RETRY_MINUTES`（默认 10 分钟）才停止，导致正常下播后长时间显示“恢复中”。现改为：
+
+- `ErrStreamNotLive`（直播间 `live_status != 1`）立即结束恢复并停止会话；
+- 只有直播间仍在直播、但流地址断开/不可达时才重试；
+- 重试窗口由新键 `MAX_RETRY_SECONDS` 控制，默认 30 秒，0 表示不重试；
+- `MAX_RECOVERY_ATTEMPTS` 仍作为重试次数上限；
+- 旧键 `MAX_RETRY_MINUTES` 作为兼容别名保留（未设置新键时按分钟×60 换算），不再出现在
+  设置 schema 中。
+
+理由：下播是明确的终态，不应占着“恢复中”状态；短暂断流才需要恢复。B 站状态接口滞后时
+最多仍可能有约 30 秒窗口。源码见 `internal/services/recorder/recorder.go`。

@@ -69,7 +69,7 @@ func WaitUntilNoActiveRecordings(t *testing.T, recorderService *recorder.Service
 
 // StopRecording stops an active recording. A false return is not a failure:
 // a live room may already have auto-stopped (streamer offline past
-// MaxRetryMinutes, duration cap, etc.).
+// MaxRetrySeconds, duration cap, etc.).
 func StopRecording(t *testing.T, recorderService *recorder.Service, roomID int) {
 	t.Helper()
 	t.Log("stopping recording")

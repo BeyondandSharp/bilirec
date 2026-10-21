@@ -189,6 +189,24 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   安全规则：拒绝绝对路径、`..`/`.` 段、反斜杠、控制字符、空段；单段 ≤200B、总长 ≤512B（模板 ≤256B）。
 - 修改只对新会话生效；运行中的录制不受影响。房间覆盖用 `null` 清除后回到全局。
 
+## 5b. 断流恢复策略
+
+录制任务在直播流断开后会调用 `recover()`：
+
+- 每次恢复都会重新查询直播间状态；
+- **`live_status != 1`（主播已下播）→ 立即停止恢复并结束录制会话**，不再等待旧的 10 分钟窗口；
+- 只有直播间仍在直播、但流地址断开/不可达时才继续重试；
+- 断流重试窗口默认 **30 秒**，由 `MAX_RETRY_SECONDS` 控制（0 = 不重试）；
+- 同时仍受 `MAX_RECOVERY_ATTEMPTS`（默认 15 次）限制；
+- 重试失败后结束会话；若主播之后再次开播，由 `subcheck` 作为新的直播场次重新触发自动录制。
+
+`MAX_RETRY_SECONDS` / `MAX_RECOVERY_ATTEMPTS` 均为重启生效。旧配置中的
+`MAX_RETRY_MINUTES` 仍可作为兼容别名（未设置 `MAX_RETRY_SECONDS` 时按分钟×60 换算），
+但不会在设置页显示。
+
+> 注意：B 站直播状态接口可能短暂滞后。正常下播时最多仍可能看到约 30 秒的“恢复中”，
+> 这是状态接口尚未返回 `live_status=0` 时的重试窗口。
+
 ## 6. PUID / PGID
 
 - `PUID`/`PGID` 默认 `10001`，由 POSIX-sh 入口读取；必须为数字。ID 映射采用 LinuxServer.io

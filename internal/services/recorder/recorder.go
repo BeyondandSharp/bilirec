@@ -470,6 +470,22 @@ func (r *Service) checkRecordingDurationPeriodically(roomId int, ctx context.Con
 	}
 }
 
+// recoveryStopReason decides whether the recovery loop must give up.
+// A room that is no longer live is final; other errors share the configured
+// short recovery window AND the legacy max-attempts cap.
+func (r *Service) recoveryStopReason(err error, attempt int, elapsed time.Duration) (string, bool) {
+	if err == ErrStreamNotLive {
+		return metrics.ReasonNotLive, true
+	}
+	if elapsed >= time.Duration(r.cfg.MaxRetrySeconds)*time.Second {
+		return metrics.ReasonRetryTimeout, true
+	}
+	if attempt >= r.cfg.MaxRecoveryAttempts {
+		return metrics.ReasonMaxAttempts, true
+	}
+	return "", false
+}
+
 // Note: Each recovery attempt creates a NEW file with a new fileTime stamp
 // (second-granularity, strictly after the previous fileTime). Duration still
 // uses startTime; -N suffixes are only for live rotation within one fileTime.
@@ -540,22 +556,23 @@ func (r *Service) recover(roomId int) {
 
 			nextSleep := info.backoff.Next()
 
-			// if the error is stream not live, we should retry until max retry minutes reached, instead of max attempts, since the stream may be live again after some time
-			if err == ErrStreamNotLive {
-				// use r.cfg.MaxRetryMinutes to limit the total retry duration, instead of max attempts, since the stream may be live again after some time
-				if time.Since(retryStart) >= time.Duration(r.cfg.MaxRetryMinutes)*time.Minute {
-					l.Infof("直播已下线且已达到最长重试时间 (%d 分钟)，不再恢复", r.cfg.MaxRetryMinutes)
-					r.giveUpRecover(roomId, info, metrics.ReasonNotLiveTimeout)
-					return
+			// Only recover a disconnect while the room is still live. A normal
+			// stream end (LiveStatus != 1) is final: no retry window/status.
+			if reason, stop := r.recoveryStopReason(err, attempt, time.Since(retryStart)); stop {
+				switch reason {
+				case metrics.ReasonNotLive:
+					l.Infof("直播已下线，停止恢复")
+				case metrics.ReasonRetryTimeout:
+					l.Infof("断流恢复窗口已结束（%d 秒），停止恢复", r.cfg.MaxRetrySeconds)
+				case metrics.ReasonMaxAttempts:
+					l.Infof("已达到最大恢复次数（%d），不再恢复", r.cfg.MaxRecoveryAttempts)
 				}
-			} else if attempt >= r.cfg.MaxRecoveryAttempts {
-				l.Infof("已达到最大恢复次数（%d），不再恢复", r.cfg.MaxRecoveryAttempts)
-				r.giveUpRecover(roomId, info, metrics.ReasonMaxAttempts)
+				r.giveUpRecover(roomId, info, reason)
 				return
-			} else {
-				l.Warnf("第 %d 次恢复失败：%v", attempt, err)
-				l.Infof("将在 %d 秒后重试恢复流录制...", int(nextSleep.Seconds()))
 			}
+
+			l.Warnf("第 %d 次恢复失败：%v", attempt, err)
+			l.Infof("将在 %d 秒后重试恢复流录制...", int(nextSleep.Seconds()))
 
 			timer := time.NewTimer(nextSleep)
 			select {

@@ -108,6 +108,13 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   -d '{"values":{"JWT_SECRET":"<random>"}}' http://127.0.0.1:8080/config/secrets
 ```
 
+## 录制断流恢复
+
+- 主播正常下播（`live_status != 1`）后立即结束录制会话，不再长时间“恢复中”；
+- 只有直播仍在、但拉流断开时才重试，默认窗口 30 秒（`MAX_RETRY_SECONDS`，0 关闭）；
+- 恢复仍受 `MAX_RECOVERY_ATTEMPTS` 限制；设置页/环境变量修改需重启；
+- 旧版 `MAX_RETRY_MINUTES` 仍兼容，但不再显示在设置页。
+
 ## PUID / PGID（后端与前后端合一镜像）
 
 - `PUID`/`PGID` 默认 `10001`；入口允许与镜像内已有用户/组重复 ID（LinuxServer.io 风格 `groupmod -o` / `usermod -o`），因此 `PGID=100`（`users` 组）也可用。

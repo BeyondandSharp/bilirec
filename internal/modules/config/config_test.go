@@ -116,3 +116,28 @@ func TestParseFrontendURLs_invalid(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestParseMaxRetrySeconds(t *testing.T) {
+	cases := []struct {
+		name    string
+		seconds string
+		minutes string
+		want    int
+	}{
+		{name: "default", want: 30},
+		{name: "seconds wins", seconds: "45", minutes: "10", want: 45},
+		{name: "legacy minutes alias", minutes: "2", want: 120},
+		{name: "zero disables", seconds: "0", want: 0},
+		{name: "negative clamps", seconds: "-5", want: 0},
+		{name: "empty seconds falls back to legacy", seconds: "", minutes: "1", want: 60},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MAX_RETRY_SECONDS", tc.seconds)
+			t.Setenv("MAX_RETRY_MINUTES", tc.minutes)
+			if got := parseMaxRetrySeconds(); got != tc.want {
+				t.Fatalf("parseMaxRetrySeconds() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

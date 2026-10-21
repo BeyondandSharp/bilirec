@@ -6,6 +6,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/bilirec/bilirec/internal/modules/configfile"
@@ -83,6 +84,21 @@ func configFieldKeys() []string {
 	return keys
 }
 
+// effectiveValue returns the /config value/source, mapping the legacy
+// MAX_RETRY_MINUTES alias to its seconds equivalent when the new key is absent.
+// The recorder itself performs the same conversion at startup.
+func (c *Controller) effectiveValue(key, defaultValue string) (string, configfile.Source) {
+	value, source := c.store.EffectiveValue(key, defaultValue)
+	if key == "MAX_RETRY_SECONDS" && (source == configfile.SourceDefault || strings.TrimSpace(value) == "") {
+		if raw, legacySource := c.store.EffectiveValue("MAX_RETRY_MINUTES", ""); raw != "" {
+			if minutes, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && minutes >= 0 {
+				return strconv.Itoa(minutes * 60), legacySource
+			}
+		}
+	}
+	return value, source
+}
+
 func (c *Controller) response() ConfigResponse {
 	fields := settingssvc.ManagedSchema()
 	ffmpegMissing := c.convert == nil || len(c.convert.Providers()) == 0
@@ -114,7 +130,7 @@ func (c *Controller) response() ConfigResponse {
 		if value, exists := c.store.ConfigValue(key); exists {
 			response.Overrides[key] = value
 		}
-		value, source := c.store.EffectiveValue(key, field.Default)
+		value, source := c.effectiveValue(key, field.Default)
 		response.Values[key] = value
 		response.Sources[key] = string(source)
 	}
