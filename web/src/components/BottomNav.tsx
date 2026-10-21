@@ -1,16 +1,17 @@
 import { cn } from '@/lib/utils'
-import { SwapIcon, BellIcon, GearSixIcon } from '@phosphor-icons/react'
+import { SwapIcon, BellIcon, GearSixIcon, TerminalIcon } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
-type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings'
+type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings' | 'logs'
 
 interface BottomNavProps {
   activeTab: AppTab
   onTabChange: (tab: AppTab) => void
   showConverts?: boolean
+  showLogs?: boolean
 }
 
-export function BottomNav({ activeTab, onTabChange, showConverts = true }: BottomNavProps) {
+export function BottomNav({ activeTab, onTabChange, showConverts = true, showLogs = true }: BottomNavProps) {
   const { t } = useTranslation()
 
   return (
@@ -70,6 +71,20 @@ export function BottomNav({ activeTab, onTabChange, showConverts = true }: Botto
           </span>
           <span className="text-xs font-medium">{t('nav.subscribe')}</span>
         </button>
+        {showLogs && (
+          <button
+            onClick={() => onTabChange('logs')}
+            className={cn(
+              'flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors',
+              activeTab === 'logs' ? 'text-primary' : 'text-muted-foreground'
+            )}
+          >
+            <span className="w-6 h-6 flex items-center justify-center">
+              <TerminalIcon size={18} weight="bold" />
+            </span>
+            <span className="text-xs font-medium">{t('nav.logs')}</span>
+          </button>
+        )}
         <button
           onClick={() => onTabChange('settings')}
           className={cn(

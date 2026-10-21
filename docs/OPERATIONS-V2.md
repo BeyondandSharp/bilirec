@@ -2,7 +2,8 @@
 
 面向运维/部署的操作手册（v0.4.x）。覆盖统一配置中心（`config.json` + `secrets.json`）、
 FEATURES-V2 设置与房间覆盖、数据目录/卷、PUID/PGID、升级备份与常见故障。
-冻结契约：[CONFIG-V2.md](CONFIG-V2.md)（§1 文件/优先级/API、§4 配置 API、§7 PUID/PGID、§8 版本）；
+冻结契约：[CONFIG-V2.md](CONFIG-V2.md)（§1 文件/优先级/API、§4 配置 API、§7 PUID/PGID、§8 版本）、
+[LOGS-VIEW.md](LOGS-VIEW.md)（本地日志查看/下载）；
 特性契约：[FEATURES-V2.md](FEATURES-V2.md)；开发/构建见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 部署入口（根 README）：[../README.md](../README.md)。
 
@@ -138,6 +139,35 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   -d '{"auto_record":true,"segment_mode":null}' http://127.0.0.1:8080/room/12345/config
 ```
 
+## 4b. 本地日志查看（LOGS-VIEW）
+
+日志页面/下载读取 `internal/modules/logging` 写出的**当前本地日志文件**，仅在
+`LOCAL_LOGS_ENABLED=true` 时启用；不会接受任意路径，也不会暴露轮转/压缩备份。
+
+| 配置键 | 默认 | 说明 |
+|---|---|---|
+| `LOCAL_LOGS_ENABLED` | `false` | 是否写本地日志（启用后日志页/下载可用；修改需重启） |
+| `LOCAL_LOGS_PATH` | 空 = `<DATABASE_DIR>/bilirec.log` | 日志文件路径；目录需对 `PUID`/`PGID` 可写 |
+| `LOCAL_LOGS_FORMAT` | `pretty` | `pretty` 或 `json`（响应里的 `format` 字段） |
+| `LOCAL_LOGS_MAX_SIZE_MB` | `20` | 单文件轮转阈值 |
+| `LOCAL_LOGS_MAX_AGE_DAYS` / `LOCAL_LOGS_MAX_BACKUPS` / `LOCAL_LOGS_COMPRESS` | `7` / `3` / `false` | 轮转后的保留/压缩 |
+| `LOCAL_LOGS_FLUSH_INTERVAL` / `LOCAL_LOGS_BATCH_BYTES` / `LOCAL_LOGS_BUFFER_SIZE` / `LOCAL_LOGS_OVERFLOW` | `1s` / `65536` / `4096` / 空 | 写入刷新与溢出策略 |
+
+- 修改配置：环境变量 / `deploy/.env`，或 web 设置 → 系统配置 → 日志；该组键均为
+  `restart_required`，修改后重启容器生效。
+- 页面/API 权限：仅管理员（admin）。viewer 看不到“日志”导航，直接请求 `/logs` 返回 403；
+  未登录返回 401。
+- API：
+  - `GET /logs?lines=N`：`lines` 默认 500、范围 1–2000，非法值 400；返回
+    `{enabled,path,exists,size,mtime,format,lines,truncated}`；每次最多读取当前文件尾部 2 MiB，
+    丢弃截断的半行；`truncated=true` 表示窗口或请求行数截断。
+  - `GET /logs/download`：以 `text/plain; charset=utf-8` + `Content-Disposition: attachment;
+    filename="bilirec.log"` 下载当前文件的完整内容（不受上面 2 MiB 尾部窗口限制）；`enabled=false`
+    或文件不存在返回 404。
+- 未启用（`enabled=false`）：`GET /logs` 仍返回 200，`lines=[]`，`exists` 反映文件是否存在；
+  下载 404。启用但文件尚未写入：`exists=false`、`lines=[]`，页面显示“等待日志写入”并继续轮询。
+- 只读取当前文件；`lumberjack` 轮转出的备份文件（`bilirec-*.log[.gz]`）不会通过 API 暴露。
+
 ## 5. FEATURES-V2 设置与房间覆盖
 
 解析顺序（低 → 高）：**内置默认 < env < `config.json` 全局覆盖 < 房间覆盖**（房间 `null` = 继承）。
@@ -227,6 +257,10 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
 - 敏感键（6 个）见 §1.4；引导键见 §1.4。
 - `deploy/.env.example` 按用途分组给出了常用键与示例（端口/来源、登录、管道、FEATURES-V2、PUID/PGID、
   CONFIG_FILE/SECRETS_FILE、VERSION 等）。
+- 本地日志查看相关键：`LOCAL_LOGS_ENABLED`、`LOCAL_LOGS_PATH`、`LOCAL_LOGS_FORMAT`、
+  `LOCAL_LOGS_MAX_SIZE_MB`、`LOCAL_LOGS_MAX_AGE_DAYS`、`LOCAL_LOGS_MAX_BACKUPS`、`LOCAL_LOGS_COMPRESS`、
+  `LOCAL_LOGS_FLUSH_INTERVAL`、`LOCAL_LOGS_BATCH_BYTES`、`LOCAL_LOGS_BUFFER_SIZE`、`LOCAL_LOGS_OVERFLOW`
+  （见 §4b；schema 中 group=`logging`，均需重启生效）。
 - 无效 env 值：启动时告警一次并回退内置默认（FEATURES-V2 键同规则）。
 
 ## 10. 排障
@@ -250,6 +284,12 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
 | 修复降级（repair=degraded） | 侧车崩溃/不可用时会重试一次后透传，录制不中断；检查 `FLV_REPAIR_BIN` 与 `flvrepair --version`。 |
 | B05 自定义 host 失败 | 自定义 API host 必须反代官方 API（含 WBI）；失败自动回退官方/original URL，录制不中断。 |
 | 设置 API 401/403 | 启用认证时 GET 需 admin/viewer、写需 admin；先 `POST /login` 并携带 cookie。 |
+| 日志页提示“未启用” | `LOCAL_LOGS_ENABLED=true` 并重启（该键 `restart_required`）；可在 `deploy/.env` 或设置 → 系统配置 → 日志 中开启。 |
+| 日志页一直“等待日志写入” | 检查 `LOCAL_LOGS_PATH` 目录存在且对 `PUID`/`PGID` 可写（默认 `<DATABASE_DIR>/bilirec.log`，镜像内 `/app/database/bilirec.log`）。 |
+| 下载日志 404 | `LOCAL_LOGS_ENABLED=false` 或当前日志文件不存在（轮转后的备份不提供下载）；先启用并产生新日志。 |
+| viewer 看不到“日志”或请求 403 | 日志查看仅管理员；viewer 只读权限不能访问 `/logs`、`/logs/download`。 |
+| `/logs?lines=` 返回 400 | 值必须是整数且在 1–2000；默认 500。 |
+| `/logs` 看不到最新一行 | 每次最多读取/展示尾部 2 MiB，或请求行数小于文件行数（`truncated=true`）；下载接口返回当前文件完整内容。 |
 
 ## 11. 验证与已知限制
 

@@ -9,6 +9,7 @@ import (
 	configapi "github.com/bilirec/bilirec/internal/controllers/config"
 	"github.com/bilirec/bilirec/internal/controllers/convert"
 	"github.com/bilirec/bilirec/internal/controllers/file"
+	lg "github.com/bilirec/bilirec/internal/controllers/logs"
 	nc "github.com/bilirec/bilirec/internal/controllers/notify"
 	"github.com/bilirec/bilirec/internal/controllers/record"
 	"github.com/bilirec/bilirec/internal/controllers/room"
@@ -81,6 +82,7 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Invoke(room.NewController),
 		fx.Invoke(cs.NewController),
 		fx.Invoke(configapi.NewController),
+		fx.Invoke(lg.NewController),
 		fx.Invoke(nc.NewController),
 		fx.Invoke(record.NewController),
 		fx.Invoke(file.NewController),

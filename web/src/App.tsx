@@ -8,6 +8,7 @@ import { FilesView } from "@/components/FilesView";
 import { ConvertsView } from "@/components/ConvertsView";
 import { SubscribesView } from "@/components/SubscribesView";
 import { SettingsView } from "@/components/SettingsView";
+import { LogsView } from "@/components/LogsView";
 import { BilibiliAuthDialog } from "@/components/BilibiliAuthDialog";
 import { AboutDialog } from "@/components/AboutDialog";
 import { AnalyticsConsentNotice } from "@/components/AnalyticsConsentNotice";
@@ -32,7 +33,7 @@ import { useAnalyticsSession } from "@/hooks/use-analytics-session";
 import { apiClient } from "@/lib/api";
 import { ConvertCapabilityContext } from "@/lib/convert-capability";
 
-type AppTab = "records" | "files" | "converts" | "subscribe" | "settings";
+type AppTab = "records" | "files" | "converts" | "subscribe" | "settings" | "logs";
 
 function getTabFromSearch(search: string): AppTab | null {
   const params = new URLSearchParams(search);
@@ -41,7 +42,8 @@ function getTabFromSearch(search: string): AppTab | null {
     tab === "files" ||
     tab === "converts" ||
     tab === "subscribe" ||
-    tab === "settings"
+    tab === "settings" ||
+    tab === "logs"
     ? tab
     : null;
 }
@@ -75,6 +77,8 @@ function App() {
     onDiskUsage: setDiskUsage
   });
   const { isAuthenticated, isCheckingAuth, userRole, userName, isReadOnly } = auth;
+  // Log viewer is admin-only (LOGS-VIEW contract).
+  const canViewLogs = !isReadOnly;
 
   const bilibili = useBilibiliAuth(isAuthenticated, userRole);
   useDiskUsage(isAuthenticated, setDiskUsage);
@@ -95,6 +99,7 @@ function App() {
 
   const handleTabChange = (tab: AppTab) => {
     if (tab === "converts" && !canConvert) return;
+    if (tab === "logs" && !canViewLogs) return;
     if (tab !== "subscribe") setPinnedRoomId(null);
     setActiveTab(tab);
   };
@@ -124,7 +129,10 @@ function App() {
     if (!canConvert && activeTab === "converts") {
       setActiveTab(VIEWER_MODE_ENABLED ? "files" : "records");
     }
-  }, [canConvert, activeTab]);
+    if (!canViewLogs && activeTab === "logs") {
+      setActiveTab(VIEWER_MODE_ENABLED ? "files" : "records");
+    }
+  }, [canConvert, canViewLogs, activeTab]);
 
   useEffect(() => {
     if (isCheckingAuth || !isAuthenticated) {
@@ -290,6 +298,7 @@ function App() {
             onTabChange={handleTabChange}
             diskUsage={diskUsage}
             showConverts={canConvert}
+            showLogs={canViewLogs}
           />
 
           <div className="flex-1">
@@ -310,6 +319,8 @@ function App() {
                   <ConvertsView />
                 ) : activeTab === "settings" ? (
                   <SettingsView />
+                ) : activeTab === "logs" ? (
+                  canViewLogs ? <LogsView onOpenSettings={() => handleTabChange("settings")} /> : null
                 ) : (
                   <SubscribesView pinnedRoomId={pinnedRoomId} />
                 )}
@@ -318,7 +329,12 @@ function App() {
           </div>
         </div>
 
-        <BottomNav activeTab={activeTab} onTabChange={handleTabChange} showConverts={canConvert} />
+        <BottomNav
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+          showConverts={canConvert}
+          showLogs={canViewLogs}
+        />
         <NetworkStatusToaster />
         <Toaster richColors position="top-center" />
       </div>

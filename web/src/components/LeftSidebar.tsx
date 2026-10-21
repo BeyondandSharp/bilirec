@@ -1,19 +1,20 @@
 import { cn } from '@/lib/utils'
-import { FileIcon, SwapIcon, BellIcon, GearSixIcon } from '@phosphor-icons/react'
+import { FileIcon, SwapIcon, BellIcon, GearSixIcon, TerminalIcon } from '@phosphor-icons/react'
 import { DiskUsageDisplay } from './DiskUsageDisplay'
 import type { DiskUsage } from '@/lib/types'
 import { useTranslation } from 'react-i18next'
 
-type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings'
+type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings' | 'logs'
 
 type LeftSidebarProps = {
   activeTab: AppTab
   onTabChange: (t: AppTab) => void
   diskUsage?: DiskUsage | null
   showConverts?: boolean
+  showLogs?: boolean
 }
 
-export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = true }: LeftSidebarProps) {
+export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = true, showLogs = true }: LeftSidebarProps) {
   const { t } = useTranslation()
 
   return (
@@ -81,6 +82,22 @@ export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = 
           <span className="shrink-0"><BellIcon size={18} weight="bold" /></span>
           <span>{t('nav.subscribe')}</span>
         </button>
+
+        {showLogs && (
+          <button
+            onClick={() => onTabChange('logs')}
+            aria-pressed={activeTab === 'logs'}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full cursor-pointer',
+              activeTab === 'logs'
+                ? 'text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-primary hover:bg-secondary/10'
+            )}
+          >
+            <span className="shrink-0"><TerminalIcon size={18} weight="bold" /></span>
+            <span>{t('nav.logs')}</span>
+          </button>
+        )}
 
         <button
           onClick={() => onTabChange('settings')}

@@ -725,6 +725,111 @@ file_mode_is() {
   [ "$(stat -c '%a' "$1" 2>/dev/null)" = "$2" ]
 }
 
+
+# ---------------------------------------------------------------------------
+# LOGS-VIEW helpers (GET /logs, GET /logs/download)
+# ---------------------------------------------------------------------------
+# logs_shape_ok <file> <enabled:0|1> <expected-path>
+logs_shape_ok() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json
+import sys
+
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception as exc:
+    sys.exit("invalid JSON: %s" % exc)
+want_enabled = sys.argv[2] == "1"
+want_path = sys.argv[3]
+errs = []
+for key in ("enabled", "path", "exists", "size", "mtime", "format", "lines", "truncated"):
+    if key not in d:
+        errs.append("missing response key %s" % key)
+if d.get("enabled") is not want_enabled:
+    errs.append("enabled=%r want %r" % (d.get("enabled"), want_enabled))
+if d.get("path") != want_path:
+    errs.append("path=%r want %r" % (d.get("path"), want_path))
+for key in ("exists", "truncated"):
+    if not isinstance(d.get(key), bool):
+        errs.append("%s is not a bool" % key)
+if not isinstance(d.get("size"), int) or d.get("size", -1) < 0:
+    errs.append("size=%r is not a non-negative int" % (d.get("size"),))
+if not isinstance(d.get("format"), str) or not d.get("format"):
+    errs.append("format=%r is not a non-empty string" % (d.get("format"),))
+lines = d.get("lines")
+if not isinstance(lines, list) or any(not isinstance(line, str) for line in lines):
+    errs.append("lines is not a list of strings")
+elif not want_enabled and lines:
+    errs.append("disabled logging returned %d lines" % len(lines))
+elif d.get("exists") is False and lines:
+    errs.append("missing log file returned %d lines" % len(lines))
+if d.get("exists") and not d.get("mtime"):
+    errs.append("existing log file has empty mtime")
+if errs:
+    sys.exit("; ".join(errs))
+print("enabled=%r exists=%r size=%d lines=%d format=%s" % (
+    d.get("enabled"), d.get("exists"), d.get("size"), len(lines), d.get("format")))
+PY
+}
+
+# logs_count_between <file> <min> <max>
+logs_count_between() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+count = len(d.get("lines") or [])
+lo, hi = int(sys.argv[2]), int(sys.argv[3])
+sys.exit(0 if lo <= count <= hi else 1)
+PY
+}
+
+# logs_download <jar-or-"-"> <body-out> <headers-out>: prints HTTP status.
+logs_download() {
+  local jar=$1 body=$2 headers=$3
+  local args=(-sS -D "$headers" -o "$body" -w '%{http_code}' --max-time 30)
+  if [[ "$jar" != "-" && -f "$jar" ]]; then
+    args+=(-b "$jar")
+  fi
+  curl "${args[@]}" "http://127.0.0.1:$BPORT/logs/download"
+}
+
+# logs_download_headers_ok <headers-file> <body-file>
+logs_download_headers_ok() {
+  python3 - "$1" "$2" <<'PY'
+import os
+import sys
+
+headers = open(sys.argv[1], "r", errors="replace").read().lower()
+body = open(sys.argv[2], "rb").read()
+errs = []
+if "content-type: text/plain" not in headers:
+    errs.append("missing text/plain content-type")
+if 'content-disposition: attachment; filename="bilirec.log"' not in headers:
+    errs.append("missing attachment Content-Disposition")
+if not body:
+    errs.append("empty download body")
+if errs:
+    sys.exit("; ".join(errs))
+print("download %d bytes, text/plain attachment" % len(body))
+PY
+}
+
+# logs_body_has_tail <logs-json> <download-body>
+logs_body_has_tail() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+body = open(sys.argv[2], "rb").read().decode("utf-8", errors="replace")
+lines = [line for line in (d.get("lines") or []) if line.strip()]
+found = any(line in body for line in lines[-3:])
+sys.exit(0 if found else 1)
+PY
+}
+
 # start_backend <pidfile> <logfile> <env...>
 start_backend() {
   local pidfile=$1 logfile=$2
@@ -1113,6 +1218,9 @@ BASE_ENV=(
   # ./config.json relative to the repo root).
   "CONFIG_FILE=$WORK/backend/config/config.json"
   "SECRETS_FILE=$WORK/backend/config/secrets.json"
+  # LOGS-VIEW: write local logs to a temp file so GET /logs + download can be tested.
+  "LOCAL_LOGS_ENABLED=true"
+  "LOCAL_LOGS_PATH=$WORK/backend/logs/bilirec.log"
 )
 if [[ -n "$E2E_DOWNLOADER" ]]; then
   BASE_ENV+=("DOWNLOADER=$E2E_DOWNLOADER")
@@ -1168,7 +1276,7 @@ fi
 
 # CONFIG-V2: pre-seed config.json with an unknown key to verify /config reset and
 # persistence preserve unknown keys; config/secrets live under the temp dir.
-mkdir -p "$WORK/backend/config"
+mkdir -p "$WORK/backend/config" "$WORK/backend/logs"
 printf '{"MY_E2E_CUSTOM":"keep-me"}\n' >"$WORK/backend/config/config.json"
 
 start_backend "$BACKEND_PIDFILE" "$BACKEND_LOG" "${BASE_ENV[@]}" "${V2_ENV[@]}" "$ROOT/dist/bilirec"
@@ -1628,6 +1736,107 @@ else
   fail "schema requires:ffmpeg disabled_reason: $out"
 fi
 
+
+# ---------------------------------------------------------------------------
+# 5d. LOGS-VIEW: local log tail + download (admin-only; auth disabled here)
+# ---------------------------------------------------------------------------
+say "LOGS-VIEW local log viewer API (/logs, /logs/download)"
+LOGS_PATH="$WORK/backend/logs/bilirec.log"
+LOGS_READY=0
+for _ in $(seq 1 100); do
+  if [[ -s "$LOGS_PATH" ]]; then
+    code=$(api GET /logs)
+    if [[ "$code" == "200" ]] && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("lines") else 1)' "$API_BODY" 2>/dev/null; then
+      LOGS_READY=1
+      break
+    fi
+  fi
+  sleep 0.2
+done
+if (( LOGS_READY != 1 )); then
+  fail "local log file $LOGS_PATH did not receive lines within 20s"
+else
+  pass "local log file received lines ($(stat -c%s "$LOGS_PATH") B at $LOGS_PATH)"
+  code=$(api GET /logs)
+  expect_status 200 "$code" "GET /logs (default lines)"
+  if out=$(logs_shape_ok "$API_BODY" 1 "$LOGS_PATH" 2>&1); then
+    pass "GET /logs shape: $out"
+  else
+    fail "GET /logs shape: $out"
+  fi
+  if logs_count_between "$API_BODY" 1 500; then
+    pass "GET /logs default line count within 1..500"
+  else
+    fail "GET /logs default line count out of range ($(json_get "$API_BODY" lines | cut -c1-40))"
+  fi
+
+  code=$(api GET "/logs?lines=5")
+  expect_status 200 "$code" "GET /logs?lines=5"
+  if logs_count_between "$API_BODY" 1 5; then
+    pass "GET /logs?lines=5 returns 1..5 lines"
+  else
+    fail "GET /logs?lines=5 line count out of range"
+  fi
+  code=$(api GET "/logs?lines=1")
+  expect_status 200 "$code" "GET /logs?lines=1 (min)"
+  if logs_count_between "$API_BODY" 1 1; then
+    pass "GET /logs?lines=1 returns exactly 1 line"
+  else
+    fail "GET /logs?lines=1 line count != 1"
+  fi
+  code=$(api GET "/logs?lines=2000")
+  expect_status 200 "$code" "GET /logs?lines=2000 (max)"
+  if logs_count_between "$API_BODY" 1 2000; then
+    pass "GET /logs?lines=2000 returns 1..2000 lines"
+  else
+    fail "GET /logs?lines=2000 line count out of range"
+  fi
+
+  code=$(api GET "/logs?lines=0")
+  expect_status 400 "$code" "GET /logs?lines=0 (below min -> 400)"
+  code=$(api GET "/logs?lines=2001")
+  expect_status 400 "$code" "GET /logs?lines=2001 (above max -> 400)"
+  code=$(api GET "/logs?lines=abc")
+  expect_status 400 "$code" "GET /logs?lines=abc (not an integer -> 400)"
+
+  # No arbitrary path parameter: only the configured file is read.
+  code=$(api GET "/logs?path=/etc/passwd")
+  expect_status 200 "$code" "GET /logs?path=... ignores arbitrary path"
+  if out=$(logs_shape_ok "$API_BODY" 1 "$LOGS_PATH" 2>&1); then
+    pass "GET /logs?path=... still reports configured path: $out"
+  else
+    fail "GET /logs?path=... path handling: $out"
+  fi
+
+  code=$(logs_download - "$WORK/out/logs-download.log" "$WORK/out/logs-download.headers")
+  expect_status 200 "$code" "GET /logs/download"
+  if out=$(logs_download_headers_ok "$WORK/out/logs-download.headers" "$WORK/out/logs-download.log" 2>&1); then
+    pass "GET /logs/download headers/body: $out"
+  else
+    fail "GET /logs/download headers/body: $out"
+  fi
+  if python3 - "$API_BODY" "$WORK/out/logs-download.log" <<'PY'
+import json
+import os
+import sys
+
+d = json.load(open(sys.argv[1]))
+body_size = os.path.getsize(sys.argv[2])
+reported = int(d.get("size") or 0)
+sys.exit(0 if body_size >= reported else 1)
+PY
+  then
+    pass "GET /logs/download streams the current file (body >= reported size)"
+  else
+    fail "GET /logs/download body is smaller than the reported file size"
+  fi
+  if logs_body_has_tail "$API_BODY" "$WORK/out/logs-download.log"; then
+    pass "downloaded log contains lines from the /logs tail"
+  else
+    fail "downloaded log does not contain the /logs tail lines"
+  fi
+fi
+
 # ---------------------------------------------------------------------------
 # 6. opt-in real live recording through the REST API
 # ---------------------------------------------------------------------------
@@ -1917,6 +2126,57 @@ else
 fi
 AUTH="-"
 
+
+# ---------------------------------------------------------------------------
+# 6c. LOGS-VIEW disabled state (enabled=false -> lines empty, download 404)
+# ---------------------------------------------------------------------------
+say "LOGS-VIEW disabled state"
+LOG_DISABLED_DIR="$WORK/logs-disabled"
+mkdir -p "$LOG_DISABLED_DIR/records" "$LOG_DISABLED_DIR/database" "$LOG_DISABLED_DIR/secrets"
+DISABLED_LOG_PATH="$LOG_DISABLED_DIR/bilirec.log"
+printf 'PRE-SEEDED LOG LINE (logging disabled)\n' >"$DISABLED_LOG_PATH"
+LOG_DISABLED_ENV=(
+  "BILIBILI_LOGIN_MODE=anonymous"
+  "PORT=$BPORT"
+  "HOST=127.0.0.1"
+  "METRICS_ENABLED=false"
+  "OUTPUT_DIR=$LOG_DISABLED_DIR/records"
+  "DATABASE_DIR=$LOG_DISABLED_DIR/database"
+  "SECRET_DIR=$LOG_DISABLED_DIR/secrets"
+  "CONFIG_FILE=$LOG_DISABLED_DIR/config.json"
+  "SECRETS_FILE=$LOG_DISABLED_DIR/secrets.json"
+  "MAX_CONCURRENT_RECORDINGS=2"
+  "TZ=UTC"
+  "USERNAME="
+  "PASSWORD="
+  "LOCAL_LOGS_ENABLED=false"
+  "LOCAL_LOGS_PATH=$DISABLED_LOG_PATH"
+)
+stop_backend "$BACKEND_PIDFILE"
+start_backend "$BACKEND_PIDFILE" "$LOG_DISABLED_DIR/backend.log" "${LOG_DISABLED_ENV[@]}" "$ROOT/dist/bilirec"
+BACKEND_READY=0
+if wait_backend_ready "$BPORT" 60; then
+  BACKEND_READY=1
+fi
+if (( BACKEND_READY != 1 )); then
+  fail "LOGS-VIEW disabled instance did not start"
+  tail -40 "$LOG_DISABLED_DIR/backend.log" >&2 || true
+else
+  AUTH="-"
+  code=$(api GET /logs)
+  expect_status 200 "$code" "GET /logs with LOCAL_LOGS_ENABLED=false"
+  if out=$(logs_shape_ok "$API_BODY" 0 "$DISABLED_LOG_PATH" 2>&1); then
+    pass "disabled logs response: $out"
+  else
+    fail "disabled logs response: $out"
+  fi
+  json_assert "$API_BODY" exists 'true' "disabled logs still report exists for a present file"
+  code=$(logs_download - "$WORK/out/logs-disabled-download.log" "$WORK/out/logs-disabled-download.headers")
+  expect_status 404 "$code" "GET /logs/download with LOCAL_LOGS_ENABLED=false -> 404"
+  stop_backend "$BACKEND_PIDFILE"
+fi
+AUTH="-"
+
 # ---------------------------------------------------------------------------
 # 7. FEATURES-V2 auth matrix + settings/room-config persistence across restart
 #    Restart the same DATABASE_DIR with USERNAME/PASSWORD + VIEWER_* and verify
@@ -1959,6 +2219,10 @@ else
     expect_status 401 "$code" "GET /config without token"
     code=$(api GET /config/secrets)
     expect_status 401 "$code" "GET /config/secrets without token"
+    code=$(api GET /logs)
+    expect_status 401 "$code" "GET /logs without token"
+    code=$(api GET /logs/download)
+    expect_status 401 "$code" "GET /logs/download without token"
 
     code=$(login "$E2E_ADMIN_USER" "definitely-wrong" "$WORK/bad.cookies")
     expect_status 401 "$code" "POST /login wrong password"
@@ -2014,11 +2278,29 @@ else
     viewer_secret_body=$(printf '%s' '{"values":{"FRP_TOKEN":"viewer"}}' | mkbody viewer-secret)
     code=$(api PUT /config/secrets "$viewer_secret_body")
     expect_status 403 "$code" "PUT /config/secrets as viewer (forbidden)"
+    code=$(api GET /logs)
+    expect_status 403 "$code" "GET /logs as viewer (admin-only)"
+    code=$(logs_download "$VIEWER_JAR" "$WORK/out/logs-download-viewer.log" "$WORK/out/logs-download-viewer.headers")
+    expect_status 403 "$code" "GET /logs/download as viewer (admin-only)"
 
     # CONFIG-V2 admin write + reset; feature overrides in config.json are kept.
     AUTH="$ADMIN_JAR"
     code=$(api GET /config)
     expect_status 200 "$code" "GET /config as admin"
+    code=$(api GET /logs)
+    expect_status 200 "$code" "GET /logs as admin"
+    if out=$(logs_shape_ok "$API_BODY" 1 "$WORK/backend/logs/bilirec.log" 2>&1); then
+      pass "GET /logs as admin shape: $out"
+    else
+      fail "GET /logs as admin shape: $out"
+    fi
+    code=$(logs_download "$ADMIN_JAR" "$WORK/out/logs-download-admin.log" "$WORK/out/logs-download-admin.headers")
+    expect_status 200 "$code" "GET /logs/download as admin"
+    if out=$(logs_download_headers_ok "$WORK/out/logs-download-admin.headers" "$WORK/out/logs-download-admin.log" 2>&1); then
+      pass "admin download headers/body: $out"
+    else
+      fail "admin download headers/body: $out"
+    fi
     admin_cfg_body=$(printf '%s' '{"values":{"EXTERNAL_START_TIMEOUT_SECS":"35"}}' | mkbody admin-config)
     code=$(api PUT /config "$admin_cfg_body")
     expect_status 200 "$code" "PUT /config as admin"

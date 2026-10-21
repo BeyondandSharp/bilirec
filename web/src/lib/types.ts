@@ -435,6 +435,26 @@ export interface BilibiliAuthStatus {
   lastError?: string
 }
 
+/** GET /logs response: tail of the current local log file (admin only, LOGS-VIEW contract). */
+export interface LogsResponse {
+  /** Effective LOCAL_LOGS_ENABLED (changing it requires a backend restart). */
+  enabled: boolean
+  /** Absolute path of the current log file. */
+  path: string
+  /** Whether the current log file exists yet. */
+  exists: boolean
+  /** File size in bytes. */
+  size: number
+  /** Last modification time (RFC 3339); empty when the file is missing. */
+  mtime: string
+  /** Log line format reported by the backend, e.g. "pretty" or "json". */
+  format: string
+  /** Tail lines, oldest first. */
+  lines: string[]
+  /** True when the read window or requested line count cut the output. */
+  truncated: boolean
+}
+
 export interface ServerVersionResult {
   current: string
   latest: string

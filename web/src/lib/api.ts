@@ -26,6 +26,7 @@ import type {
   ServerVersionResult,
   GlobalSettings,
   SettingsResponse,
+  LogsResponse,
   ConfigUpdateRequest,
   SecretStatusResponse,
   SystemConfigResponse
@@ -604,6 +605,18 @@ class ApiClient {
   /** Clear all persisted global overrides (back to env defaults). */
   async resetSettings(): Promise<void> {
     await this.client.post('/settings/reset');
+  }
+
+  /** Tail of the current local log file (admin only, LOGS-VIEW contract). */
+  async getLogs(lines: number = 500): Promise<LogsResponse> {
+    const response = await this.client.get<LogsResponse>('/logs', { params: { lines } });
+    return response.data;
+  }
+
+  /** Download the current local log file (admin only; 404 when disabled/missing). */
+  async downloadLogs(): Promise<Blob> {
+    const response = await this.client.get('/logs/download', { responseType: 'blob' });
+    return response.data as Blob;
   }
 
   /** Managed environment config with backend-provided schema metadata (CONFIG-V2 §4). */
