@@ -2,15 +2,31 @@
 #
 # The programs live as real files in <action>/scripts/*.mjs and are executed with
 # `node "$forgejo_dir/scripts/run.mjs" <subcommand>`; this file only orchestrates
-# them. The reference implementations are the three official Docker Actions
-# (build-push-action v7.4.0, metadata-action v6.2.0, login-action v4.6.0) kept in
-# this repository under ref/docker-build-push/ — they are reference material only
-# and are never copied to a target repository.
+# them. Target repositories do not copy those programs: `Fetch action scripts`
+# clones the template repository before any step needs them (`fetch-action.sh`),
+# so ACTION_REF — not a re-copy — is how the Action is updated. The reference
+# implementations are the three official Docker Actions (build-push-action
+# v7.4.0, metadata-action v6.2.0, login-action v4.6.0) kept in this repository
+# under ref/docker-build-push/ — they are reference material only and are never
+# copied to a target repository.
 #
-# Usage: copy this docker-build-push/ directory into a target repository, rename
-# it to .forgejo, and the workflow runs there. Nothing in this file names a
+# Usage: copy `docker-build-push/.forgejo` into a target repository as `.forgejo`,
+# configure ACTION_REPO_URL (+ optional ACTION_REF / ACTION_SUBDIR /
+# ACTION_TOKEN), and the workflow runs there. Nothing in this file names a
 # project: the variants live in `.forgejo/variants.txt` (or the DOCKER_VARIANTS
 # variable), and the workflow discovers them at run time.
+#
+# Fetching the programs (every job, before Verify/Locate):
+#   ACTION_REPO_URL   required — template repository URL (https/ssh)
+#   ACTION_REF        optional — branch/tag/commit; empty = default branch;
+#                     pinning a tag/commit keeps runs reproducible and reviewed
+#   ACTION_SUBDIR     optional — subdirectory of this Action (fork/rename)
+#   ACTION_TOKEN      optional — read-only token for a private HTTPS repository
+#   ACTION_FETCH_ATTEMPTS / ACTION_FETCH_DELAY — transport retry tuning
+# The fetched scripts are generated into `.forgejo/scripts` (git-ignored); this
+# workflow, fetch-action.sh and variants.txt are never touched. Without network
+# access to ACTION_REPO_URL the job fails at once — by design it never falls back
+# to a stale copy.
 #
 # Flow:
 #   plan    tag push -> validate the variant table, apply the dispatch filter,
@@ -39,8 +55,12 @@
 #       DOCKER_RETRY_DELAY            backoff unit in seconds, default 2
 #       DOCKER_RETRY_DISABLED         1/true turns the retries off
 #       DOCKER_BUILD_RETRY_ATTEMPTS   total attempts of one `buildx build`,
-#                                     default 2 (one retry; a compile error is
-#                                     never retried, only transport failures)
+#                                     default 6 (first try + five retries; a
+#                                     compile error is never retried, only
+#                                     transport failures; a retry re-runs the
+#                                     build, normally hitting BuildKit's cache)
+#   * the runtime fetch of these programs (`fetch-action.sh`) retries transport
+#     failures too; auth/ref-not-found answers fail at once.
 #   * if all attempts fail: re-run the publish job (Forgejo 17 has
 #     `POST /repos/{owner}/{repo}/actions/jobs/{job_id}/rerun`), or
 #   * re-run the whole run: the build job skips every variant whose staging tag
@@ -240,6 +260,20 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The programs are not copied into the target repository: fetch them from
+      # the template repository (ACTION_REPO_URL@ACTION_REF) before anything needs
+      # them, so an auth/ref/network problem fails here instead of mid-release.
+      - name: Fetch action scripts
+        env:
+          ACTION_REPO_URL: ${{ vars.ACTION_REPO_URL }}
+          ACTION_REF: ${{ vars.ACTION_REF }}
+          ACTION_SUBDIR: ${{ vars.ACTION_SUBDIR }}
+          ACTION_TOKEN: ${{ secrets.ACTION_TOKEN || vars.ACTION_TOKEN }}
+        run: |
+          dir="$GITHUB_WORKSPACE/.forgejo"
+          [ -f "$dir/fetch-action.sh" ] || { echo "缺少 $dir/fetch-action.sh：请用新版 docker-build-push/.forgejo 覆盖目标仓库的 .forgejo" >&2; exit 1; }
+          sh "$dir/fetch-action.sh" docker-build-push
+
       # github.action_path is empty for workflows (it is set only for a
       # `uses: ./path` local action), so the copied .forgejo directory is found by
       # the program and published as forgejo_dir. The two lines below only locate
@@ -416,6 +450,20 @@ jobs:
         with:
           fetch-depth: 1
 
+      # The programs are not copied into the target repository: fetch them from
+      # the template repository (ACTION_REPO_URL@ACTION_REF) before anything needs
+      # them, so an auth/ref/network problem fails here instead of mid-release.
+      - name: Fetch action scripts
+        env:
+          ACTION_REPO_URL: ${{ vars.ACTION_REPO_URL }}
+          ACTION_REF: ${{ vars.ACTION_REF }}
+          ACTION_SUBDIR: ${{ vars.ACTION_SUBDIR }}
+          ACTION_TOKEN: ${{ secrets.ACTION_TOKEN || vars.ACTION_TOKEN }}
+        run: |
+          dir="$GITHUB_WORKSPACE/.forgejo"
+          [ -f "$dir/fetch-action.sh" ] || { echo "缺少 $dir/fetch-action.sh：请用新版 docker-build-push/.forgejo 覆盖目标仓库的 .forgejo" >&2; exit 1; }
+          sh "$dir/fetch-action.sh" docker-build-push
+
       - name: Locate action directory
         id: locate
         run: |
@@ -576,6 +624,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      # The programs are not copied into the target repository: fetch them from
+      # the template repository (ACTION_REPO_URL@ACTION_REF) before anything needs
+      # them, so an auth/ref/network problem fails here instead of mid-release.
+      - name: Fetch action scripts
+        env:
+          ACTION_REPO_URL: ${{ vars.ACTION_REPO_URL }}
+          ACTION_REF: ${{ vars.ACTION_REF }}
+          ACTION_SUBDIR: ${{ vars.ACTION_SUBDIR }}
+          ACTION_TOKEN: ${{ secrets.ACTION_TOKEN || vars.ACTION_TOKEN }}
+        run: |
+          dir="$GITHUB_WORKSPACE/.forgejo"
+          [ -f "$dir/fetch-action.sh" ] || { echo "缺少 $dir/fetch-action.sh：请用新版 docker-build-push/.forgejo 覆盖目标仓库的 .forgejo" >&2; exit 1; }
+          sh "$dir/fetch-action.sh" docker-build-push
 
       - name: Locate action directory
         id: locate

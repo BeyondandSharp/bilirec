@@ -1,0 +1,4 @@
+# The Action programs are fetched at job start (fetch-action.sh); they are a
+# generated artifact and must never be committed into the target repository.
+/scripts/
+/.scripts.fetch.*
