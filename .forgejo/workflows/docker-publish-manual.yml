@@ -1,0 +1,40 @@
+# Frozen entry — manual dispatch.
+#
+# The orchestration lives in the template repository as a reusable workflow.
+# THIS FILE IS COPIED ONCE AND NEVER EDITED. A separate file is needed (instead
+# of one file with `if:`) because Forgejo expands reusable workflows under the
+# callee's trigger (`workflow_call`); a caller-side `if:` on `github.event_name`
+# would make the expanded jobs inherit a false condition and the run would be
+# reported as ignored.
+name: docker-publish (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本，例如 1.4.0；填写时必须与已有 tag 的版本一致'
+        required: false
+        type: string
+      variants:
+        description: '可选：只构建指定变体，逗号分隔（默认变体表里的全部）'
+        required: false
+        type: string
+      dry_run:
+        description: '只验证构建，不登录、不推送'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: docker-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    uses: BeyondandSharp/action-template/.forgejo/workflows/docker-publish.yml@main
+    secrets: inherit
+    with:
+      mode: manual
+      version: ${{ inputs.version }}
+      variants: ${{ inputs.variants }}
+      dry_run: ${{ inputs.dry_run }}

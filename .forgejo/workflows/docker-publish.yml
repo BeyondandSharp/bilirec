@@ -1,18 +1,16 @@
-# Thin caller for the docker-build-push Action.
+# Frozen entry — tag pushes.
 #
 # The orchestration lives in the template repository as a reusable workflow.
-# THIS FILE IS A FROZEN ENTRY: it is copied once and never edited. Updating the
-# Action (jobs, steps, programs, retry policy, ...) is a change in the template
-# repository; `@main` follows its default branch. Only change the two `uses:`
-# lines below if the template repository moves, or to pin a ref for a
-# reproducible deployment.
+# THIS FILE IS COPIED ONCE AND NEVER EDITED: updating the Action (jobs, steps,
+# programs, images, retry policy, ...) is a change in the template repository.
+# The `uses:` address is intentionally baked in.
 #
-# There are two calls because a tag push has no workflow inputs while a manual
-# dispatch does: the push job passes nothing (the reusable workflow's defaults
-# apply), the dispatch job forwards the typed inputs. Both inherit this
-# repository's secrets (`secrets: inherit`) and read this repository's variables,
-# so all existing configuration keeps working. The programs themselves are
-# installed at job start by `fetch-action.sh` (ACTION_REPO_URL / ACTION_REF).
+# One file per event because Forgejo expands reusable workflows under the
+# callee's own trigger (`workflow_call`): putting `if: github.event_name == ...`
+# on a `uses:` job makes every expanded job inherit a condition that is false in
+# that context, and the whole run is reported as ignored. Hence no `if` here —
+# the event is expressed by which file runs, and the `mode` input tells the
+# reusable workflow what it is.
 name: docker-publish
 
 on:
@@ -20,39 +18,14 @@ on:
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*'
       - '[0-9]*.[0-9]*.[0-9]*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: '发布版本，例如 1.4.0；填写时必须与已有 tag 的版本一致'
-        required: false
-        type: string
-      variants:
-        description: '可选：只构建指定变体，逗号分隔（默认变体表里的全部）'
-        required: false
-        type: string
-      dry_run:
-        description: '只验证构建，不登录、不推送'
-        required: false
-        type: boolean
-        default: false
 
 concurrency:
   group: docker-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
-  tag-release:
-    if: github.event_name == 'push'
-    # Baked-in address of the template repository. Do not edit for routine
-    # updates: push the change to the template repository instead.
-    uses: BeyondandSharp/action-template/.forgejo/workflows/docker-publish.yml@main
-    secrets: inherit
-
-  manual-release:
-    if: github.event_name == 'workflow_dispatch'
+  release:
     uses: BeyondandSharp/action-template/.forgejo/workflows/docker-publish.yml@main
     secrets: inherit
     with:
-      version: ${{ inputs.version }}
-      variants: ${{ inputs.variants }}
-      dry_run: ${{ inputs.dry_run }}
+      mode: tag
