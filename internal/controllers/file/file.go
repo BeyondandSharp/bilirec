@@ -173,6 +173,8 @@ func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string
 // @Param limit query int false "Limit (default 0 = all, max 200)"
 // @Param search query string false "Search by filename (case-insensitive)"
 // @Param only_media query bool false "When true, list only directories and media files (mp4, m4a, ts, fmp4, flv)"
+// @Param sort query string false "Sort field: name|mtime (default name)"
+// @Param order query string false "Sort order: asc|desc (default asc)"
 // @Success 200 {object} file.PagedTree "Paged list of files and directories"
 // @Failure 400 {string} string "Invalid path"
 // @Failure 403 {string} string "Forbidden"
@@ -195,6 +197,20 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 	}
 
 	onlyMedia, _ := strconv.ParseBool(ctx.Query("only_media", "false"))
+	sortField := strings.ToLower(strings.TrimSpace(ctx.Query("sort", "name")))
+	if sortField == "" {
+		sortField = "name"
+	}
+	if sortField != "name" && sortField != "mtime" {
+		return fiber.NewError(fiber.StatusBadRequest, "sort 必须为 name 或 mtime")
+	}
+	order := strings.ToLower(strings.TrimSpace(ctx.Query("order", "asc")))
+	if order == "" {
+		order = "asc"
+	}
+	if order != "asc" && order != "desc" {
+		return fiber.NewError(fiber.StatusBadRequest, "order 必须为 asc 或 desc")
+	}
 
 	paged, err := c.fileSvc.ListTreeWithOptions(path, file.ListOptions{
 		Filter: func(f fs.DirEntry) bool {
@@ -202,6 +218,8 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 		},
 		Search:    ctx.Query("search"),
 		OnlyMedia: onlyMedia,
+		Sort:      sortField,
+		Order:     order,
 		Offset:    offset,
 		Limit:     limit,
 	})

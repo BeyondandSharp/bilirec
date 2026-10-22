@@ -18,7 +18,7 @@ export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = 
   const { t } = useTranslation()
 
   return (
-    <aside className="hidden lg:flex lg:flex-col w-56 h-full p-4 border-r border-border bg-sidebar/95 text-sidebar-foreground">
+    <aside className="hidden w-56 shrink-0 lg:flex lg:flex-col h-full p-4 border-r border-border bg-sidebar/95 text-sidebar-foreground">
       <nav className="flex flex-col gap-2 mt-2 flex-1">
         <button
           onClick={() => onTabChange('records')}

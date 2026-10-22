@@ -322,10 +322,10 @@ func TestLogsSourcesSplitAndSelection(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "bilirec.log")
 	writeLines(t, base, []string{"main-line"})
 	sourceDir := base + ".d"
-	writeLines(t, filepath.Join(sourceDir, "rest", "current.log"), []string{"rest-line"})
-	writeLines(t, filepath.Join(sourceDir, "recorder", "current.log"), []string{"recorder-line"})
+	writeLines(t, filepath.Join(sourceDir, "access", "current.log"), []string{"access-line"})
+	writeLines(t, filepath.Join(sourceDir, "system", "current.log"), []string{"recorder-line"})
 	// Rotated backups must never appear as sources.
-	writeLines(t, filepath.Join(sourceDir, "rest", "rest-2026-01-01T00-00-00.000.log"), []string{"old-rest"})
+	writeLines(t, filepath.Join(sourceDir, "access", "access-2026-01-01T00-00-00.000.log"), []string{"old-rest"})
 	cfg := &config.Config{LocalLogsEnabled: true, LocalLogsSplit: true, LocalLogsPath: base}
 	app := newLogsApp(t, cfg, false)
 
@@ -341,23 +341,23 @@ func TestLogsSourcesSplitAndSelection(t *testing.T) {
 	for _, source := range sources.Sources {
 		names = append(names, source.Name)
 	}
-	if strings.Join(names, ",") != "main,recorder,rest" {
+	if strings.Join(names, ",") != "main,access,system" {
 		t.Fatalf("sources = %v", names)
 	}
 
-	raw, _ = logsRequest(t, app, "/logs?source=rest&lines=10", "", http.StatusOK)
+	raw, _ = logsRequest(t, app, "/logs?source=access&lines=10", "", http.StatusOK)
 	resp := decodeLogs(t, raw)
-	if resp.Source != "rest" || !resp.Split || len(resp.Lines) != 1 || resp.Lines[0] != "rest-line" {
+	if resp.Source != "access" || !resp.Split || len(resp.Lines) != 1 || resp.Lines[0] != "access-line" {
 		t.Fatalf("rest response = %+v", resp)
 	}
 
-	raw, header := logsRequest(t, app, "/logs/download?source=rest", "", http.StatusOK)
-	if string(raw) != "rest-line\n" || !strings.Contains(header.Get("Content-Disposition"), `filename="rest.log"`) {
+	raw, header := logsRequest(t, app, "/logs/download?source=access", "", http.StatusOK)
+	if string(raw) != "access-line\n" || !strings.Contains(header.Get("Content-Disposition"), `filename="access.log"`) {
 		t.Fatalf("rest download = %q disposition=%q", raw, header.Get("Content-Disposition"))
 	}
 
 	// Request input never becomes an arbitrary path.
-	for _, source := range []string{"../rest", "missing", "rest/current.log"} {
+	for _, source := range []string{"../access", "missing", "access/current.log"} {
 		logsRequest(t, app, "/logs?source="+source, "", http.StatusBadRequest)
 	}
 	logsRequest(t, app, "/logs/download?source=missing", "", http.StatusBadRequest)
@@ -378,5 +378,5 @@ func TestLogsSourcesDisabledSplit(t *testing.T) {
 	if sources.Split || len(sources.Sources) != 1 || sources.Sources[0].Name != "main" {
 		t.Fatalf("unsplit sources = %+v", sources)
 	}
-	logsRequest(t, app, "/logs?source=rest", "", http.StatusBadRequest)
+	logsRequest(t, app, "/logs?source=access", "", http.StatusBadRequest)
 }

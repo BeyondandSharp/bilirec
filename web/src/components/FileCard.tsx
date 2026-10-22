@@ -357,6 +357,9 @@ export function FileCard({
 
           <div className="mb-2 min-w-0 text-xs text-muted-foreground">
             <p className="font-mono">{sizeVal ? formatFileSize(sizeVal) : '—'}</p>
+            {!isDir && typeof file.mtime === 'number' && file.mtime > 0 && (
+              <p className="truncate">{new Date(file.mtime).toLocaleString()}</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-2 w-full mt-1">

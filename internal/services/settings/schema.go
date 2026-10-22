@@ -202,6 +202,8 @@ var fieldSpecs = []Field{
 
 	{Key: "LOCAL_LOGS_FORMAT", Group: "logging", Kind: "enum", Default: "pretty", Min: nil, Max: nil, Enum: []string{"pretty", "json"}, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "本地日志格式", ZhTW: "本機日誌格式", En: "Local log format"}, Description: LangText{ZhCN: "pretty 或 json。", ZhTW: "pretty 或 json。", En: "pretty or json."}},
 
+	{Key: "LOCAL_LOGS_GROUPS", Group: "logging", Kind: "csv", Default: "live,system,recorder,access,update", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "日志类别", ZhTW: "日誌類別", En: "Log groups"}, Description: LangText{ZhCN: "选择写入本地文件的日志类别；按 live/system/recorder/access/update 分组。", ZhTW: "選擇寫入本機檔案的日誌類別；依 live/system/recorder/access/update 分組。", En: "Select which log groups are written to local files (live/system/recorder/access/update)."}},
+
 	{Key: "LOCAL_LOGS_MAX_AGE_DAYS", Group: "logging", Kind: "number", Default: "7", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "日志保留天数", ZhTW: "日誌保留天數", En: "Log retention days"}, Description: LangText{ZhCN: "日志文件保留的最大天数。", ZhTW: "日誌檔案保留的最大天數。", En: "Maximum age of retained log files in days."}},
 
 	{Key: "LOCAL_LOGS_MAX_BACKUPS", Group: "logging", Kind: "number", Default: "3", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "日志备份数", ZhTW: "日誌備份數", En: "Log backups"}, Description: LangText{ZhCN: "保留的轮转日志文件数。", ZhTW: "保留的輪替日誌檔案數。", En: "Number of rotated log files to keep."}},
@@ -270,8 +272,6 @@ var fieldSpecs = []Field{
 
 	{Key: "SERVER_KEY", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "TLS 私钥路径", ZhTW: "TLS 私鑰路徑", En: "TLS private key path"}, Description: LangText{ZhCN: "HTTPS 私钥文件路径（PEM）。", ZhTW: "HTTPS 私鑰檔案路徑（PEM）。", En: "Path to the PEM TLS private key."}},
 
-	{Key: "SILENT_ACCESS_LOG", Group: "server", Kind: "bool", Default: "false", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "静默访问日志", ZhTW: "靜默存取日誌", En: "Silent access log"}, Description: LangText{ZhCN: "关闭 HTTP 访问日志输出。", ZhTW: "關閉 HTTP 存取日誌輸出。", En: "Suppress HTTP access log output."}},
-
 	{Key: "SKIP_SMALL_FLUSH", Group: "recording", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "跳过小块刷新", ZhTW: "跳過小塊刷新", En: "Skip small flush"}, Description: LangText{ZhCN: "小数据块写入时不立即刷新。", ZhTW: "小資料塊寫入時不立即刷新。", En: "Do not flush immediately for small chunks."}},
 
 	{Key: "SKIP_SMALL_FLUSH_THRESHOLD", Group: "recording", Kind: "number", Default: "1048576", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "小块刷新阈值", ZhTW: "小塊刷新閾值", En: "Skip small flush threshold"}, Description: LangText{ZhCN: "低于该字节数的写入不立即刷新。", ZhTW: "低於該位元組數的寫入不立即刷新。", En: "Writes smaller than this many bytes are not flushed immediately."}},
@@ -328,7 +328,7 @@ var fieldSpecs = []Field{
 
 	{Key: "VIEWER_USERNAME", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "访客用户名", ZhTW: "訪客使用者名稱", En: "Viewer username"}, Description: LangText{ZhCN: "只读访客账号的用户名。", ZhTW: "唯讀訪客帳號的使用者名稱。", En: "Username of the read-only viewer account."}},
 
-	{Key: "WEBHOOK_URLS", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "Webhook 地址列表", ZhTW: "Webhook 位址清單", En: "Webhook URLs"}, Description: LangText{ZhCN: "录制完成时通知的 Webhook 地址，逗号分隔。", ZhTW: "錄製完成時通知的 Webhook 位址，以逗號分隔。", En: "Comma-separated webhook URLs notified when a recording finishes."}},
+	{Key: "WEBHOOK_URLS", Group: "server", Kind: "textarea", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "Webhook 地址列表", ZhTW: "Webhook 位址清單", En: "Webhook URLs"}, Description: LangText{ZhCN: "录制事件通知的 Webhook 地址，每行一个。", ZhTW: "錄製事件通知的 Webhook 位址，每行一個。", En: "Webhook URLs notified for recording events, one per line."}},
 
 	{Key: "WEBPUSH_SUBSCRIBER", Group: "server", Kind: "string", Default: "mailto:webpush@example.com", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "WebPush 订阅者", ZhTW: "WebPush 訂閱者", En: "WebPush subscriber"}, Description: LangText{ZhCN: "WebPush VAPID 订阅者标识（mailto）。", ZhTW: "WebPush VAPID 訂閱者識別（mailto）。", En: "WebPush VAPID subscriber identity (mailto)."}},
 }

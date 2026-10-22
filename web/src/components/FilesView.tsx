@@ -1,4 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { usePersistedState } from '@/hooks/use-persisted-state'
+import { ViewModeToggle, type ViewMode } from '@/components/view/ViewModeToggle'
+import { SortControl, type SortDirection } from '@/components/view/SortControl'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useGridVirtualizer } from '@/hooks/use-grid-virtualizer'
 import { FileCard } from './FileCard'
@@ -64,12 +67,14 @@ function FileCardSkeleton() {
   )
 }
 
-const getFilesQueryKey = (path: string, search: string, pageSize: number, onlyMedia: boolean) => [
+const getFilesQueryKey = (path: string, search: string, pageSize: number, onlyMedia: boolean, sort: 'name' | 'mtime', order: SortDirection) => [
   'files',
   path,
   search,
   pageSize,
   onlyMedia,
+  sort,
+  order,
 ] as const
 
 const normalizeList = (items?: RecordFile[]) => {
@@ -100,6 +105,9 @@ export function FilesView() {
   const [layoutConfig, setLayoutConfig] = useState<FilesLayoutConfig>(() =>
     getFilesLayoutConfig(window.innerWidth)
   )
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>('files-layout', 'grid')
+  const [sortField, setSortField] = usePersistedState<'name' | 'mtime'>('files-sort', 'mtime')
+  const [sortDirection, setSortDirection] = usePersistedState<SortDirection>('files-sort-dir', 'desc')
   const [playbackFile, setPlaybackFile] = useState<PlaybackFile | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const loadMoreTriggerRef = useRef<HTMLDivElement | null>(null)
@@ -133,8 +141,8 @@ export function FilesView() {
   }, [searchInput])
 
   const queryKey = useMemo(
-    () => getFilesQueryKey(currentPath, search, pageSize, onlyMedia),
-    [currentPath, search, pageSize, onlyMedia]
+    () => getFilesQueryKey(currentPath, search, pageSize, onlyMedia, sortField, sortDirection),
+    [currentPath, search, pageSize, onlyMedia, sortField, sortDirection]
   )
 
   const {
@@ -150,7 +158,7 @@ export function FilesView() {
   } = useInfiniteQuery({
     queryKey,
     queryFn: async ({ pageParam = 0 }: { pageParam: number }) => {
-      const data = await apiClient.getFiles(currentPath, pageParam, pageSize, search, onlyMedia)
+      const data = await apiClient.getFiles(currentPath, pageParam, pageSize, search, onlyMedia, sortField, sortDirection)
       return {
         ...data,
         items: normalizeList(data.items)
@@ -324,7 +332,20 @@ export function FilesView() {
             <h2 className="text-xl font-bold">{t('filesView.title')}</h2>
           </div>
 
-          <div className="ml-auto flex min-w-0 items-center gap-2 sm:gap-3">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            <SortControl
+              id="files-sort"
+              label={t('viewControls.sortBy')}
+              value={sortField}
+              options={[
+                { value: 'mtime', label: t('viewControls.sortMtime') },
+                { value: 'name', label: t('viewControls.sortName') },
+              ]}
+              direction={sortDirection}
+              onValueChange={(value) => setSortField(value as 'name' | 'mtime')}
+              onDirectionChange={setSortDirection}
+            />
             {currentPath ? (
               <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                 <Label
@@ -398,6 +419,20 @@ export function FilesView() {
                 title={t('filesView.emptyTitle')}
                 description={t('filesView.emptyDescription')}
               />
+            ) : viewMode === 'list' ? (
+              <div className="space-y-2">
+                {displayFiles.map((file) => (
+                  <FileCard
+                    key={file.path}
+                    file={file}
+                    onNavigate={handleNavigate}
+                    onDelete={() => void queryClient.invalidateQueries({ queryKey })}
+                    onPlayback={handlePlayback}
+                    currentPath={currentPath}
+                    siblingFileNames={siblingFileNames}
+                  />
+                ))}
+              </div>
             ) : (
               <div style={{ height: `${Math.max(0, rowVirtualizer.getTotalSize() - GRID_GAP)}px`, position: 'relative' }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => (

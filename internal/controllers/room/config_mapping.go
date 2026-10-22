@@ -32,6 +32,7 @@ func roomConfigResponse(roomID int, cfg *subscribe.RoomConfig) RoomConfigRespons
 	if cfg == nil {
 		return resp
 	}
+	resp.AddedAt = cfg.AddedAt
 	resp.AutoRecord = cfg.AutoRecord
 	resp.Notify = cfg.Notify
 	resp.RecordDurationMinutes = cfg.RecordDurationMinutes

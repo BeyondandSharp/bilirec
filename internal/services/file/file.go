@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,7 @@ type Tree struct {
 	IsDir       bool   `json:"is_dir"`
 	Path        string `json:"path"`
 	Size        int64  `json:"size"`
+	ModTime     int64  `json:"mtime,omitempty"` // Unix milliseconds
 	IsRecording bool   `json:"is_recording,omitempty"`
 }
 
@@ -52,6 +54,8 @@ type ListOptions struct {
 	Filter    func(fs.DirEntry) bool // nil = no filter
 	Search    string                 // empty = no search
 	OnlyMedia bool                   // keep directories; hide non-media files
+	Sort      string                 // name|mtime (default name)
+	Order     string                 // asc|desc (default asc)
 	Offset    int
 	Limit     int // 0 = all
 }
@@ -99,22 +103,73 @@ func (s *Service) ListTreeWithFilter(path string, filter func(fs.DirEntry) bool)
 	for _, entry := range entries {
 		if filter(entry) {
 			entryPath := filepath.Join(relativePath, entry.Name())
+			info, _ := entry.Info()
 			files = append(files, Tree{
 				Name:  entry.Name(),
 				IsDir: entry.IsDir(),
 				Path:  entryPath,
 				Size: func() int64 {
-					if entry.IsDir() {
-						return 0
-					} else if info, err := entry.Info(); err == nil {
+					if info != nil && !entry.IsDir() {
 						return info.Size()
 					}
 					return 0
 				}(),
+				ModTime: func() int64 {
+					if info != nil {
+						return info.ModTime().UnixMilli()
+					}
+					return 0
+				}(),
+				IsRecording: false,
 			})
 		}
 	}
 	return files, nil
+}
+
+// sortDirEntries sorts filtered entries for pagination. Directories always come
+// first; the selected field/sort is applied inside the file and directory sets.
+func sortDirEntries(entries []fs.DirEntry, sortBy, order string) {
+	sortBy = strings.ToLower(strings.TrimSpace(sortBy))
+	if sortBy != "mtime" {
+		sortBy = "name"
+	}
+	desc := strings.EqualFold(strings.TrimSpace(order), "desc")
+	lessName := func(a, b fs.DirEntry) bool {
+		return strings.ToLower(a.Name()) < strings.ToLower(b.Name())
+	}
+	less := func(a, b fs.DirEntry) bool {
+		if sortBy == "mtime" {
+			ai, aerr := a.Info()
+			bi, berr := b.Info()
+			var am, bm int64
+			if aerr == nil && ai != nil {
+				am = ai.ModTime().UnixMilli()
+			}
+			if berr == nil && bi != nil {
+				bm = bi.ModTime().UnixMilli()
+			}
+			if am != bm {
+				if desc {
+					return am > bm
+				}
+				return am < bm
+			}
+		} else if lessName(a, b) != lessName(b, a) {
+			if desc {
+				return lessName(b, a)
+			}
+			return lessName(a, b)
+		}
+		return lessName(a, b)
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		di, dj := entries[i].IsDir(), entries[j].IsDir()
+		if di != dj {
+			return di
+		}
+		return less(entries[i], entries[j])
+	})
 }
 
 func (s *Service) ListTreeWithOptions(path string, opts ListOptions) (*PagedTree, error) {
@@ -148,6 +203,8 @@ func (s *Service) ListTreeWithOptions(path string, opts ListOptions) (*PagedTree
 		filtered = append(filtered, entry)
 	}
 
+	sortDirEntries(filtered, opts.Sort, opts.Order)
+
 	total := len(filtered)
 
 	// Determine the page slice
@@ -162,15 +219,20 @@ func (s *Service) ListTreeWithOptions(path string, opts ListOptions) (*PagedTree
 	items := make([]Tree, 0, len(page))
 	for _, entry := range page {
 		entryPath := filepath.Join(relativePath, entry.Name())
+		info, _ := entry.Info()
 		items = append(items, Tree{
 			Name:  entry.Name(),
 			IsDir: entry.IsDir(),
 			Path:  entryPath,
 			Size: func() int64 {
-				if entry.IsDir() {
-					return 0
-				} else if info, err := entry.Info(); err == nil {
+				if info != nil && !entry.IsDir() {
 					return info.Size()
+				}
+				return 0
+			}(),
+			ModTime: func() int64 {
+				if info != nil {
+					return info.ModTime().UnixMilli()
 				}
 				return 0
 			}(),

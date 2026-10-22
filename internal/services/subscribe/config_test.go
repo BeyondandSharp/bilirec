@@ -8,6 +8,7 @@ import (
 
 func TestRoomConfigRoundTrip(t *testing.T) {
 	original := &RoomConfig{
+		AddedAt:               1700000000,
 		AutoRecord:            true,
 		Notify:                true,
 		RecordDurationMinutes: 180,
@@ -26,7 +27,8 @@ func TestRoomConfigRoundTrip(t *testing.T) {
 		t.Fatalf("parse failed: %v", err)
 	}
 
-	if parsed.AutoRecord != original.AutoRecord ||
+	if parsed.AddedAt != original.AddedAt ||
+		parsed.AutoRecord != original.AutoRecord ||
 		parsed.Notify != original.Notify ||
 		parsed.RecordDurationMinutes != original.RecordDurationMinutes ||
 		parsed.Qn != original.Qn ||

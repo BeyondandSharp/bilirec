@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -19,45 +18,100 @@ var errTooManySources = fmt.Errorf("too many log sources")
 
 const (
 	maxLogSources = 64
-	// sourceRest is the Fiber access-log logger name. Its INFO entries are kept
-	// out of the main aggregate so request logs do not drown application logs.
-	sourceRest = "rest"
+	// accessGroup is the Fiber access-log group. Its INFO/DEBUG entries are
+	// kept out of the main aggregate so requests do not drown app logs.
+	accessGroup = "access"
 )
+
+var logGroupNames = []string{"live", "system", "recorder", "access", "update"}
+
+// logGroupForLogger groups noisy/related logger names into the fixed UI groups.
+// Unknown named loggers fall back to "system".
+var logGroupForLogger = map[string]string{
+	"bilibili": "live", "danmaku": "live", "stream": "live",
+	"logging": "system", "notify": "system", "subcheck": "system",
+	"auth": "system", "config": "system", "settings": "system", "room": "system",
+	"subscribe": "system", "webhook": "system", "path": "system", "metrics": "system",
+	"janitor": "system", "expose": "system", "fx": "system", "logs": "system",
+	"convert": "recorder", "pipeline": "recorder", "recorder": "recorder",
+	"repair": "recorder", "downloader": "recorder", "media": "recorder",
+	"file": "recorder", "ffmpeg_core": "recorder", "fallback": "recorder",
+	"rest": "access", "updatecheck": "update",
+}
+
+func logGroupForName(raw string) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	if name == "" {
+		return ""
+	}
+	if group, ok := logGroupForLogger[name]; ok {
+		return group
+	}
+	return "system"
+}
 
 type sourceSink struct {
 	core zapcore.Core
 	sink *logsink.AsyncBufferedSink
 }
 
-// sourceLoggerSet owns the main aggregate plus lazily-created per-source files.
+// sourceLoggerSet owns the main aggregate plus lazily-created per-group files.
 //
 // Layout (LOCAL_LOGS_SPLIT=true):
 //
 //	<LOCAL_LOGS_PATH>                  main aggregate
-//	<LOCAL_LOGS_PATH>.d/<source>/current.log
+//	<LOCAL_LOGS_PATH>.d/<group>/current.log
 //
-// Main receives unnamed entries and every named entry except INFO/DEBUG from
-// the REST access logger; per-source files receive every entry for that logger.
+// Main receives unnamed entries and every enabled named group except INFO/DEBUG
+// from the access group; group files receive every entry for that group.
 type sourceLoggerSet struct {
 	cfg       *config.Config
 	basePath  string
 	sourceDir string
 
-	mu      sync.Mutex
-	main    *sourceSink
-	sources map[string]*sourceSink
+	mu            sync.Mutex
+	main          *sourceSink
+	sources       map[string]*sourceSink
+	enabledGroups map[string]struct{}
 	// warned tracks per-source creation failures so we do not spam stderr.
 	warned map[string]struct{}
 }
 
 func newSourceLoggerSet(cfg *config.Config) *sourceLoggerSet {
-	return &sourceLoggerSet{
-		cfg:       cfg,
-		basePath:  LocalLogFilePath(cfg),
-		sourceDir: LocalLogSourceDir(cfg),
-		sources:   make(map[string]*sourceSink),
-		warned:    make(map[string]struct{}),
+	enabled := make(map[string]struct{}, len(logGroupNames))
+	if cfg.LocalLogsGroups == nil {
+		for _, group := range logGroupNames {
+			enabled[group] = struct{}{}
+		}
+	} else {
+		for _, group := range cfg.LocalLogsGroups {
+			group = strings.ToLower(strings.TrimSpace(group))
+			for _, known := range logGroupNames {
+				if group == known {
+					enabled[group] = struct{}{}
+					break
+				}
+			}
+		}
 	}
+	return &sourceLoggerSet{
+		cfg:           cfg,
+		basePath:      LocalLogFilePath(cfg),
+		sourceDir:     LocalLogSourceDir(cfg),
+		sources:       make(map[string]*sourceSink),
+		enabledGroups: enabled,
+		warned:        make(map[string]struct{}),
+	}
+}
+
+func (s *sourceLoggerSet) groupEnabled(group string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.enabledGroups[group]
+	return ok
 }
 
 func (s *sourceLoggerSet) SourceDir() string {
@@ -153,34 +207,34 @@ func (s *sourceLoggerSet) sourceSink(name string) (*sourceSink, error) {
 }
 
 func (s *sourceLoggerSet) write(ent zapcore.Entry, fields []zapcore.Field) error {
-	name := normalizeSourceName(ent.LoggerName)
-	if name == "" {
+	group := logGroupForName(ent.LoggerName)
+	if group == "" {
 		sink, err := s.mainSink()
 		if err != nil {
 			return err
 		}
 		return sink.core.Write(ent, fields)
 	}
+	if !s.groupEnabled(group) {
+		return nil
+	}
 
 	sourceErr := error(nil)
-	if sink, err := s.sourceSink(name); err != nil {
+	if sink, err := s.sourceSink(group); err != nil {
 		sourceErr = err
 	} else if err := sink.core.Write(ent, fields); err != nil {
 		sourceErr = err
-		s.warnOnce("write:"+name, "write source log %q failed: %v", name, err)
+		s.warnOnce("write:"+group, "write source log %q failed: %v", group, err)
 	}
 
-	// HTTP access lines are only useful in rest/current.log. Keep their
-	// WARN/ERROR entries in main so failures are still visible by default.
-	if name == sourceRest && ent.Level < zapcore.WarnLevel {
+	// HTTP access INFO/DEBUG only belongs in access/current.log. WARN/ERROR
+	// still goes to main so failures remain visible by default.
+	if group == accessGroup && ent.Level < zapcore.WarnLevel {
 		return sourceErr
 	}
 
 	mainSink, err := s.mainSink()
 	if err != nil {
-		if sourceErr != nil {
-			return err
-		}
 		return err
 	}
 	if err := mainSink.core.Write(ent, fields); err != nil {
@@ -229,47 +283,6 @@ func (s *sourceLoggerSet) Close(ctx context.Context) error {
 		}
 	}
 	return firstErr
-}
-
-func (s *sourceLoggerSet) sourceNames() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	names := make([]string, 0, len(s.sources))
-	for name := range s.sources {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-// normalizeSourceName converts a zap logger name into a safe file name.
-// The empty name is the main aggregate; "main" is reserved.
-func normalizeSourceName(raw string) string {
-	name := strings.ToLower(strings.TrimSpace(raw))
-	if name == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.Grow(len(name))
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	out := strings.Trim(b.String(), "._-")
-	if out == "" {
-		return "other"
-	}
-	if out == "main" {
-		return "main_source"
-	}
-	if len(out) > 64 {
-		out = out[:64]
-	}
-	return out
 }
 
 // sourceRouterCore routes every local-log entry to its source sink (and the

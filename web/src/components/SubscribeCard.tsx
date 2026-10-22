@@ -19,11 +19,13 @@ interface SubscribeCardProps {
   roomInfo: RoomInfo
   isRecording?: boolean
   autoRecord?: boolean
+  /** Subscription creation time (Unix seconds); absent/0 = legacy unknown. */
+  addedAt?: number
   onUnsubscribe: (roomId: number) => Promise<void>
   onStartRecord: (roomId: number) => Promise<void>
 }
 
-export function SubscribeCard({ roomInfo, isRecording = false, autoRecord = false, onUnsubscribe, onStartRecord }: SubscribeCardProps) {
+export function SubscribeCard({ roomInfo, isRecording = false, autoRecord = false, addedAt, onUnsubscribe, onStartRecord }: SubscribeCardProps) {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
   const { isReadOnly } = useRole()
@@ -208,6 +210,11 @@ export function SubscribeCard({ roomInfo, isRecording = false, autoRecord = fals
                   <p className="text-sm text-muted-foreground line-clamp-2 leading-5 wrap-break-word">
                     {cleanTitle}
                   </p>
+                  {typeof addedAt === 'number' && addedAt > 0 && (
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {t('subscribeCard.addedAt', { time: new Date(addedAt * 1000).toLocaleString() })}
+                    </p>
+                  )}
                   {liveTimeMeta && (
                     <div className="mt-1">
                       <Badge

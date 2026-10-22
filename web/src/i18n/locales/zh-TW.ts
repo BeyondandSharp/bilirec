@@ -352,6 +352,7 @@ export const common = {
   },
   "recordCard": {
     "roomFallback": "直播間 {{roomId}}",
+    "addedAt": "新增時間: {{time}}",
     "loadingTitle": "載入中...",
     "onlineCount": "在線人數",
     "recording": "錄製中",
@@ -438,7 +439,10 @@ export const common = {
     "notificationBlockedDismiss": "關閉提示",
     "notificationEnableTitle": "開播提醒尚未開啟",
     "notificationEnableDescription": "開啟瀏覽器通知後，直播間開播時會收到提醒。",
-    "notificationEnableAction": "開啟通知"
+    "notificationEnableAction": "開啟通知",
+    "groupRecording": "錄製中",
+    "groupRecovering": "恢復中",
+    "groupIdle": "未錄製",
   },
   "subscribeCard": {
     "loadingTitle": "載入中...",
@@ -446,6 +450,7 @@ export const common = {
     "live": "直播中",
     "offline": "未開播",
     "roomFallback": "直播間 {{roomId}}",
+    "addedAt": "新增時間: {{time}}",
     "onlineCount": "在線人數",
     "liveStartedAt": "開播時間: {{time}}",
     "lastLiveStartedAt": "上次開播時間: {{time}}",
@@ -492,7 +497,21 @@ export const common = {
     "globalValue": "全域：{{value}}",
     "advancedOverrides": "進階覆蓋"
   },
-  "settingsView": {
+    "viewControls": {
+    "layout": "版面",
+    "grid": "網格版面",
+    "list": "清單版面",
+    "sortBy": "排序",
+    "sortDirection": "切換排序方向",
+    "ascending": "升冪",
+    "descending": "倒序",
+    "sortAdded": "新增時間",
+    "sortRoomId": "房間號",
+    "sortName": "名稱",
+    "sortMtime": "修改時間",
+    "groupByStatus": "依錄製狀態分組"
+  },
+"settingsView": {
     "title": "設定",
     "description": "全域錄製設定；變更僅套用於新啟動的錄製會話。",
     "newSessionNotice": "變更僅對新會話生效",
@@ -501,6 +520,9 @@ export const common = {
     "retry": "重試",
     "save": "儲存設定",
     "saving": "儲存中…",
+    "unsavedChanges": "有未儲存的修改",
+    "saveAll": "儲存設定",
+    "savingAll": "儲存中…",
     "saveSuccess": "設定已儲存，新會話生效",
     "saveFailed": "儲存設定失敗",
     "reset": "恢復預設",
@@ -584,6 +606,15 @@ export const common = {
     "recordingTitle": "錄製設定",
     "system": {
       "title": "系統配置",
+      "logGroups": "日誌類別",
+      "logGroupsHint": "勾選要寫入本機檔案的日誌類別；取消後該類別不寫入本機檔案。",
+      "webhookTest": "傳送測試 Webhook",
+      "webhookTesting": "傳送中…",
+      "webhookTestSuccess": "測試 Webhook 已傳送（{{count}} 個目標）",
+      "webhookTestFailed": "測試 Webhook 傳送失敗",
+      "webhookTestHint": "傳送一則完整的 FileClosed 範例事件",
+      "webhookDirtyHint": "Webhook 位址有未儲存修改；儲存並重新啟動後再測試",
+
       "description": "由設定檔（config.json / .env）與環境變數管理；環境變數提供的值無法在此修改，部分變更需要重啟後生效。",
       "searchPlaceholder": "搜尋設定項或環境變數",
       "searchAria": "搜尋系統配置",
@@ -658,6 +689,11 @@ export const common = {
     "description": "檢視後端目前的日誌檔（僅限管理員）。",
     "source": "來源",
     "sourceMain": "主日誌",
+    "sourceLive": "直播",
+    "sourceSystem": "系統",
+    "sourceRecorder": "錄製",
+    "sourceAccess": "存取",
+    "sourceUpdate": "更新",
     "refresh": "重新整理",
     "refreshing": "重新整理中…",
     "autoRefresh": "自動重新整理",

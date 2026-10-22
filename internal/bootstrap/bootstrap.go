@@ -14,6 +14,7 @@ import (
 	"github.com/bilirec/bilirec/internal/controllers/record"
 	"github.com/bilirec/bilirec/internal/controllers/room"
 	cs "github.com/bilirec/bilirec/internal/controllers/settings"
+	whc "github.com/bilirec/bilirec/internal/controllers/webhook"
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/modules/configfile"
@@ -88,6 +89,7 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Invoke(file.NewController),
 		fx.Invoke(auth.NewController),
 		fx.Invoke(convert.NewController),
+		fx.Invoke(whc.NewController),
 	)
 }
 

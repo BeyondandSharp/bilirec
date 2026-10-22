@@ -23,7 +23,8 @@ type SubscribeStatus struct {
 }
 
 type SubscribeList struct {
-	RoomIds []int `json:"room_ids"`
+	RoomIds []int            `json:"room_ids"`
+	AddedAt map[string]int64 `json:"added_at,omitempty"` // Unix seconds; legacy entries may be absent/0
 }
 
 // RoomConfigResponse is the additive GET /room/{roomID}/config response
@@ -31,6 +32,7 @@ type SubscribeList struct {
 // inherits the global setting.
 type RoomConfigResponse struct {
 	RoomId                int      `json:"room_id"`
+	AddedAt               int64    `json:"added_at"`
 	AutoRecord            bool     `json:"auto_record"`
 	Notify                bool     `json:"notify"`
 	RecordDurationMinutes int      `json:"record_duration_minutes"`

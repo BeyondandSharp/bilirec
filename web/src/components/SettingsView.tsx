@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { InfoIcon, WarningCircleIcon } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -46,6 +46,9 @@ export function SettingsView() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
+  const [systemDirty, setSystemDirty] = useState(false)
+  const [isSavingAll, setIsSavingAll] = useState(false)
+  const systemSaveRef = useRef<(() => Promise<void>) | null>(null)
 
   const loadSettings = useCallback(async () => {
     setIsLoading(true)
@@ -85,9 +88,9 @@ export function SettingsView() {
     })
   }
 
-  const handleSave = async () => {
+  const handleSave = async (): Promise<boolean> => {
     if (!draft || isReadOnly) {
-      return
+      return false
     }
     setIsSaving(true)
     setActionError(null)
@@ -96,13 +99,35 @@ export function SettingsView() {
       setData(response)
       setDraft(cloneSettings(response.values))
       toast.success(t('settingsView.saveSuccess'), { position: 'bottom-center' })
+      return true
     } catch (error) {
       console.error('Failed to save settings:', error)
       const message = getServerErrorMessage(error, t('settingsView.saveFailed'))
       setActionError(message)
       toast.error(message, { position: 'bottom-center' })
+      return false
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleSaveAll = async () => {
+    if (isReadOnly || isSavingAll) {
+      return
+    }
+    setIsSavingAll(true)
+    try {
+      if (isDirty) {
+        const ok = await handleSave()
+        if (!ok) {
+          return
+        }
+      }
+      if (systemDirty) {
+        await systemSaveRef.current?.()
+      }
+    } finally {
+      setIsSavingAll(false)
     }
   }
 
@@ -203,12 +228,6 @@ export function SettingsView() {
                     >
                       {isResetting ? t('settingsView.resetting') : t('settingsView.reset')}
                     </Button>
-                    <Button
-                      onClick={() => void handleSave()}
-                      disabled={actionsDisabled || !draft || !isDirty}
-                    >
-                      {isSaving ? t('settingsView.saving') : t('settingsView.save')}
-                    </Button>
                   </div>
                 )}
               </div>
@@ -245,11 +264,22 @@ export function SettingsView() {
               ))}
             </section>
 
-            <SystemConfigSection />
+            <SystemConfigSection onDirtyChange={setSystemDirty} saveHandlerRef={systemSaveRef} />
             <SecretsSection />
           </>
         )}
       </div>
+
+      {(isDirty || systemDirty) && !isReadOnly && (
+        <div className="sticky bottom-0 z-20 border-t border-border bg-background/95 px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">{t('settingsView.unsavedChanges')}</p>
+            <Button onClick={() => void handleSaveAll()} disabled={isSavingAll}>
+              {isSavingAll ? t('settingsView.savingAll') : t('settingsView.saveAll')}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <AlertDialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
         <AlertDialogContent>

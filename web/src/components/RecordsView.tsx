@@ -15,6 +15,9 @@ import { toast } from 'sonner'
 import type { RecordTask, RoomInfo } from '@/lib/types'
 import { LoadingScreen } from './LoadingScreen'
 import { usePageVisibility } from '@/hooks/use-visibility'
+import { usePersistedState } from '@/hooks/use-persisted-state'
+import { ViewModeToggle, type ViewMode } from '@/components/view/ViewModeToggle'
+import { SortControl, type SortDirection } from '@/components/view/SortControl'
 import { useRole } from '@/lib/role-context'
 import useSWR from 'swr'
 import { useTranslation } from 'react-i18next'
@@ -30,6 +33,9 @@ export function RecordsView({ onRefresh }: RecordsViewProps) {
   const scrollPositionRef = useRef(0)
   const isVisible = usePageVisibility()
   const [startConfig, setStartConfig] = useState<RecordStartConfig>(defaultRecordStartConfig)
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>('records-layout', 'grid')
+  const [sortField, setSortField] = usePersistedState('records-sort', 'added')
+  const [sortDirection, setSortDirection] = usePersistedState<SortDirection>('records-sort-dir', 'desc')
 
   const resetRecordStartForm = () => {
     setStartConfig(defaultRecordStartConfig())
@@ -112,11 +118,55 @@ export function RecordsView({ onRefresh }: RecordsViewProps) {
     }
   }
 
+  const sortedTasks = tasks.slice().sort((a, b) => {
+    const value = (task: RecordTask) => {
+      switch (sortField) {
+        case 'room_id':
+          return task.roomId
+        case 'name':
+          return (task.roomInfo?.uname || String(task.roomId)).toLowerCase()
+        case 'added':
+        default: {
+          const raw = task.startTime
+          if (typeof raw === 'number') return raw
+          const parsed = typeof raw === 'string' ? Date.parse(raw) : Number.NaN
+          return Number.isFinite(parsed) ? parsed : 0
+        }
+      }
+    }
+    const av = value(a)
+    const bv = value(b)
+    let cmp = 0
+    if (typeof av === 'number' && typeof bv === 'number') {
+      cmp = av - bv
+    } else {
+      cmp = String(av).localeCompare(String(bv))
+    }
+    if (cmp === 0) cmp = a.roomId - b.roomId
+    return sortDirection === 'asc' ? cmp : -cmp
+  })
+
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 bg-background z-10 p-4 border-b border-border">
-        <div className="flex items-center justify-between mb-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="text-xl font-bold">{t('recordsView.title')}</h2>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            <SortControl
+              id="records-sort"
+              label={t('viewControls.sortBy')}
+              value={sortField}
+              options={[
+                { value: 'added', label: t('viewControls.sortAdded') },
+                { value: 'room_id', label: t('viewControls.sortRoomId') },
+                { value: 'name', label: t('viewControls.sortName') },
+              ]}
+              direction={sortDirection}
+              onValueChange={setSortField}
+              onDirectionChange={setSortDirection}
+            />
+          </div>
           {!isReadOnly && (
             <RoomIdInputWithConfirmDialog
               triggerLabel={t('recordsView.add')}
@@ -154,8 +204,8 @@ export function RecordsView({ onRefresh }: RecordsViewProps) {
             description={t('recordsView.emptyDescription')}
           />
         ) : (
-          <div className="cards-grid grid gap-4">
-            {tasks.map((task) => (
+          <div className={viewMode === 'list' ? 'space-y-2' : 'cards-grid grid gap-4'}>
+            {sortedTasks.map((task) => (
               <RecordCard
                 key={task.roomId}
                 task={task}

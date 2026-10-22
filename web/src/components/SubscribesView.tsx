@@ -1,4 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { usePersistedState } from '@/hooks/use-persisted-state'
+import { ViewModeToggle, type ViewMode } from '@/components/view/ViewModeToggle'
+import { SortControl, type SortDirection } from '@/components/view/SortControl'
+import { GroupToggle } from '@/components/view/GroupToggle'
 import { useGridVirtualizer } from '@/hooks/use-grid-virtualizer'
 import { BellIcon, BellSlashIcon, MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
 import { SearchBar } from './SearchBar'
@@ -7,10 +11,11 @@ import { EmptyState } from './EmptyState'
 import { RoomIdInputWithConfirmDialog } from './RoomIdInputWithConfirmDialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { apiClient } from '@/lib/api'
 import { isNetworkError, markOnline, noteTransportFailure } from '@/lib/network-status'
 import { toast } from 'sonner'
-import type { RecordInfo, RecordStatus, RoomConfig, RoomInfo } from '@/lib/types'
+import type { RecordInfo, RecordStatus, RoomConfig, RoomInfo, SubscribedRooms } from '@/lib/types'
 import { buildStartRecordParams } from '@/lib/room-config'
 import { LoadingScreen } from './LoadingScreen'
 import { usePageVisibility } from '@/hooks/use-visibility'
@@ -35,6 +40,7 @@ const GRID_GAP = 16
 const CONTENT_PADDING_X = 32
 const ESTIMATED_ROW_HEIGHT = 200
 const MAX_COLUMNS = 3
+const SUBSCRIBE_SORT_OPTIONS = ['added', 'room_id', 'name'] as const
 
 interface SubscribesViewProps {
   onRefresh?: () => void
@@ -50,18 +56,22 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
     useState<NotificationPermissionStatus>(getNotificationPermission)
   const [bannerDismissed, setBannerDismissed] = useState(false)
   const [isRequestingPermission, setIsRequestingPermission] = useState(false)
+  const [viewMode, setViewMode] = usePersistedState<ViewMode>('subscribes-layout', 'grid')
+  const [sortField, setSortField] = usePersistedState('subscribes-sort', 'added')
+  const [sortDirection, setSortDirection] = usePersistedState<SortDirection>('subscribes-sort-dir', 'desc')
+  const [groupByStatus, setGroupByStatus] = usePersistedState('subscribes-group', false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const lastScrolledPinRef = useRef<number | null>(null)
   const isVisible = usePageVisibility()
 
   const {
-    data: subscribedRoomIds,
+    data: subscribedMeta,
     error: subscribedRoomsError,
     isLoading: isSubscribedRoomsLoading,
     mutate: mutateSubscribedRoomIds,
-  } = useSWR<number[]>(
-    'subscribe/room-ids',
-    () => apiClient.getSubscribedRooms(),
+  } = useSWR<SubscribedRooms>(
+    'subscribe/room-meta',
+    () => apiClient.getSubscribedRoomsWithMeta(),
     {
       refreshInterval: isVisible ? 5000 : 0,
       refreshWhenHidden: true,
@@ -76,7 +86,8 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
     }
   )
 
-  const roomIds = subscribedRoomIds ?? []
+  const roomIds = subscribedMeta?.room_ids ?? []
+  const addedAt = subscribedMeta?.added_at ?? {}
 
   const { data: autoRecordRoomIds = [] } = useSWR<number[]>(
     'subscribe/auto-record-ids',
@@ -263,6 +274,80 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
     minScore: 1,
   })
 
+  const sortedRooms = useMemo(() => {
+    const value = (room: RoomInfo) => {
+      switch (sortField) {
+        case 'room_id':
+          return room.room_id
+        case 'name':
+          return (room.uname || String(room.room_id)).toLowerCase()
+        case 'added':
+        default:
+          return addedAt[String(room.room_id)] ?? 0
+      }
+    }
+    const sorted = [...filteredRooms].sort((a, b) => {
+      if (pinnedRoomId != null) {
+        if (a.room_id === pinnedRoomId) return -1
+        if (b.room_id === pinnedRoomId) return 1
+      }
+      const av = value(a)
+      const bv = value(b)
+      let cmp = 0
+      if (typeof av === 'number' && typeof bv === 'number') {
+        cmp = av - bv
+      } else {
+        cmp = String(av).localeCompare(String(bv))
+      }
+      if (cmp === 0) cmp = a.room_id - b.room_id
+      return sortDirection === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [filteredRooms, sortField, sortDirection, addedAt, pinnedRoomId])
+
+  const statusByRoom = useMemo(() => {
+    const map = new Map<number, RecordStatus>()
+    for (const status of details.recordStatuses) {
+      map.set(status.room_id, status.status)
+    }
+    return map
+  }, [details.recordStatuses])
+
+  const statusGroups = useMemo(() => {
+    const groups: { key: string; label: string; rooms: RoomInfo[] }[] = [
+      { key: 'recording', label: t('subscribesView.groupRecording'), rooms: [] },
+      { key: 'recovering', label: t('subscribesView.groupRecovering'), rooms: [] },
+      { key: 'idle', label: t('subscribesView.groupIdle'), rooms: [] },
+    ]
+    for (const room of sortedRooms) {
+      const status = statusByRoom.get(room.room_id) ?? 'idle'
+      const group = groups.find((item) => item.key === status) ?? groups[2]
+      group.rooms.push(room)
+    }
+    return groups.filter((group) => group.rooms.length > 0)
+  }, [sortedRooms, statusByRoom, t])
+
+  const renderSubscribeCard = (room: RoomInfo) => {
+    const isPinned = room.room_id === pinnedRoomId
+    return (
+      <div
+        key={room.room_id}
+        className={`w-full rounded-lg transition-shadow duration-300 ${
+          isPinned ? 'ring-2 ring-primary shadow-md' : ''
+        }`}
+      >
+        <SubscribeCard
+          roomInfo={room}
+          isRecording={recordingRoomIds.has(room.room_id)}
+          autoRecord={autoRecordRoomIdSet.has(room.room_id)}
+          addedAt={addedAt[String(room.room_id)]}
+          onUnsubscribe={handleUnsubscribe}
+          onStartRecord={handleStartRecord}
+        />
+      </div>
+    )
+  }
+
   const isLoading = isSubscribedRoomsLoading || (roomIds.length > 0 && isDetailsLoading)
 
   useEffect(() => {
@@ -290,7 +375,7 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
 
   const { rows, fixedColumnsStyle, rowVirtualizer } = useGridVirtualizer<RoomInfo>({
     scrollContainerRef,
-    items: filteredRooms,
+    items: sortedRooms,
     cardMinWidth: CARD_MIN_WIDTH,
     gridGap: GRID_GAP,
     contentPaddingX: CONTENT_PADDING_X,
@@ -354,21 +439,37 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
   return (
     <div className="flex flex-col h-full">
       <div className="sticky top-0 bg-background z-10 p-4 border-b border-border">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-xl font-bold shrink-0">{t('subscribesView.title')}</h2>
 
-          <SearchBar
-            value={searchInput}
-            onChange={setSearchInput}
-            placeholder={t('subscribesView.searchPlaceholder')}
-            isSearching={searchInput.trim() !== searchQuery}
-            searchingLabel={t('subscribesView.searching')}
-            searchLabel={t('actions.search')}
-            dialogTitle={t('subscribesView.searchAria')}
-            ariaLabel={t('subscribesView.searchAria')}
-            containerClassName="ml-auto"
-            inputWidth="w-[200px] md:w-[280px]"
-          />
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+            <SortControl
+              id="subscribes-sort"
+              label={t('viewControls.sortBy')}
+              value={sortField}
+              options={[
+                { value: 'added', label: t('viewControls.sortAdded') },
+                { value: 'room_id', label: t('viewControls.sortRoomId') },
+                { value: 'name', label: t('viewControls.sortName') },
+              ]}
+              direction={sortDirection}
+              onValueChange={setSortField}
+              onDirectionChange={setSortDirection}
+            />
+            <GroupToggle id="subscribes-group" checked={groupByStatus} onCheckedChange={setGroupByStatus} />
+            <SearchBar
+              value={searchInput}
+              onChange={setSearchInput}
+              placeholder={t('subscribesView.searchPlaceholder')}
+              isSearching={searchInput.trim() !== searchQuery}
+              searchingLabel={t('subscribesView.searching')}
+              searchLabel={t('actions.search')}
+              dialogTitle={t('subscribesView.searchAria')}
+              ariaLabel={t('subscribesView.searchAria')}
+              inputWidth="w-[180px] sm:w-[240px] md:w-[280px]"
+            />
+          </div>
 
           {!isReadOnly && (
             <RoomIdInputWithConfirmDialog
@@ -460,6 +561,24 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
                 title={t('subscribesView.emptySearchTitle')}
                 description={t('subscribesView.emptySearchDescription')}
               />
+            ) : groupByStatus ? (
+              <div className="space-y-6">
+                {statusGroups.map((group) => (
+                  <section key={group.key} className="space-y-2">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold">
+                      {group.label}
+                      <Badge variant="secondary" className="font-normal">
+                        {group.rooms.length}
+                      </Badge>
+                    </h3>
+                    <div className={viewMode === 'list' ? 'space-y-2' : 'cards-grid grid gap-4'}>
+                      {group.rooms.map(renderSubscribeCard)}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : viewMode === 'list' ? (
+              <div className="space-y-2">{sortedRooms.map(renderSubscribeCard)}</div>
             ) : (
               <div style={{ height: `${Math.max(0, rowVirtualizer.getTotalSize() - GRID_GAP)}px`, position: 'relative' }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => (
@@ -478,23 +597,7 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
                     <div className="grid gap-4" style={fixedColumnsStyle}>
                       {rows[virtualRow.index].map((room, colIndex) => {
                         if (!room) return <div key={`empty-${virtualRow.index}-${colIndex}`} />
-                        const isPinned = room.room_id === pinnedRoomId
-                        return (
-                          <div
-                            key={room.room_id}
-                            className={`w-full rounded-lg transition-shadow duration-300 ${
-                              isPinned ? 'ring-2 ring-primary shadow-md' : ''
-                            }`}
-                          >
-                            <SubscribeCard
-                              roomInfo={room}
-                              isRecording={recordingRoomIds.has(room.room_id)}
-                              autoRecord={autoRecordRoomIdSet.has(room.room_id)}
-                              onUnsubscribe={handleUnsubscribe}
-                              onStartRecord={handleStartRecord}
-                            />
-                          </div>
-                        )
+                        return renderSubscribeCard(room)
                       })}
                     </div>
                   </div>

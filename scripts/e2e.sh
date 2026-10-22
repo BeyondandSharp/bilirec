@@ -1779,7 +1779,7 @@ else
   LOGS_SOURCE_DIR="$LOGS_PATH.d"
   SOURCE_READY=0
   for _ in $(seq 1 100); do
-    if [[ -s "$LOGS_SOURCE_DIR/rest/current.log" ]] && [[ -f "$LOGS_SOURCE_DIR/logging/current.log" ]]; then
+    if [[ -s "$LOGS_SOURCE_DIR/access/current.log" ]] && [[ -f "$LOGS_SOURCE_DIR/system/current.log" ]]; then
       SOURCE_READY=1
       break
     fi
@@ -1806,7 +1806,7 @@ if d.get("base_path") != sys.argv[2]:
 if d.get("sources_dir") != sys.argv[3]:
     errs.append("sources_dir=%r" % d.get("sources_dir"))
 names = [s.get("name") for s in d.get("sources") or []]
-for name in ("main", "rest"):
+for name in ("main", "access"):
     if name not in names:
         errs.append("missing source %s (got %r)" % (name, names))
 if errs:
@@ -1814,29 +1814,29 @@ if errs:
 print("sources=%s" % ",".join(names))
 PY
     then
-      pass "GET /logs/sources split metadata and main/rest sources"
+      pass "GET /logs/sources split metadata and main/access sources"
     else
       fail "GET /logs/sources metadata invalid"
     fi
 
-    code=$(api GET "/logs?source=rest&lines=2000")
-    expect_status 200 "$code" "GET /logs?source=rest"
+    code=$(api GET "/logs?source=access&lines=2000")
+    expect_status 200 "$code" "GET /logs?source=access"
     if python3 - "$API_BODY" <<'PY'
 import json
 import sys
 
 d = json.load(open(sys.argv[1]))
-if d.get("source") != "rest" or d.get("split") is not True:
+if d.get("source") != "access" or d.get("split") is not True:
     sys.exit("source/split mismatch: %r %r" % (d.get("source"), d.get("split")))
 lines = d.get("lines") or []
 if not any("GET" in line and "/version" in line for line in lines):
-    sys.exit("no access-log line found in rest source")
-print("rest lines=%d" % len(lines))
+    sys.exit("no access-log line found in access source")
+print("access lines=%d" % len(lines))
 PY
     then
-      pass "GET /logs?source=rest contains HTTP access log lines"
+      pass "GET /logs?source=access contains HTTP access log lines"
     else
-      fail "GET /logs?source=rest missing access lines"
+      fail "GET /logs?source=access missing access lines"
     fi
 
     if python3 - "$LOGS_PATH" <<'PY'
@@ -1851,12 +1851,12 @@ PY
       fail "main aggregate contains REST access lines"
     fi
 
-    code=$(logs_download - "$WORK/out/logs-rest-download.log" "$WORK/out/logs-rest-download.headers" rest)
-    expect_status 200 "$code" "GET /logs/download?source=rest"
-    if out=$(logs_download_headers_ok "$WORK/out/logs-rest-download.headers" "$WORK/out/logs-rest-download.log" rest.log 2>&1); then
-      pass "GET /logs/download?source=rest headers/body: $out"
+    code=$(logs_download - "$WORK/out/logs-access-download.log" "$WORK/out/logs-access-download.headers" access)
+    expect_status 200 "$code" "GET /logs/download?source=access"
+    if out=$(logs_download_headers_ok "$WORK/out/logs-access-download.headers" "$WORK/out/logs-access-download.log" access.log 2>&1); then
+      pass "GET /logs/download?source=access headers/body: $out"
     else
-      fail "GET /logs/download?source=rest headers/body: $out"
+      fail "GET /logs/download?source=access headers/body: $out"
     fi
 
     code=$(api GET "/logs?source=../etc")
@@ -1931,6 +1931,10 @@ PY
     fail "downloaded log does not contain the /logs tail lines"
   fi
 fi
+
+# Webhook test endpoint: no WEBHOOK_URLS configured in backend A -> 400.
+code=$(api POST /webhook/test)
+expect_status 400 "$code" "POST /webhook/test without WEBHOOK_URLS -> 400"
 
 # ---------------------------------------------------------------------------
 # 6. opt-in real live recording through the REST API

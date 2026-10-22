@@ -12,12 +12,11 @@ META = {
 "PUBLIC_BASE_URL": ("公开访问地址", "对外访问地址，用于生成外部链接。", "公開存取位址", "對外存取位址，用於產生外部連結。", "Public base URL", "Externally visible base URL used in generated links."),
 "SERVER_CRT": ("TLS 证书路径", "HTTPS 证书文件路径（PEM）。", "TLS 憑證路徑", "HTTPS 憑證檔案路徑（PEM）。", "TLS certificate path", "Path to the PEM TLS certificate."),
 "SERVER_KEY": ("TLS 私钥路径", "HTTPS 私钥文件路径（PEM）。", "TLS 私鑰路徑", "HTTPS 私鑰檔案路徑（PEM）。", "TLS private key path", "Path to the PEM TLS private key."),
-"SILENT_ACCESS_LOG": ("静默访问日志", "关闭 HTTP 访问日志输出。", "靜默存取日誌", "關閉 HTTP 存取日誌輸出。", "Silent access log", "Suppress HTTP access log output."),
 "TRUSTED_PROXIES": ("可信代理列表", "可信反向代理地址，逗号分隔，用于获取真实客户端 IP。", "可信代理清單", "可信反向代理位址，以逗號分隔，用於取得真實用戶端 IP。", "Trusted proxies", "Comma-separated trusted proxy addresses for the real client IP."),
 "TZ": ("时区", "IANA 时区名称，例如 Asia/Hong_Kong。", "時區", "IANA 時區名稱，例如 Asia/Hong_Kong。", "Timezone", "IANA timezone name, e.g. Asia/Hong_Kong."),
 "USERNAME": ("管理员用户名", "与密码一起启用 JWT 认证并授予管理员权限。", "管理員使用者名稱", "與密碼一起啟用 JWT 認證並授予管理員權限。", "Admin username", "Enables JWT auth together with the password and grants admin rights."),
 "VIEWER_USERNAME": ("访客用户名", "只读访客账号的用户名。", "訪客使用者名稱", "唯讀訪客帳號的使用者名稱。", "Viewer username", "Username of the read-only viewer account."),
-"WEBHOOK_URLS": ("Webhook 地址列表", "录制完成时通知的 Webhook 地址，逗号分隔。", "Webhook 位址清單", "錄製完成時通知的 Webhook 位址，以逗號分隔。", "Webhook URLs", "Comma-separated webhook URLs notified when a recording finishes."),
+"WEBHOOK_URLS": ("Webhook 地址列表", "录制事件通知的 Webhook 地址，每行一个。", "Webhook 位址清單", "錄製事件通知的 Webhook 位址，每行一個。", "Webhook URLs", "Webhook URLs notified for recording events, one per line."),
 "WEBPUSH_SUBSCRIBER": ("WebPush 订阅者", "WebPush VAPID 订阅者标识（mailto）。", "WebPush 訂閱者", "WebPush VAPID 訂閱者識別（mailto）。", "WebPush subscriber", "WebPush VAPID subscriber identity (mailto)."),
 # --- storage ---
 "DATABASE_DIR": ("数据库目录", "bbolt 数据库文件所在目录。", "資料庫目錄", "bbolt 資料庫檔案所在目錄。", "Database directory", "Directory holding the bbolt database files."),
@@ -62,6 +61,7 @@ META.update({
 "DANMAKU_WRITER_MIN_PERIODIC_FLUSH_BYTES": ("弹幕最小周期刷新字节", "低于该字节数时不进行周期刷新。", "彈幕最小週期刷新位元組", "低於該位元組數時不進行週期刷新。", "Danmaku min periodic flush bytes", "Minimum bytes before a periodic danmaku flush happens."),
 "DANMAKU_WRITER_SYNC_PERIOD_SECS": ("弹幕同步周期（秒）", "弹幕写入器 fsync 周期（秒）。", "彈幕同步週期（秒）", "彈幕寫入器 fsync 週期（秒）。", "Danmaku sync period", "Danmaku writer fsync period in seconds."),
 # --- logging ---
+"LOCAL_LOGS_GROUPS": ("日志类别", "选择写入本地文件的日志类别；按 live/system/recorder/access/update 分组。", "日誌類別", "選擇寫入本機檔案的日誌類別；依 live/system/recorder/access/update 分組。", "Log groups", "Select which log groups are written to local files (live/system/recorder/access/update)."),
 "LOCAL_LOGS_SPLIT": ("按来源拆分日志", "按 logger 来源拆分本地日志；网络请求日志单独存放。", "依來源拆分日誌", "依 logger 來源拆分本機日誌；網路請求日誌單獨存放。", "Split logs by source", "Split local logs by logger source; network request logs go to separate files."),
 "LOCAL_LOGS_ENABLED": ("启用本地日志", "把日志写入本地文件（带轮转）。", "啟用本機日誌", "把日誌寫入本機檔案（含輪替）。", "Enable local logs", "Write logs to local rotating files."),
 "LOCAL_LOGS_PATH": ("本地日志路径", "本地日志文件路径。", "本機日誌路徑", "本機日誌檔案路徑。", "Local log path", "Path of the local log file."),

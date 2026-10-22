@@ -41,6 +41,8 @@ special = {
  'CHECK_UPDATE': ('bool','true'),
  'MAX_RETRY_SECONDS': ('number','30'),
  'LOCAL_LOGS_SPLIT': ('bool','true'),
+ 'LOCAL_LOGS_GROUPS': ('csv','live,system,recorder,access,update'),
+ 'WEBHOOK_URLS': ('textarea',''),
 }
 keys.update({k:{'kind':v[0],'default':v[1]} for k,v in special.items()})
 
@@ -162,7 +164,7 @@ def group_of(k):
     if p.startswith('UPDATE_CHECK_') or p in ('CHECK_UPDATE','GITHUB_API_URL'): return 'update'
     if p in ('OUTPUT_DIR','SECRET_DIR','DATABASE_DIR','MIN_DISK_SPACE_BYTES'): return 'storage'
     if p in ('HOST','PORT','TRUSTED_PROXIES','PUBLIC_BASE_URL','FRONTEND_URL','FRONTEND_URLS',
-             'SERVER_CRT','SERVER_KEY','PRODUCTION_MODE','DEBUG','SILENT_ACCESS_LOG',
+             'SERVER_CRT','SERVER_KEY','PRODUCTION_MODE','DEBUG',
              'BILIBILI_LOGIN_MODE','TZ','USERNAME','VIEWER_USERNAME','WEBHOOK_URLS','WEBPUSH_SUBSCRIBER'):
         return 'server'
     if p.startswith('LIVE_STREAM_WRITER_') or p.startswith('READ_STREAM_') or p in ('STREAM_WRITER_BUFFER_SIZE','UPLOAD_BUFFER_SIZE','DOWNLOAD_BUFFER_SIZE','MAX_CONCURRENT_RECORDINGS','MAX_RECORDING_HOURS','MAX_RECOVERY_ATTEMPTS','MAX_RETRY_SECONDS','RECORDING_RECOVERY_DURATION','STREAM_IDLE_TIMEOUT','DROP_FILE_PAGE_CACHE','SEQUENTIAL_WRITE','SKIP_SMALL_FLUSH','SKIP_SMALL_FLUSH_THRESHOLD','TITLE_POLL_SECS','MAX_CONCURRENT_RECORDING'):

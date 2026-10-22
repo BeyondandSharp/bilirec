@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { MutableRefObject } from 'react'
 import {
   CaretDownIcon,
   CaretRightIcon,
   MagnifyingGlassIcon,
+  PaperPlaneTiltIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
@@ -20,7 +22,9 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { LoadingScreen } from '@/components/LoadingScreen'
 import { ConfigFieldControl, localizedText } from '@/components/settings/ConfigFieldControl'
 import { apiClient } from '@/lib/api'
@@ -32,6 +36,14 @@ import type { ConfigField, ConfigGroup, ConfigSource, SystemConfigResponse } fro
 
 /** Groups owned by other sections of the settings page (FEATURES-V2 form / secrets form). */
 const EXCLUDED_GROUP_IDS = new Set(['features', 'secrets'])
+const LOCAL_LOG_GROUPS = ['live', 'system', 'recorder', 'access', 'update'] as const
+const LOCAL_LOG_GROUP_LABEL_KEYS: Record<(typeof LOCAL_LOG_GROUPS)[number], string> = {
+  live: 'logs.sourceLive',
+  system: 'logs.sourceSystem',
+  recorder: 'logs.sourceRecorder',
+  access: 'logs.sourceAccess',
+  update: 'logs.sourceUpdate',
+}
 
 const SOURCE_LABEL_KEYS: Record<ConfigSource, string> = {
   env: 'settingsView.system.sourceEnv',
@@ -64,7 +76,12 @@ function SourceBadge({ source }: { source: ConfigSource | undefined }) {
  * folded groups, search, source badges, env-locked fields, restart-required
  * badges and fields that need unavailable tooling (e.g. ffmpeg).
  */
-export function SystemConfigSection() {
+interface SystemConfigSectionProps {
+  onDirtyChange?: (dirty: boolean) => void
+  saveHandlerRef?: MutableRefObject<(() => Promise<void>) | null>
+}
+
+export function SystemConfigSection({ onDirtyChange, saveHandlerRef }: SystemConfigSectionProps = {}) {
   const { t } = useTranslation()
   const { language } = useLanguage()
   const { isReadOnly } = useRole()
@@ -79,6 +96,7 @@ export function SystemConfigSection() {
   const [search, setSearch] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
+  const [isTestingWebhook, setIsTestingWebhook] = useState(false)
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true)
@@ -192,6 +210,20 @@ export function SystemConfigSection() {
     }
   }
 
+  useEffect(() => {
+    onDirtyChange?.(dirtyKeys.length > 0)
+  }, [dirtyKeys.length, onDirtyChange])
+
+  useEffect(() => {
+    if (!saveHandlerRef) {
+      return
+    }
+    saveHandlerRef.current = handleSave
+    return () => {
+      saveHandlerRef.current = null
+    }
+  }, [saveHandlerRef, handleSave])
+
   const handleReset = async () => {
     if (isReadOnly) {
       return
@@ -212,6 +244,45 @@ export function SystemConfigSection() {
       toast.error(message, { position: 'bottom-center' })
     } finally {
       setIsResetting(false)
+    }
+  }
+
+  const splitLogsEnabled = draft.LOCAL_LOGS_SPLIT !== 'false'
+  const webhookDirty = dirtyKeys.includes('WEBHOOK_URLS')
+  const logGroupsValue = draft.LOCAL_LOGS_GROUPS ?? ''
+  const selectedLogGroups = new Set(
+    logGroupsValue
+      .split(',')
+      .map((group) => group.trim().toLowerCase())
+      .filter(Boolean),
+  )
+
+  const toggleLogGroup = (group: (typeof LOCAL_LOG_GROUPS)[number], checked: boolean) => {
+    const next = new Set(selectedLogGroups)
+    if (checked) {
+      next.add(group)
+    } else {
+      next.delete(group)
+    }
+    const value = LOCAL_LOG_GROUPS.filter((item) => next.has(item)).join(',')
+    setDraft((current) => ({ ...current, LOCAL_LOGS_GROUPS: value }))
+  }
+
+  const handleTestWebhook = async () => {
+    setIsTestingWebhook(true)
+    try {
+      const report = await apiClient.testWebhook()
+      toast.success(
+        t('settingsView.system.webhookTestSuccess', { count: report.results.length }),
+        { position: 'bottom-center' },
+      )
+    } catch (error) {
+      console.error('Failed to test webhook:', error)
+      toast.error(getServerErrorMessage(error, t('settingsView.system.webhookTestFailed')), {
+        position: 'bottom-center',
+      })
+    } finally {
+      setIsTestingWebhook(false)
     }
   }
 
@@ -257,12 +328,6 @@ export function SystemConfigSection() {
               disabled={isBusy || !data}
             >
               {isResetting ? t('settingsView.system.resetting') : t('settingsView.system.reset')}
-            </Button>
-            <Button
-              onClick={() => void handleSave()}
-              disabled={isBusy || !data || dirtyKeys.length === 0}
-            >
-              {isSaving ? t('settingsView.system.saving') : t('settingsView.system.save')}
             </Button>
           </div>
         )}
@@ -349,6 +414,9 @@ export function SystemConfigSection() {
                     {expanded && (
                       <div className="grid gap-3 border-t border-border p-3 sm:grid-cols-2">
                         {fields.map((field) => {
+                          if (field.key === 'LOCAL_LOGS_GROUPS' && !splitLogsEnabled) {
+                            return null
+                          }
                           const locked = isFieldLocked(field)
                           const unavailable = isFieldUnavailable(field)
                           const source = data.sources?.[field.key]
@@ -361,14 +429,61 @@ export function SystemConfigSection() {
                                   : 'space-y-1.5 rounded-lg border border-border/60 p-2.5'
                               }
                             >
-                              <ConfigFieldControl
-                                field={field}
-                                value={draft[field.key] ?? ''}
-                                disabled={isFieldDisabled(field)}
-                                onChange={(value) =>
-                                  setDraft((current) => ({ ...current, [field.key]: value }))
-                                }
-                              />
+                              {field.key === 'LOCAL_LOGS_GROUPS' ? (
+                                <div className="space-y-2">
+                                  <Label>{t('settingsView.system.logGroups')}</Label>
+                                  <p className="text-xs text-muted-foreground">
+                                    {t('settingsView.system.logGroupsHint')}
+                                  </p>
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    {LOCAL_LOG_GROUPS.map((group) => (
+                                      <label
+                                        key={group}
+                                        className="flex cursor-pointer items-center gap-2 rounded-md border border-border/60 px-2.5 py-2 text-sm"
+                                      >
+                                        <Checkbox
+                                          checked={selectedLogGroups.has(group)}
+                                          disabled={isFieldDisabled(field)}
+                                          onCheckedChange={(checked) =>
+                                            toggleLogGroup(group, checked === true)
+                                          }
+                                        />
+                                        <span>{t(LOCAL_LOG_GROUP_LABEL_KEYS[group])}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <ConfigFieldControl
+                                  field={field}
+                                  value={draft[field.key] ?? ''}
+                                  disabled={isFieldDisabled(field)}
+                                  onChange={(value) =>
+                                    setDraft((current) => ({ ...current, [field.key]: value }))
+                                  }
+                                />
+                              )}
+                              {field.key === 'WEBHOOK_URLS' && !isReadOnly && (
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleTestWebhook()}
+                                    disabled={isBusy || isTestingWebhook}
+                                  >
+                                    <PaperPlaneTiltIcon size={14} />
+                                    {isTestingWebhook
+                                      ? t('settingsView.system.webhookTesting')
+                                      : t('settingsView.system.webhookTest')}
+                                  </Button>
+                                  <span className="text-xs text-muted-foreground">
+                                    {webhookDirty
+                                      ? t('settingsView.system.webhookDirtyHint')
+                                      : t('settingsView.system.webhookTestHint')}
+                                  </span>
+                                </div>
+                              )}
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <SourceBadge source={source} />
                                 {field.restart_required && (

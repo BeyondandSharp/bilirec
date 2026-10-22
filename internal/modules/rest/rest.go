@@ -94,12 +94,6 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 		TimeZone: utils.EmptyOrElse(os.Getenv("TZ"), "Asia/Hong_Kong"),
 		Format:   "| ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
 		Stream:   log.WriterAt(logger.InfoLevel),
-		Next: func(c fiber.Ctx) bool {
-			if cfg.SilentAccessLog {
-				return c.Response().StatusCode() < 400
-			}
-			return false
-		},
 	}))
 
 	if swaggerPath, ok := resolveSwaggerFilePath(); ok {

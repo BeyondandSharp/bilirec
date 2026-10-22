@@ -52,7 +52,7 @@ func TestSplitLocalLoggerRoutesSourcesAndKeepsRestInfoOutOfMain(t *testing.T) {
 	logger.Sync()
 	lc.RequireStop()
 
-	restBody := readLogFile(t, filepath.Join(dir, "bilirec.log.d", "rest", "current.log"))
+	restBody := readLogFile(t, filepath.Join(dir, "bilirec.log.d", "access", "current.log"))
 	if !strings.Contains(restBody, "http-access-info") || !strings.Contains(restBody, "http-access-warn") {
 		t.Fatalf("rest source missing entries: %q", restBody)
 	}
@@ -72,20 +72,108 @@ func TestSplitLocalLoggerRoutesSourcesAndKeepsRestInfoOutOfMain(t *testing.T) {
 	}
 }
 
-func TestNormalizeSourceName(t *testing.T) {
+func TestLogGroupForName(t *testing.T) {
 	cases := map[string]string{
-		"":             "",
-		"rest":         "rest",
-		"src/with bad": "src_with_bad",
-		"main":         "main_source",
-		"..":           "other",
-		"UPPER":        "upper",
-		"ffmpeg_core":  "ffmpeg_core",
-		"updatecheck":  "updatecheck",
+		"":            "",
+		"rest":        "access",
+		"bilibili":    "live",
+		"danmaku":     "live",
+		"stream":      "live",
+		"logging":     "system",
+		"notify":      "system",
+		"subcheck":    "system",
+		"convert":     "recorder",
+		"pipeline":    "recorder",
+		"recorder":    "recorder",
+		"repair":      "recorder",
+		"updatecheck": "update",
+		"unknown":     "system",
 	}
 	for raw, want := range cases {
-		if got := normalizeSourceName(raw); got != want {
-			t.Errorf("normalizeSourceName(%q) = %q, want %q", raw, got, want)
+		if got := logGroupForName(raw); got != want {
+			t.Errorf("logGroupForName(%q) = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+func TestSplitLogGroupsFilter(t *testing.T) {
+	color := false
+	logger.Init(logger.Options{Output: io.Discard, Color: &color})
+	resetCoresForTest(t)
+
+	dir := t.TempDir()
+	base := filepath.Join(dir, "bilirec.log")
+	lc := fxtest.NewLifecycle(t)
+	wireLocalLogger(lc, &config.Config{
+		LocalLogsEnabled:       true,
+		LocalLogsSplit:         true,
+		LocalLogsGroups:        []string{"system"},
+		LocalLogsPath:          base,
+		LocalLogsFormat:        "pretty",
+		LocalLogsOverflow:      "block",
+		LocalLogsMaxSizeMB:     20,
+		LocalLogsMaxAgeDays:    7,
+		LocalLogsMaxBackups:    3,
+		LocalLogsBatchBytes:    1024,
+		LocalLogsBufferSize:    16,
+		LocalLogsFlushInterval: 20 * time.Millisecond,
+	})
+	lc.RequireStart()
+	logger.Named("logging").Info("system-info")
+	logger.Named("recorder").Info("recorder-disabled")
+	logger.L().Info("unnamed")
+	logger.Sync()
+	lc.RequireStop()
+
+	if _, err := os.Stat(filepath.Join(dir, "bilirec.log.d", "system", "current.log")); err != nil {
+		t.Fatalf("system group missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bilirec.log.d", "recorder", "current.log")); !os.IsNotExist(err) {
+		t.Fatalf("disabled recorder group should not exist, err=%v", err)
+	}
+	mainBody := readLogFile(t, base)
+	if !strings.Contains(mainBody, "system-info") || !strings.Contains(mainBody, "unnamed") {
+		t.Fatalf("main missing enabled entries: %q", mainBody)
+	}
+	if strings.Contains(mainBody, "recorder-disabled") {
+		t.Fatalf("disabled group leaked into main: %q", mainBody)
+	}
+}
+
+func TestSplitLogGroupsCanDisableAllNamedLoggers(t *testing.T) {
+	color := false
+	logger.Init(logger.Options{Output: io.Discard, Color: &color})
+	resetCoresForTest(t)
+
+	dir := t.TempDir()
+	base := filepath.Join(dir, "bilirec.log")
+	lc := fxtest.NewLifecycle(t)
+	wireLocalLogger(lc, &config.Config{
+		LocalLogsEnabled:       true,
+		LocalLogsSplit:         true,
+		LocalLogsGroups:        []string{},
+		LocalLogsPath:          base,
+		LocalLogsFormat:        "pretty",
+		LocalLogsOverflow:      "block",
+		LocalLogsMaxSizeMB:     20,
+		LocalLogsMaxAgeDays:    7,
+		LocalLogsMaxBackups:    3,
+		LocalLogsBatchBytes:    1024,
+		LocalLogsBufferSize:    16,
+		LocalLogsFlushInterval: 20 * time.Millisecond,
+	})
+	lc.RequireStart()
+	logger.Named("rest").Info("access-disabled")
+	logger.Named("recording").Info("named-disabled")
+	logger.L().Info("main-only")
+	logger.Sync()
+	lc.RequireStop()
+
+	mainBody := readLogFile(t, base)
+	if !strings.Contains(mainBody, "main-only") {
+		t.Fatalf("main missing unnamed line: %q", mainBody)
+	}
+	if strings.Contains(mainBody, "access-disabled") || strings.Contains(mainBody, "named-disabled") {
+		t.Fatalf("disabled named logger leaked into main: %q", mainBody)
 	}
 }

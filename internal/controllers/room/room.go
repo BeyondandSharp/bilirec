@@ -1,6 +1,7 @@
 package room
 
 import (
+	"slices"
 	"strconv"
 
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
@@ -294,13 +295,23 @@ func (r *Controller) isSubscribeRoom(ctx fiber.Ctx) error {
 // @Failure 500 {string} string "Internal server error"
 // @Router /room/subscribe [get]
 func (r *Controller) listSubscribeRooms(ctx fiber.Ctx) error {
-	roomIds, err := r.subSvc.ListSubscribedRooms()
+	rooms, err := r.subSvc.ListSubscribedRoomsWithConfig()
 	if err != nil {
 		log.Errorf("列出已订阅房间失败：%v", err)
 		return fiber.ErrInternalServerError
 	}
+	roomIds := make([]int, 0, len(rooms))
+	addedAt := make(map[string]int64, len(rooms))
+	for roomID, cfg := range rooms {
+		roomIds = append(roomIds, roomID)
+		if cfg != nil && cfg.AddedAt > 0 {
+			addedAt[strconv.Itoa(roomID)] = cfg.AddedAt
+		}
+	}
+	slices.Sort(roomIds)
 	return ctx.JSON(SubscribeList{
 		RoomIds: roomIds,
+		AddedAt: addedAt,
 	})
 }
 

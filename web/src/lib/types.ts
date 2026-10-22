@@ -119,6 +119,8 @@ export interface RecordFile {
   size: number
   path: string
   is_dir: boolean
+  /** File modification time (Unix milliseconds); absent for older backends/dirs. */
+  mtime?: number
   is_recording: boolean
 }
 
@@ -177,6 +179,8 @@ export interface SubscriptionStatus {
 
 export interface SubscribedRooms {
   room_ids: number[]
+  /** Subscription creation times (Unix seconds); legacy rooms may be absent/0. */
+  added_at?: Record<string, number>
 }
 
 export interface LiveStatus {
@@ -320,12 +324,27 @@ export interface ConfigUpdateRequest {
   clear?: string[]
 }
 
+export interface WebhookTestResult {
+  url: string
+  ok: boolean
+  status?: number
+  error?: string
+}
+
+export interface WebhookTestReport {
+  sent: boolean
+  event_type: string
+  event_id: string
+  results: WebhookTestResult[]
+}
+
 /**
  * Per-room overrides (FEATURES-V2 §1.3). New fields are nullable: `null`
  * (or absent) means "inherit global"; legacy fields keep their old shape.
  */
 export interface RoomConfig {
   room_id: number
+  added_at?: number
   auto_record: boolean
   notify: boolean
   record_duration_minutes?: number

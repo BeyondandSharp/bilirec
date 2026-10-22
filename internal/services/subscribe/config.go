@@ -18,6 +18,9 @@ type DanmakuTypes struct {
 }
 
 type RoomConfig struct {
+	// AddedAt is the Unix timestamp (seconds) when the room was subscribed.
+	// Legacy records have 0; callers must treat it as unknown.
+	AddedAt               int64
 	AutoRecord            bool
 	Notify                bool
 	RecordDurationMinutes int      // 0 = system default, -1 = unlimited, >0 = custom minutes
@@ -66,6 +69,17 @@ func defaultRoomConfig() *RoomConfig {
 }
 
 func (s *Service) UpdateConfig(roomID int, cfg *RoomConfig) error {
+	key := fmt.Append(nil, roomID)
+	s.roomsMu.Lock()
+	defer s.roomsMu.Unlock()
+
+	// Preserve the subscription creation time: config updates do not carry it.
+	if cfg != nil {
+		if existing := s.rooms[roomID]; existing != nil && cfg.AddedAt == 0 {
+			cfg.AddedAt = existing.AddedAt
+		}
+	}
+
 	var data []byte
 	if cfg == nil {
 		data = defaultRoomConfigBytes
@@ -76,10 +90,6 @@ func (s *Service) UpdateConfig(roomID int, cfg *RoomConfig) error {
 		}
 		data = encoded
 	}
-
-	key := fmt.Append(nil, roomID)
-	s.roomsMu.Lock()
-	defer s.roomsMu.Unlock()
 	if err := s.bucket.Update(func(bucket *bbolt.Bucket) error {
 		exists := bucket.Get(key)
 		if exists == nil {

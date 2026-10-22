@@ -290,10 +290,23 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
   }
 
   const sourceLabel = (source: string | undefined): string => {
-    if (!source || source === 'main') {
-      return t('logs.sourceMain')
+    switch (source) {
+      case undefined:
+      case 'main':
+        return t('logs.sourceMain')
+      case 'live':
+        return t('logs.sourceLive')
+      case 'system':
+        return t('logs.sourceSystem')
+      case 'recorder':
+        return t('logs.sourceRecorder')
+      case 'access':
+        return t('logs.sourceAccess')
+      case 'update':
+        return t('logs.sourceUpdate')
+      default:
+        return source
     }
-    return source
   }
 
   const handleSourceChange = (source: string) => {
@@ -318,8 +331,8 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
   const totalLines = data?.lines.length ?? 0
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="sticky top-0 z-10 border-b border-border bg-background p-4">
+    <div className="flex h-full min-w-0 flex-col">
+      <div className="sticky top-0 z-10 min-w-0 border-b border-border bg-background p-3 sm:p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-xl font-bold">{t('logs.title')}</h2>
@@ -332,14 +345,14 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
               </p>
             )}
           </div>
-          <div className="flex flex-wrap items-end gap-3">
+          <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto sm:gap-3">
             {sourceReport?.split && sources.length > 0 && (
-              <div className="space-y-1">
+              <div className="w-full space-y-1 sm:w-auto">
                 <Label htmlFor="logs-source" className="text-xs text-muted-foreground">
                   {t('logs.source')}
                 </Label>
                 <Select value={selectedSource} onValueChange={handleSourceChange}>
-                  <SelectTrigger id="logs-source" className="w-40">
+                  <SelectTrigger id="logs-source" className="w-full sm:w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -377,7 +390,7 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4 pb-20">
+      <div className="flex-1 space-y-3 overflow-y-auto p-3 pb-20 sm:p-4">
         {error && (
           <Alert variant="destructive">
             <WarningCircleIcon size={16} />
@@ -528,11 +541,11 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
             </div>
 
             {/* File metadata */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               <span>
                 {t('logs.source')}: <strong className="font-medium">{sourceLabel(data?.source)}</strong>
               </span>
-              <span className="min-w-0 truncate font-mono" title={data?.path}>
+              <span className="min-w-0 break-all font-mono" title={data?.path}>
                 {t('logs.path')}: {data?.path}
               </span>
               <span>
@@ -562,20 +575,20 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
                 aria-label={t('logs.viewerAria')}
                 aria-live="off"
                 onScroll={handleScroll}
-                className="max-h-[62vh] min-h-64 overflow-auto font-mono text-xs leading-5"
+                className="max-h-[52vh] min-h-64 overflow-auto font-mono text-xs leading-5 sm:max-h-[62vh]"
               >
                 {parsedLines.length === 0 ? (
                   <p className="p-4 text-sm text-muted-foreground">{t('logs.empty')}</p>
                 ) : (
                   parsedLines.map((entry) => (
-                    <div key={entry.number} className="flex gap-3 px-3 hover:bg-muted/40">
-                      <span className="w-12 shrink-0 select-none text-right text-muted-foreground/60">
+                    <div key={entry.number} className="flex min-w-0 gap-2 px-2 hover:bg-muted/40 sm:gap-3 sm:px-3">
+                      <span className="w-8 shrink-0 select-none text-right text-muted-foreground/60 sm:w-12">
                         {entry.number}
                       </span>
                       {entry.level && (
                         <span
                           className={cn(
-                            'w-12 shrink-0 select-none border-r border-border/60 pr-2 text-[10px] uppercase',
+                            'w-10 shrink-0 select-none border-r border-border/60 pr-1 text-[10px] uppercase sm:w-12 sm:pr-2',
                             LEVEL_TEXT_CLASS[entry.level],
                           )}
                         >
@@ -584,7 +597,7 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
                       )}
                       <span
                         className={cn(
-                          'min-w-0 whitespace-pre-wrap wrap-break-word',
+                          'min-w-0 break-all whitespace-pre-wrap',
                           entry.level ? LEVEL_TEXT_CLASS[entry.level] : undefined,
                         )}
                       >

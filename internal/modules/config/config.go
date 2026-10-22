@@ -45,6 +45,7 @@ type Config struct {
 	LocalLogsEnabled       bool
 	LocalLogsSplit         bool
 	LocalLogsPath          string
+	LocalLogsGroups        []string
 	LocalLogsFormat        string
 	LocalLogsMaxSizeMB     int
 	LocalLogsMaxAgeDays    int
@@ -103,9 +104,8 @@ type Config struct {
 	ServerCrt string
 	ServerKey string
 
-	Debug           bool
-	ProductionMode  bool
-	SilentAccessLog bool
+	Debug          bool
+	ProductionMode bool
 
 	MinDiskSpaceBytes int64
 
@@ -228,6 +228,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		LocalLogsEnabled:         os.Getenv("LOCAL_LOGS_ENABLED") == "true",
 		LocalLogsSplit:           parseLocalLogsSplit(os.Getenv("LOCAL_LOGS_SPLIT")),
 		LocalLogsPath:            strings.TrimSpace(os.Getenv("LOCAL_LOGS_PATH")),
+		LocalLogsGroups:          parseLocalLogsGroups(),
 		LocalLogsFormat:          strings.ToLower(strings.TrimSpace(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_FORMAT"), "pretty"))),
 		LocalLogsMaxSizeMB:       utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_SIZE_MB"), "20")),
 		LocalLogsMaxAgeDays:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_AGE_DAYS"), "7")),
@@ -274,7 +275,6 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		ServerKey:                          os.Getenv("SERVER_KEY"),
 		Debug:                              debug,
 		ProductionMode:                     os.Getenv("PRODUCTION_MODE") == "true",
-		SilentAccessLog:                    os.Getenv("SILENT_ACCESS_LOG") == "true",
 		MinDiskSpaceBytes:                  utils.MustAtoi64(utils.EmptyOrElse(os.Getenv("MIN_DISK_SPACE_BYTES"), "5368709120")), // 5GB
 		CloudConvertCheckIntervalSecs:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("CLOUDCONVERT_CHECK_INTERVAL_SECS"), "180")),
 		CloudConvertMaxConcurrentDownloads: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("CLOUDCONVERT_MAX_CONCURRENT_DOWNLOADS"), "1")),
@@ -426,15 +426,52 @@ func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {
 	return d
 }
 
+// allLogGroups is the fixed set exposed by the local-log source selector.
+var allLogGroups = []string{"live", "system", "recorder", "access", "update"}
+
+// parseLocalLogsGroups returns the selected local-log groups. A missing key
+// means all groups (nil); an explicitly empty value means no named groups.
+func parseLocalLogsGroups() []string {
+	raw, ok := os.LookupEnv("LOCAL_LOGS_GROUPS")
+	if !ok {
+		return nil
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+	known := make(map[string]struct{}, len(allLogGroups))
+	for _, group := range allLogGroups {
+		known[group] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(allLogGroups))
+	out := make([]string, 0, len(allLogGroups))
+	for _, part := range strings.Split(raw, ",") {
+		group := strings.ToLower(strings.TrimSpace(part))
+		if group == "" {
+			continue
+		}
+		if _, ok := known[group]; !ok {
+			continue
+		}
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		out = append(out, group)
+	}
+	return out
+}
+
+func parseLocalLogsSplit(raw string) bool {
+	return !strings.EqualFold(strings.TrimSpace(raw), "false")
+}
+
 // parseMaxRetrySeconds returns the stream-disconnect recovery window.
 //
 // MAX_RETRY_SECONDS is the current key (default 30). MAX_RETRY_MINUTES is kept
 // as a compatibility alias for existing deployments; when both are set the
 // seconds key wins. A non-positive value disables the recovery retry loop.
-func parseLocalLogsSplit(raw string) bool {
-	return !strings.EqualFold(strings.TrimSpace(raw), "false")
-}
-
 func parseMaxRetrySeconds() int {
 	if raw := strings.TrimSpace(os.Getenv("MAX_RETRY_SECONDS")); raw != "" {
 		return max(utils.MustAtoi(raw), 0)

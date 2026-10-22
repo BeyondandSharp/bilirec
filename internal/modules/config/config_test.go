@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -155,5 +157,29 @@ func TestParseLocalLogsSplit(t *testing.T) {
 		if got := parseLocalLogsSplit(raw); got != want {
 			t.Errorf("parseLocalLogsSplit(%q) = %v, want %v", raw, got, want)
 		}
+	}
+}
+
+func TestParseLocalLogsGroups(t *testing.T) {
+	old, had := os.LookupEnv("LOCAL_LOGS_GROUPS")
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("LOCAL_LOGS_GROUPS", old)
+		} else {
+			_ = os.Unsetenv("LOCAL_LOGS_GROUPS")
+		}
+	})
+
+	_ = os.Unsetenv("LOCAL_LOGS_GROUPS")
+	if got := parseLocalLogsGroups(); got != nil {
+		t.Fatalf("missing key should mean all groups, got %#v", got)
+	}
+	t.Setenv("LOCAL_LOGS_GROUPS", "")
+	if got := parseLocalLogsGroups(); got == nil || len(got) != 0 {
+		t.Fatalf("empty value should mean no groups, got %#v", got)
+	}
+	t.Setenv("LOCAL_LOGS_GROUPS", "ACCESS, live, unknown, live")
+	if got := strings.Join(parseLocalLogsGroups(), ","); got != "access,live" {
+		t.Fatalf("parsed groups = %q", got)
 	}
 }

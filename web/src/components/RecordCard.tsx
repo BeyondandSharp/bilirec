@@ -85,6 +85,16 @@ export function RecordCard({ task, onStop }: RecordCardProps) {
       || downloaderLabel !== undefined
       || repairLabel !== undefined
       || sourceFormatDiffers)
+  const startedAt = (() => {
+    if (typeof task.startTime === 'number' && task.startTime > 0) {
+      return new Date(task.startTime > 1e12 ? task.startTime : task.startTime * 1000)
+    }
+    if (typeof task.startTime === 'string') {
+      const parsed = new Date(task.startTime)
+      return Number.isNaN(parsed.getTime()) ? null : parsed
+    }
+    return null
+  })()
 
   const confirmStop = async () => {
     setIsStopDialogOpen(false)
@@ -207,6 +217,11 @@ export function RecordCard({ task, onStop }: RecordCardProps) {
                       )
                     )}
                   </div>
+                  {startedAt && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t('recordCard.addedAt', { time: startedAt.toLocaleString() })}
+                    </p>
+                  )}
                   {titleMismatched && isMobile && (
                     <Dialog open={isTitleInfoOpen} onOpenChange={setIsTitleInfoOpen}>
                       <DialogContent className="w-[90vw] max-w-sm">

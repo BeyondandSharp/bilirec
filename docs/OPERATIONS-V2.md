@@ -147,19 +147,20 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 | 配置键 | 默认 | 说明 |
 |---|---|---|
 | `LOCAL_LOGS_ENABLED` | `false` | 是否写本地日志（启用后日志页/下载可用；修改需重启） |
-| `LOCAL_LOGS_SPLIT` | `true` | 按 logger 来源拆分；`false` = 旧版单文件 |
-| `LOCAL_LOGS_PATH` | 空 = `<DATABASE_DIR>/bilirec.log` | 主日志路径；拆分文件在其旁 `<path>.d/<source>/current.log` |
+| `LOCAL_LOGS_SPLIT` | `true` | 按日志类别拆分；`false` = 旧版单文件 |
+| `LOCAL_LOGS_GROUPS` | `live,system,recorder,access,update` | 要写入本地文件的类别；空值 = 不写 named logger |
+| `LOCAL_LOGS_PATH` | 空 = `<DATABASE_DIR>/bilirec.log` | 主日志路径；拆分文件在其旁 `<path>.d/<group>/current.log` |
 | `LOCAL_LOGS_FORMAT` | `pretty` | `pretty` 或 `json`（响应里的 `format` 字段） |
 | `LOCAL_LOGS_MAX_SIZE_MB` | `20` | 单文件轮转阈值 |
 | `LOCAL_LOGS_MAX_AGE_DAYS` / `LOCAL_LOGS_MAX_BACKUPS` / `LOCAL_LOGS_COMPRESS` | `7` / `3` / `false` | 轮转后的保留/压缩 |
 | `LOCAL_LOGS_FLUSH_INTERVAL` / `LOCAL_LOGS_BATCH_BYTES` / `LOCAL_LOGS_BUFFER_SIZE` / `LOCAL_LOGS_OVERFLOW` | `1s` / `65536` / `4096` / 空 | 写入刷新与溢出策略 |
 
 - 拆分规则（`LOCAL_LOGS_SPLIT=true`）：
-  - `main`（`LOCAL_LOGS_PATH`）：无 logger name 的日志 + 所有非 `rest` named logger 日志 +
-    所有 WARN/ERROR；
-  - `<source>/current.log`：该 logger 的全部日志；
-  - `rest` 的 INFO/DEBUG HTTP access log **不进入 main**，避免请求日志淹没应用日志；
-  - `rest` 的 WARN/ERROR 仍会进入 main。
+  - `main`（`LOCAL_LOGS_PATH`）：无 logger name 的日志 + 已启用类别中除 `access` INFO/DEBUG 外的日志；
+  - `<group>/current.log`：该类别全部日志；
+  - 类别：`live`、`system`、`recorder`、`access`、`update`（映射见 `docs/LOGS-VIEW.md`）；
+  - `access` 的 INFO/DEBUG HTTP 请求日志**不进入 main**；WARN/ERROR 仍进入 main；
+  - `LOCAL_LOGS_GROUPS` 取消的类别完全不写本地文件。
 - `LOCAL_LOGS_SPLIT=false`：所有日志写入单个 `LOCAL_LOGS_PATH`，兼容旧行为。
 - 修改配置：环境变量 / `deploy/.env`，或 web 设置 → 系统配置 → 日志；该组键均为
   `restart_required`，修改后重启容器生效。
@@ -289,7 +290,7 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
   CONFIG_FILE/SECRETS_FILE、VERSION 等）。
 - 本地日志查看相关键：`LOCAL_LOGS_ENABLED`、`LOCAL_LOGS_PATH`、`LOCAL_LOGS_FORMAT`、
   `LOCAL_LOGS_MAX_SIZE_MB`、`LOCAL_LOGS_MAX_AGE_DAYS`、`LOCAL_LOGS_MAX_BACKUPS`、`LOCAL_LOGS_COMPRESS`、
-  `LOCAL_LOGS_FLUSH_INTERVAL`、`LOCAL_LOGS_BATCH_BYTES`、`LOCAL_LOGS_BUFFER_SIZE`、`LOCAL_LOGS_OVERFLOW`
+  `LOCAL_LOGS_GROUPS`、`LOCAL_LOGS_FLUSH_INTERVAL`、`LOCAL_LOGS_BATCH_BYTES`、`LOCAL_LOGS_BUFFER_SIZE`、`LOCAL_LOGS_OVERFLOW`
   （见 §4b；schema 中 group=`logging`，均需重启生效）。
 - 无效 env 值：启动时告警一次并回退内置默认（FEATURES-V2 键同规则）。
 

@@ -13,20 +13,32 @@ With `LOCAL_LOGS_SPLIT=true` (default):
 
 ```text
 <LOCAL_LOGS_PATH>                       main aggregate
-<LOCAL_LOGS_PATH>.d/<source>/current.log per-source file
+<LOCAL_LOGS_PATH>.d/live/current.log
+<LOCAL_LOGS_PATH>.d/system/current.log
+<LOCAL_LOGS_PATH>.d/recorder/current.log
+<LOCAL_LOGS_PATH>.d/access/current.log
+<LOCAL_LOGS_PATH>.d/update/current.log
 ```
 
-- `main` receives: entries with no logger name, all named logger entries except
-  `rest` INFO/DEBUG, and all WARN/ERROR entries (including `rest`).
-- `<source>/current.log` receives every entry for that logger.
-- `rest` is the Fiber HTTP access logger; its INFO/DEBUG entries are deliberately
-  kept out of main so request logs do not drown application logs.
-- Source names are derived from `zapcore.Entry.LoggerName`, lowered and sanitized
-  to `[a-z0-9._-]`, max 64 chars; `main` is reserved; invalid/overflow names fall
-  back to `other`/main.
-- `LOCAL_LOGS_SPLIT=false` preserves the old single-file behavior.
+- `main` receives: entries with no logger name, and all enabled groups except
+  `access` INFO/DEBUG.
+- `<group>/current.log` receives every entry for that group.
+- Group mapping:
+  - `live`: `bilibili`, `danmaku`, `stream`
+  - `system`: `logging`, `notify`, `subcheck`, `auth`, `config`, `settings`,
+    `room`, `subscribe`, `webhook`, `path`, `metrics`, `janitor`, `expose`, `fx`, `logs`
+  - `recorder`: `convert`, `pipeline`, `recorder`, `repair`, `downloader`,
+    `media`, `file`, `ffmpeg_core`, `fallback`
+  - `access`: `rest` (Fiber HTTP access logger; INFO/DEBUG kept out of main)
+  - `update`: `updatecheck`
+  - Unknown named loggers fall back to `system`.
+- `LOCAL_LOGS_GROUPS` (default all five) controls which groups are written at all;
+  an unchecked group writes neither its file nor a main copy. Empty value = no
+  named groups. Requires restart.
+- `LOCAL_LOGS_SPLIT=false` preserves the old single-file behavior and ignores
+  `LOCAL_LOGS_GROUPS`.
 
-Only `current.log` per source is exposed; rotated lumberjack backups are never
+Only `current.log` per group is exposed; rotated lumberjack backups are never
 listed or downloadable.
 
 ## Backend
@@ -43,7 +55,7 @@ Admin only. Returns the main file and every current source file:
   "sources_dir": "/app/database/bilirec.log.d",
   "sources": [
     {"name": "main", "path": "/app/database/bilirec.log", "exists": true, "size": 123, "mtime": "..."},
-    {"name": "rest", "path": ".../rest/current.log", "exists": true, "size": 456, "mtime": "..."}
+    {"name": "access", "path": ".../access/current.log", "exists": true, "size": 456, "mtime": "..."}
   ]
 }
 ```
@@ -54,8 +66,7 @@ Admin only. Returns the main file and every current source file:
 
 ### `GET /logs?lines=N&source=S`
 
-Admin only. `source` defaults to `main`; `main` reads `LOCAL_LOGS_PATH`; other
-values must be an existing safe source directory below `<LOCAL_LOGS_PATH>.d`.
+Admin only. `source` defaults to `main`; group values are `live|system|recorder|access|update`; `main` reads `LOCAL_LOGS_PATH`; other values must be an existing safe group directory below `<LOCAL_LOGS_PATH>.d`.
 
 - `lines` default 500, min 1, max 2000; invalid → 400.
 - Tail-read at most the last **2 MiB** of the selected current file; drop a
@@ -67,10 +78,10 @@ Response:
 
 ```json
 {
-  "source": "rest",
+  "source": "access",
   "split": true,
   "enabled": true,
-  "path": "/app/database/bilirec.log.d/rest/current.log",
+  "path": "/app/database/bilirec.log.d/access/current.log",
   "exists": true,
   "size": 456,
   "mtime": "2026-10-22T03:00:00+08:00",
@@ -108,13 +119,13 @@ tail/filters, invalid/traversal source, disabled/missing/download and admin RBAC
 - Viewer: monospace, line numbers, level colors; scrolling up pauses follow;
   “回到底部” resumes.
 - Metadata: selected source, path, size, mtime, format, truncated, filtered count.
-- i18n `logs.source`, `logs.sourceMain` + all existing keys in zh-TW/zh-CN/en.
+- i18n `logs.source`, `logs.sourceMain`, `logs.sourceLive/System/Recorder/Access/Update` + all existing keys in zh-TW/zh-CN/en.
 
 ## Acceptance
 
-- Split enabled: `main` and `rest` sources appear; `rest` INFO access lines are
-  absent from main but present in rest; `rest` WARN appears in both; downloads use
-  the correct filenames.
+- Split enabled: `main` and `access` groups appear; `access` INFO lines are absent
+  from main but present in `access`; `access` WARN appears in both; downloads use
+  the correct filenames. Disabled groups write neither their file nor a main copy.
 - Split disabled: only `main`, old single-file tail/download behavior.
 - Invalid/traversal source is rejected; disabled downloads 404; line limits/tail
   window preserved.

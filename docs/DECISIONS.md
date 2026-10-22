@@ -193,14 +193,30 @@ LSIO 兼容用法应当可用；重复 ID 下进程仍按请求的数值 UID/GID
 `bilirec.log` 中，导致日志页/文件被请求日志淹没。现改为按 logger source 拆分：
 
 - `LOCAL_LOGS_SPLIT=true`（默认）：
-  - 主日志 `LOCAL_LOGS_PATH` 保留无名称日志、所有非 `rest` named logger 日志、全部 WARN/ERROR；
-  - 每个 named logger 写 `<LOCAL_LOGS_PATH>.d/<source>/current.log`；
-  - `rest` 的 INFO/DEBUG access 只写 `rest/current.log`，不进入主日志；WARN/ERROR 仍进主日志。
+  - 主日志 `LOCAL_LOGS_PATH` 保留无名称日志和已启用类别日志；
+  - 日志合并为 `live`/`system`/`recorder`/`access`/`update` 五类，写 `<LOCAL_LOGS_PATH>.d/<group>/current.log`；
+  - `access` 的 INFO/DEBUG 只写 `access/current.log`，不进入主日志；WARN/ERROR 仍进主日志；
+  - `LOCAL_LOGS_GROUPS` 可勾选类别，取消的类别不写本地文件。
 - `LOCAL_LOGS_SPLIT=false` 保留旧单文件行为。
-- 每个来源使用独立 lumberjack/async sink，按首次写入懒创建；最多 64 个来源，失败回退主日志。
+- 每个类别使用独立 lumberjack/async sink，按首次写入懒创建；失败回退主日志。
 - `/logs/sources` 列来源，`/logs?source=` 读取指定来源，`/logs/download?source=` 下载指定来源；
   只暴露 `current.log`，不暴露轮转备份，不接受任意路径。
 - 前端日志页增加来源选择，默认 `main`。
 
-原因：请求日志是高频来源，必须与应用日志分离；main 仍保留非网络日志和所有错误，避免默认页面失去可用性。
-代价：main 保留非 `rest` 日志副本，磁盘占用约增加。
+原因：请求日志是高频来源，必须与应用日志分离；main 仍保留应用日志和所有错误，避免默认页面失去可用性。
+代价：main 保留已启用类别的日志副本，磁盘占用约增加。
+
+## D019 (2026-10-23, Lead) — 全局设置继续存 config.json/secrets.json，不迁数据库
+
+核对原版 Bilirec v0.3.1：`internal/modules/config` 只从环境变量读取全局配置，原版不存在
+`settings.db`；只有 `subscribes.db`（房间订阅/配置）、`subcheck.db`、`notify.db`、`queues.db`。
+本仓库的 `settings.db` 是早期 FEATURES-V2 自己加的全局覆盖库，CONFIG-V2 后只作为一次性迁移来源，
+不再写入。
+
+因此继续使用：
+
+- `config.json` / `secrets.json`：全局设置与密钥（支持 env/config 优先级）；
+- `subscribes.db`：房间订阅和房间级覆盖；
+- `settings.db`：仅兼容旧数据，迁移后可备份删除。
+
+不把全局配置迁入 bbolt，避免破坏 CONFIG-V2 的文件优先级与 secret 文件语义。

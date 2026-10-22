@@ -30,7 +30,8 @@ import type {
   LogsSourcesResponse,
   ConfigUpdateRequest,
   SecretStatusResponse,
-  SystemConfigResponse
+  SystemConfigResponse,
+  WebhookTestReport
 } from "./types";
 import { sharedStore } from "./shared-store";
 import {
@@ -257,6 +258,8 @@ class ApiClient {
     limit: number = 200,
     search: string = "",
     onlyMedia: boolean = false,
+    sort: "name" | "mtime" = "name",
+    order: "asc" | "desc" = "asc",
   ): Promise<RecordFileListResponse> {
     const encodedPath = path
       .split("/")
@@ -264,10 +267,19 @@ class ApiClient {
       .map(encodeURIComponent)
       .join("/");
     const url = encodedPath ? `/files/browse/${encodedPath}` : "/files/browse";
-    const params: { offset: number; limit: number; search: string; only_media?: boolean } = {
+    const params: {
+      offset: number
+      limit: number
+      search: string
+      only_media?: boolean
+      sort: "name" | "mtime"
+      order: "asc" | "desc"
+    } = {
       offset,
       limit,
       search,
+      sort,
+      order,
     };
     if (onlyMedia) {
       params.only_media = true;
@@ -571,6 +583,14 @@ class ApiClient {
     return response.data.room_ids ?? [];
   }
 
+  async getSubscribedRoomsWithMeta(): Promise<SubscribedRooms> {
+    const response = await this.client.get<SubscribedRooms>('/room/subscribe');
+    return {
+      room_ids: response.data.room_ids ?? [],
+      added_at: response.data.added_at ?? {},
+    };
+  }
+
   async getAutoRecordRooms(): Promise<number[]> {
     const response = await this.client.get<SubscribedRooms>('/room/subscribe/auto-record');
     return response.data.room_ids ?? [];
@@ -649,6 +669,12 @@ class ApiClient {
   /** Remove managed non-secret keys from the config file (unknown keys preserved). */
   async resetConfig(): Promise<void> {
     await this.client.post('/config/reset');
+  }
+
+  /** Send a complete sample FileClosed webhook to configured targets (admin only). */
+  async testWebhook(): Promise<WebhookTestReport> {
+    const response = await this.client.post<WebhookTestReport>('/webhook/test');
+    return response.data;
   }
 
   /** Which secrets are currently set; secret values are never returned. */

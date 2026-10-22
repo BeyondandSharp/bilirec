@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/services/room"
@@ -68,16 +69,19 @@ func (s *Service) Subscribe(roomID int) error {
 	key := fmt.Append(nil, roomID)
 	s.roomsMu.Lock()
 	defer s.roomsMu.Unlock()
+	cfg := defaultRoomConfig()
+	cfg.AddedAt = time.Now().Unix()
+	data := mustSerializeRoomConfig(cfg)
 	if err := s.bucket.Update(func(bucket *bbolt.Bucket) error {
 		exists := bucket.Get(key)
 		if exists != nil {
 			return ErrRoomAlreadySubscribed
 		}
-		return bucket.Put(key, defaultRoomConfigBytes)
+		return bucket.Put(key, data)
 	}); err != nil {
 		return err
 	}
-	s.rooms[roomID] = defaultRoomConfig()
+	s.rooms[roomID] = cfg
 	return nil
 }
 

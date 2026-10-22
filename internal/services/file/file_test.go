@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/services/file"
@@ -394,4 +395,66 @@ func TestDeleteDirectory(t *testing.T) {
 	t.Logf("successfully deleted directory %s with all %d subdirectories and %d files", testDir, dirCount-1, fileCount)
 
 	// os.RemoveAll return nil anyways, no need to test non-existing directory deletion
+}
+
+func TestListTreeSortByMTimeAndName(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("OUTPUT_DIR", dir)
+
+	var fileService *file.Service
+	app := fxtest.New(t,
+		config.Module,
+		fx.Provide(path.NewService),
+		fx.Provide(file.NewService),
+		fx.Populate(&fileService),
+	)
+	app.RequireStart()
+	defer app.RequireStop()
+
+	write := func(name string, size int, mtime int64) {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, make([]byte, size), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, time.Unix(mtime, 0), time.Unix(mtime, 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("b.flv", 2, 200)
+	write("a.flv", 1, 100)
+	write("c.flv", 3, 300)
+	if err := os.Mkdir(filepath.Join(dir, "zdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	names := func(p *file.PagedTree) []string {
+		out := make([]string, 0, len(p.Items))
+		for _, item := range p.Items {
+			out = append(out, item.Name)
+		}
+		return out
+	}
+
+	paged, err := fileService.ListTreeWithOptions("", file.ListOptions{
+		Sort: "mtime", Order: "desc", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(names(paged), ","); got != "zdir,c.flv,b.flv,a.flv" {
+		t.Fatalf("mtime desc = %s", got)
+	}
+	if paged.Items[1].ModTime == 0 || paged.Items[2].ModTime == 0 {
+		t.Fatalf("mtime not populated: %+v", paged.Items)
+	}
+
+	paged, err = fileService.ListTreeWithOptions("", file.ListOptions{
+		Sort: "name", Order: "asc", Limit: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(names(paged), ","); got != "zdir,a.flv,b.flv,c.flv" {
+		t.Fatalf("name asc = %s", got)
+	}
 }

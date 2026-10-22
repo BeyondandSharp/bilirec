@@ -134,11 +134,14 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 - 设置 `LOCAL_LOGS_ENABLED=true`（默认 `false`）；可选 `LOCAL_LOGS_PATH` 指定主日志路径，
   默认是 `<DATABASE_DIR>/bilirec.log`（镜像内即 `/app/database/bilirec.log`）。路径所在目录需
   对 `PUID`/`PGID` 可写；`database` 卷会保留日志文件。
-- `LOCAL_LOGS_SPLIT=true`（默认）会按 logger 来源拆分日志：
-  - 主日志：`/app/database/bilirec.log`，包含所有非网络日志和所有 WARN/ERROR；
-  - 来源文件：`/app/database/bilirec.log.d/<source>/current.log`；
-  - HTTP 请求日志（`rest` 的 INFO access log）只写入 `bilirec.log.d/rest/current.log`，
-    不再进入主日志；
+- `LOCAL_LOGS_SPLIT=true`（默认）会按日志类别拆分：
+  - 主日志：`/app/database/bilirec.log`，包含无名称日志和所有已启用类别中除 access INFO 外的日志；
+  - 类别文件：`/app/database/bilirec.log.d/<group>/current.log`；
+  - 类别：`live`（bilibili/danmaku/stream）、`system`（logging/notify/subcheck 等）、
+    `recorder`（convert/pipeline/recorder/repair 等）、`access`（HTTP 请求）、`update`（updatecheck）；
+  - HTTP 请求 INFO/DEBUG 只写入 `access/current.log`，WARN/ERROR 仍进入主日志；
+  - 可选 `LOCAL_LOGS_GROUPS=live,system,recorder,access,update` 勾选要输出的类别，
+    取消的类别不写本地文件（stdout 不受影响）；
   - 如需旧版单文件行为，设置 `LOCAL_LOGS_SPLIT=false` 并重启。
 - 该开关属于需要重启的配置：可在 `deploy/.env`/环境变量中设置，或在 web 的
   设置 → 系统配置 → 日志 中修改后重启容器。相关键还有 `LOCAL_LOGS_FORMAT`（`pretty`/`json`）、
@@ -148,10 +151,24 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   跟随尾部、复制与下载。只读（viewer）账号不会看到该入口。
 - API（仅管理员）：
   - `GET /logs/sources` 列出主日志和各来源；
-  - `GET /logs?lines=N&source=rest` 读取指定来源（默认 `main`）；
-  - `GET /logs/download?source=rest` 下载指定来源当前文件；
+  - `GET /logs?lines=N&source=access` 读取指定来源（默认 `main`）；
+  - `GET /logs/download?source=access` 下载指定来源当前文件；
   - `lines` 默认 500、范围 1–2000；`/logs` 每次最多读取文件尾部 2 MiB，下载返回完整当前文件；
   - 只暴露当前文件，不暴露轮转/压缩备份；未启用或文件不存在时下载 404。
+
+## Webhook 测试
+
+系统配置中的 `WEBHOOK_URLS` 旁提供“发送测试 Webhook”按钮（仅管理员）。点击后后端向当前生效的
+所有 webhook 地址发送一条完整的 `FileClosed` 示例事件，覆盖 `SessionId`、房间信息、相对路径、
+文件大小/时间/时长等全部字段，并返回每个目标的 HTTP 成功/失败结果。测试使用示例数据，不读取或
+创建真实录制文件；修改地址后需保存并重启再测试。
+
+## 列表布局、排序与分组
+
+- 录制管理、录制文件、订阅页面支持网格/列表布局切换，偏好保存在浏览器本地；
+- 录制管理可按房间号、名称、添加时间排序；录制文件可按修改时间、名称排序；订阅可按房间号、
+  名称、添加时间排序，均支持升降序；
+- 订阅页支持按录制状态分组（录制中/恢复中/未录制），可随时关闭。
 
 ## 数据目录、端口与卷
 
