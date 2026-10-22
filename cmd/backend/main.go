@@ -7,6 +7,7 @@ import (
 	root "github.com/bilirec/bilirec"
 	"github.com/bilirec/bilirec/internal/bootstrap"
 	"github.com/bilirec/bilirec/internal/modules/configfile"
+	"github.com/bilirec/bilirec/internal/services/restart"
 	"github.com/bilirec/bilirec/pkg/logger"
 )
 
@@ -25,5 +26,15 @@ func main() {
 	root.InitSwaggerDocs()
 
 	logger.L().Info("Starting bilirec backend...")
-	bootstrap.NewApp(store).Run()
+	restart.Enable()
+	app := bootstrap.NewApp(store)
+	restart.Watch(nil)
+	app.Run()
+	if restart.Requested() {
+		logger.Sync()
+		if err := restart.Exec(); err != nil {
+			logger.L().Errorf("进程重启失败，退回退出进程：%v", err)
+			os.Exit(0)
+		}
+	}
 }

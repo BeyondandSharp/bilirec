@@ -177,3 +177,24 @@ func TestSplitLogGroupsCanDisableAllNamedLoggers(t *testing.T) {
 		t.Fatalf("disabled named logger leaked into main: %q", mainBody)
 	}
 }
+
+func TestSetGroupsHotFilter(t *testing.T) {
+	set := newSourceLoggerSet(&config.Config{LocalLogsGroups: nil})
+	if !set.groupEnabled("live") || !set.groupEnabled("access") {
+		t.Fatal("all groups should be enabled by default")
+	}
+	set.SetGroups([]string{"system"})
+	if !set.groupEnabled("system") {
+		t.Fatal("system should be enabled")
+	}
+	if set.groupEnabled("live") || set.groupEnabled("access") {
+		t.Fatal("disabled groups should be filtered")
+	}
+	set.SetGroups(parseLogGroups("access, live, unknown, access"))
+	if !set.groupEnabled("live") || !set.groupEnabled("access") {
+		t.Fatalf("parsed groups = %v", set.enabledGroups)
+	}
+	if set.groupEnabled("system") {
+		t.Fatal("system should be disabled after replacement")
+	}
+}

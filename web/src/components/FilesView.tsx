@@ -5,6 +5,7 @@ import { SortControl, type SortDirection } from '@/components/view/SortControl'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useGridVirtualizer } from '@/hooks/use-grid-virtualizer'
 import { FileCard } from './FileCard'
+import { FileListRow } from './list/FileListRow'
 import { EmptyState } from './EmptyState'
 import { PlaybackPlayerDialog } from '@/components/playback/PlaybackPlayerDialog'
 import { Button } from '@/components/ui/button'
@@ -420,16 +421,14 @@ export function FilesView() {
                 description={t('filesView.emptyDescription')}
               />
             ) : viewMode === 'list' ? (
-              <div className="space-y-2">
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
                 {displayFiles.map((file) => (
-                  <FileCard
+                  <FileListRow
                     key={file.path}
                     file={file}
                     onNavigate={handleNavigate}
-                    onDelete={() => void queryClient.invalidateQueries({ queryKey })}
                     onPlayback={handlePlayback}
                     currentPath={currentPath}
-                    siblingFileNames={siblingFileNames}
                   />
                 ))}
               </div>

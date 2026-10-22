@@ -40,36 +40,34 @@ export function SortControl({
 }: SortControlProps) {
   const { t } = useTranslation()
   return (
-    <div className="flex items-end gap-1.5">
-      <div className="min-w-0 space-y-1">
-        <Label htmlFor={id} className="text-xs text-muted-foreground">
-          {label}
-        </Label>
-        <Select value={value} onValueChange={onValueChange} disabled={disabled}>
-          <SelectTrigger id={id} className="w-full min-w-32 sm:w-36">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="flex h-9 shrink-0 items-center overflow-hidden rounded-lg border border-border bg-background">
+      <Label htmlFor={id} className="sr-only">
+        {label}
+      </Label>
+      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+        <SelectTrigger id={id} className="h-full w-32 rounded-none border-0 bg-transparent px-2.5 text-xs shadow-none focus:ring-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Button
         type="button"
-        variant="outline"
+        variant="ghost"
         size="icon"
-        className="size-9 shrink-0"
+        className="h-full w-8 shrink-0 rounded-none border-l border-border"
         aria-label={t('viewControls.sortDirection')}
         aria-pressed={direction === 'desc'}
         title={direction === 'desc' ? t('viewControls.descending') : t('viewControls.ascending')}
         disabled={disabled}
         onClick={() => onDirectionChange(direction === 'asc' ? 'desc' : 'asc')}
       >
-        {direction === 'desc' ? <ArrowDownIcon size={16} /> : <ArrowUpIcon size={16} />}
+        {direction === 'desc' ? <ArrowDownIcon size={14} /> : <ArrowUpIcon size={14} />}
       </Button>
     </div>
   )

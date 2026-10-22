@@ -107,7 +107,8 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 		log.Warn("swagger 文件未找到，禁用 swagger 路由")
 	}
 
-	app.Use(cors.New(restCORSConfig(cfg)))
+	activeCORSOrigins.Store(newCORSOrigins(cfg))
+	app.Use(cors.New(dynamicCORSConfig()))
 
 	app.Use(func(c fiber.Ctx) error {
 		err := c.Next()

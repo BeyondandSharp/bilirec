@@ -32,6 +32,7 @@ for m in re.finditer(r'LookupEnv\("([A-Z0-9_]+)"\)', src):
     add(m.group(1))
 
 # special keys read via helper variables / dynamic keys
+HOT_APPLY = {"WEBHOOK_URLS", "FRONTEND_URLS", "FRONTEND_URL", "LOCAL_LOGS_GROUPS"}
 special = {
  'USERNAME': ('string',''), 'VIEWER_USERNAME': ('string',''), 'TZ': ('string','Asia/Hong_Kong'),
  'GITHUB_API_URL': ('string','https://api.github.com'),
@@ -237,7 +238,7 @@ def field_lit(key):
         enum, mm = enums.get(key), minmax.get(key)
         if enum:
             kind = 'enum'
-    restart = 'false' if key in features else 'true'
+    restart = 'false' if key in features or key in HOT_APPLY else 'true'
     requires = '"ffmpeg"' if key in requires_ffmpeg else '""'
     sensitive = key in secrets
     enum_lit = '[]string{' + ','.join('"%s"'%e for e in enum) + '}' if enum else 'nil'

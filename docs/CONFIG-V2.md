@@ -34,7 +34,8 @@ deployment-only root README. Implementation contract; do not change names/shapes
   corresponding keys (idempotent; settings.db is not deleted).
 - Config changes:
   - FEATURES-V2 feature values hot-apply to new sessions.
-  - Other env keys apply after restart; API reports `restart_required`.
+  - Other env keys apply after restart; API reports `restart_required`, except for the hot keys
+    `WEBHOOK_URLS`, `FRONTEND_URLS`/`FRONTEND_URL`, and `LOCAL_LOGS_GROUPS`.
 
 ### Secret keys (only these go to secrets file/API)
 

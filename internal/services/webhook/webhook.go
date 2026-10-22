@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/internal/modules/configfile"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bilirec/bilirec/utils"
 	"github.com/go-resty/resty/v2"
@@ -20,16 +21,17 @@ const maxAttempts = 3
 
 // Service emits BililiveRecorder-compatible Webhook v2 JSON to configured URLs.
 type Service struct {
+	urlsMu    sync.RWMutex
 	urls      []string
 	outputDir string
 	client    *resty.Client
 
-	rooms      *xsync.Map[int, *roomQueue]
-	pending    chan roomWork
+	rooms             *xsync.Map[int, *roomQueue]
+	pending           chan roomWork
 	deliverConcurrent *semaphore.Weighted
-	ctx        context.Context
-	cancel     context.CancelFunc
-	workerWg   sync.WaitGroup
+	ctx               context.Context
+	cancel            context.CancelFunc
+	workerWg          sync.WaitGroup
 
 	convertMetaMu sync.Mutex
 	convertMeta   map[string]*SegmentMeta
@@ -37,24 +39,21 @@ type Service struct {
 
 func NewService(lc fx.Lifecycle, cfg *config.Config) *Service {
 	urls := config.ParseWebhookURLs(cfg.WebhookURLs)
-	if len(urls) == 0 {
-		return &Service{}
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	client := resty.New().
 		SetTimeout(15*time.Second).
 		SetHeader("Content-Type", "application/json").
 		SetHeader("User-Agent", "bilirec/webhook")
 	s := &Service{
-		urls:        urls,
-		outputDir:   cfg.OutputDir,
-		client:      client,
-		rooms:       xsync.NewMap[int, *roomQueue](),
-		pending:     make(chan roomWork, pendingWorkCap),
+		urls:              urls,
+		outputDir:         cfg.OutputDir,
+		client:            client,
+		rooms:             xsync.NewMap[int, *roomQueue](),
+		pending:           make(chan roomWork, pendingWorkCap),
 		deliverConcurrent: semaphore.NewWeighted(int64(maxConcurrentDelivers)),
-		ctx:         ctx,
-		cancel:      cancel,
-		convertMeta: make(map[string]*SegmentMeta),
+		ctx:               ctx,
+		cancel:            cancel,
+		convertMeta:       make(map[string]*SegmentMeta),
 	}
 
 	lc.Append(fx.StartStopHook(
@@ -71,8 +70,46 @@ func NewService(lc fx.Lifecycle, cfg *config.Config) *Service {
 	return s
 }
 
+// SetURLs replaces the active webhook targets at runtime.
+func (s *Service) SetURLs(raw string) {
+	if s == nil {
+		return
+	}
+	urls := config.ParseWebhookURLs(raw)
+	s.urlsMu.Lock()
+	s.urls = urls
+	s.urlsMu.Unlock()
+}
+
+// BindConfigStore subscribes to /config changes so WEBHOOK_URLS applies
+// without restarting the process.
+func (s *Service) BindConfigStore(store *configfile.Store) {
+	if s == nil || store == nil {
+		return
+	}
+	store.OnConfigChange(func(change configfile.ConfigChange) {
+		if change.Key != "WEBHOOK_URLS" {
+			return
+		}
+		if change.Present {
+			s.SetURLs(change.Value)
+			return
+		}
+		s.SetURLs("")
+	})
+}
+
+func (s *Service) urlsSnapshot() []string {
+	if s == nil {
+		return nil
+	}
+	s.urlsMu.RLock()
+	defer s.urlsMu.RUnlock()
+	return append([]string(nil), s.urls...)
+}
+
 func (s *Service) enabled() bool {
-	return s != nil && len(s.urls) > 0 && s.client != nil
+	return s != nil && len(s.urlsSnapshot()) > 0 && s.client != nil
 }
 
 func (s *Service) emit(eventType EventType, data roomEventData) {
@@ -95,7 +132,7 @@ func (s *Service) emit(eventType EventType, data roomEventData) {
 
 func (s *Service) deliver(ctx context.Context, body envelope) {
 	var wg sync.WaitGroup
-	for _, url := range s.urls {
+	for _, url := range s.urlsSnapshot() {
 		wg.Go(func() {
 			s.deliverURL(ctx, url, body)
 		})

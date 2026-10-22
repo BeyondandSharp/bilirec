@@ -92,12 +92,14 @@ func newLocalCoreForFormat(format string, sink *logsink.AsyncBufferedSink) zapco
 }
 
 func wireLocalLogger(lc fx.Lifecycle, cfg *config.Config) {
+	activateSourceSet(nil)
 	if !cfg.LocalLogsEnabled {
 		return
 	}
 
 	if cfg.LocalLogsSplit {
 		set := newSourceLoggerSet(cfg)
+		activateSourceSet(set)
 		logger.SetLocalCore(newSourceRouterCore(set))
 		lc.Append(fx.StopHook(func(ctx context.Context) error {
 			_ = set.Sync()

@@ -519,6 +519,18 @@ export const common = {
     sortMtime: "Modified time",
     groupByStatus: "Group by recording status",
   },
+  restart: {
+    action: "Restart service",
+    title: "Restart Bilirec service?",
+    description: "The service will safely stop active recordings, then reload its configuration.",
+    warning: "If you changed the port, TLS, authentication, or domain, the current address may stop working. The page will reload after the service recovers.",
+    confirm: "Restart now",
+    cancel: "Cancel",
+    restarting: "Restarting service...",
+    restartingShort: "Restarting...",
+    timeout: "Timed out waiting for the service. Refresh the page or check the service address.",
+    failed: "Failed to restart the service",
+  },
 settingsView: {
     title: "Settings",
     description: "Global recording settings; changes apply to newly started recording sessions only.",
@@ -626,7 +638,7 @@ settingsView: {
       webhookTestSuccess: "Test webhook sent ({{count}} targets)",
       webhookTestFailed: "Test webhook failed",
       webhookTestHint: "Sends one complete FileClosed sample event",
-      webhookDirtyHint: "Webhook URLs have unsaved changes; save and restart before testing",
+      webhookDirtyHint: "Webhook URLs have unsaved changes; save to apply immediately",
 
       description: "Managed by the config file (config.json / .env) and environment variables. Values from environment variables cannot be edited here; some changes need a restart.",
       searchPlaceholder: "Search settings or env keys",

@@ -31,7 +31,8 @@ import type {
   ConfigUpdateRequest,
   SecretStatusResponse,
   SystemConfigResponse,
-  WebhookTestReport
+  WebhookTestReport,
+  RestartResponse
 } from "./types";
 import { sharedStore } from "./shared-store";
 import {
@@ -674,6 +675,12 @@ class ApiClient {
   /** Send a complete sample FileClosed webhook to configured targets (admin only). */
   async testWebhook(): Promise<WebhookTestReport> {
     const response = await this.client.post<WebhookTestReport>('/webhook/test');
+    return response.data;
+  }
+
+  /** Gracefully restart the backend process (admin only). */
+  async restartServer(): Promise<RestartResponse> {
+    const response = await this.client.post<RestartResponse>('/system/restart');
     return response.data;
   }
 

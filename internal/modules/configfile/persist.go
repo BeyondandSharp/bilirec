@@ -114,6 +114,7 @@ func (s *Store) SetConfig(values map[string]string, clear []string) error {
 	if s == nil {
 		return nil
 	}
+	changes := make([]ConfigChange, 0, len(values)+len(clear))
 	s.mu.Lock()
 	for key, value := range values {
 		if key == "" || IsBootstrapKey(key) {
@@ -124,19 +125,31 @@ func (s *Store) SetConfig(values map[string]string, clear []string) error {
 			s.mu.Unlock()
 			return errors.New("密钥只能通过 /config/secrets 保存")
 		}
+		previous, existed := s.configValues[key]
 		s.configValues[key] = value
-		if !IsFeatureKey(key) {
+		if !existed || previous != value {
+			changes = append(changes, ConfigChange{Key: key, Value: value, Present: true})
+		}
+		if !IsFeatureKey(key) && !IsHotApplyKey(key) {
 			s.restartRequired[key] = struct{}{}
 		}
 	}
 	for _, key := range clear {
+		previous, existed := s.configValues[key]
 		delete(s.configValues, key)
-		if !IsFeatureKey(key) {
+		if existed {
+			changes = append(changes, ConfigChange{Key: key, Value: previous, Present: false})
+		}
+		if !IsFeatureKey(key) && !IsHotApplyKey(key) {
 			s.restartRequired[key] = struct{}{}
 		}
 	}
 	s.mu.Unlock()
-	return s.writeConfig()
+	if err := s.writeConfig(); err != nil {
+		return err
+	}
+	s.notifyConfigChanges(changes)
+	return nil
 }
 
 // SetSecrets persists secret values from secrets.json.
@@ -196,19 +209,28 @@ func (s *Store) ResetConfig(keys []string) error {
 	if s == nil {
 		return nil
 	}
+	changes := make([]ConfigChange, 0, len(keys))
 	s.mu.Lock()
 	for _, key := range keys {
 		if IsBootstrapKey(key) {
 			s.mu.Unlock()
 			return ErrUnknownManagedKey
 		}
+		previous, existed := s.configValues[key]
 		delete(s.configValues, key)
-		if !IsFeatureKey(key) {
+		if existed {
+			changes = append(changes, ConfigChange{Key: key, Value: previous, Present: false})
+		}
+		if !IsFeatureKey(key) && !IsHotApplyKey(key) {
 			s.restartRequired[key] = struct{}{}
 		}
 	}
 	s.mu.Unlock()
-	return s.writeConfig()
+	if err := s.writeConfig(); err != nil {
+		return err
+	}
+	s.notifyConfigChanges(changes)
+	return nil
 }
 
 // ResetSecrets removes all secret values (or the given keys when provided).

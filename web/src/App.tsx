@@ -11,6 +11,7 @@ import { SettingsView } from "@/components/SettingsView";
 import { LogsView } from "@/components/LogsView";
 import { BilibiliAuthDialog } from "@/components/BilibiliAuthDialog";
 import { AboutDialog } from "@/components/AboutDialog";
+import { RestartDialog } from "@/components/RestartDialog";
 import { AnalyticsConsentNotice } from "@/components/AnalyticsConsentNotice";
 import { NetworkStatusToaster } from "@/components/NetworkStatusToaster";
 import { BottomNav } from "@/components/BottomNav";
@@ -65,6 +66,7 @@ function App() {
   const [serverVersion, setServerVersion] = useState<ServerVersionResult | null>(null);
   const [diskUsage, setDiskUsage] = useState<DiskUsage | null>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isRestartOpen, setIsRestartOpen] = useState(false);
   const [isBilibiliDialogOpen, setIsBilibiliDialogOpen] = useState(false);
   const [isDocumentFullscreen, setIsDocumentFullscreen] = useState(false);
   // null/true = assume available until the backend tells us otherwise (older
@@ -257,6 +259,8 @@ function App() {
           onRefreshBilibiliStatus={bilibili.refreshBilibiliStatus}
           onOpenBilibiliDialog={() => setIsBilibiliDialogOpen(true)}
           onOpenAbout={() => setIsAboutOpen(true)}
+          onOpenRestart={() => setIsRestartOpen(true)}
+          showRestart={!isReadOnly}
           onLogout={auth.handleLogout}
           showLogout={!VIEWER_MODE_ENABLED}
           showServerOutdatedBadge={showServerOutdatedBadge}
@@ -282,6 +286,8 @@ function App() {
           analyticsConsent={analyticsConsent}
           onAnalyticsConsentChange={handleAnalyticsConsentChange}
         />
+
+        <RestartDialog open={isRestartOpen} onOpenChange={setIsRestartOpen} />
 
         {ANALYTICS_ENABLED &&
         analyticsConsent === null &&

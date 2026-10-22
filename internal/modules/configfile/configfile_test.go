@@ -245,3 +245,41 @@ func TestUnknownManagedKeyRejected(t *testing.T) {
 		t.Fatal("non-secret keys must be rejected by secrets persistence")
 	}
 }
+
+func TestConfigChangeListenerAndHotKeys(t *testing.T) {
+	store, _ := newTestStore(t, `{}`, `{}`, "")
+	var changes []ConfigChange
+	store.OnConfigChange(func(change ConfigChange) {
+		changes = append(changes, change)
+	})
+	if err := store.SetConfig(map[string]string{
+		"PORT":              "8081",
+		"WEBHOOK_URLS":      "https://example.com/a",
+		"FRONTEND_URLS":     "https://app.example.com",
+		"LOCAL_LOGS_GROUPS": "live,access",
+		"SEGMENT_MODE":      "time",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 5 {
+		t.Fatalf("changes = %+v", changes)
+	}
+	pending := store.RestartRequired()
+	for _, key := range pending {
+		if key == "WEBHOOK_URLS" || key == "FRONTEND_URLS" || key == "LOCAL_LOGS_GROUPS" || key == "SEGMENT_MODE" {
+			t.Fatalf("hot key %s unexpectedly marked restart-required", key)
+		}
+	}
+	if err := store.ResetConfig([]string{"WEBHOOK_URLS"}); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, change := range changes {
+		if change.Key == "WEBHOOK_URLS" && !change.Present {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing clear notification: %+v", changes)
+	}
+}

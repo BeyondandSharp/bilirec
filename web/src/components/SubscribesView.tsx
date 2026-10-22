@@ -7,6 +7,7 @@ import { useGridVirtualizer } from '@/hooks/use-grid-virtualizer'
 import { BellIcon, BellSlashIcon, MagnifyingGlassIcon, XIcon } from '@phosphor-icons/react'
 import { SearchBar } from './SearchBar'
 import { SubscribeCard } from './SubscribeCard'
+import { SubscribeListRow } from './list/SubscribeListRow'
 import { EmptyState } from './EmptyState'
 import { RoomIdInputWithConfirmDialog } from './RoomIdInputWithConfirmDialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -348,6 +349,18 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
     )
   }
 
+  const renderSubscribeRow = (room: RoomInfo) => (
+    <SubscribeListRow
+      key={room.room_id}
+      roomInfo={room}
+      isRecording={recordingRoomIds.has(room.room_id)}
+      autoRecord={autoRecordRoomIdSet.has(room.room_id)}
+      addedAt={addedAt[String(room.room_id)]}
+      onUnsubscribe={handleUnsubscribe}
+      onStartRecord={handleStartRecord}
+    />
+  )
+
   const isLoading = isSubscribedRoomsLoading || (roomIds.length > 0 && isDetailsLoading)
 
   useEffect(() => {
@@ -571,14 +584,22 @@ export function SubscribesView({ onRefresh, pinnedRoomId }: SubscribesViewProps)
                         {group.rooms.length}
                       </Badge>
                     </h3>
-                    <div className={viewMode === 'list' ? 'space-y-2' : 'cards-grid grid gap-4'}>
-                      {group.rooms.map(renderSubscribeCard)}
-                    </div>
+                    {viewMode === 'list' ? (
+                      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                        {group.rooms.map(renderSubscribeRow)}
+                      </div>
+                    ) : (
+                      <div className="cards-grid grid gap-4">
+                        {group.rooms.map(renderSubscribeCard)}
+                      </div>
+                    )}
                   </section>
                 ))}
               </div>
             ) : viewMode === 'list' ? (
-              <div className="space-y-2">{sortedRooms.map(renderSubscribeCard)}</div>
+              <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                {sortedRooms.map(renderSubscribeRow)}
+              </div>
             ) : (
               <div style={{ height: `${Math.max(0, rowVirtualizer.getTotalSize() - GRID_GAP)}px`, position: 'relative' }}>
                 {rowVirtualizer.getVirtualItems().map((virtualRow) => (

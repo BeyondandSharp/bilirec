@@ -126,9 +126,7 @@ func NewService(
 		cfg:          cfg,
 		ctx:          ctx,
 	}
-	if cfg.WebhookConfigured() {
-		r.wh = webhookSvc
-	}
+	r.wh = webhookSvc
 
 	r.reser = tx.NewPending(
 		func(roomId int, pendingStart ds.Set[int]) error {

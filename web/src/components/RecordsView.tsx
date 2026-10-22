@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { RecordCard } from './RecordCard'
+import { RecordListRow } from './list/RecordListRow'
 import { EmptyState } from './EmptyState'
 import { RoomIdInputWithConfirmDialog } from './RoomIdInputWithConfirmDialog'
 import { RecordStartOptions } from './RecordStartOptions'
@@ -203,14 +204,16 @@ export function RecordsView({ onRefresh }: RecordsViewProps) {
             title={t('recordsView.emptyTitle')}
             description={t('recordsView.emptyDescription')}
           />
-        ) : (
-          <div className={viewMode === 'list' ? 'space-y-2' : 'cards-grid grid gap-4'}>
+        ) : viewMode === 'list' ? (
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {sortedTasks.map((task) => (
-              <RecordCard
-                key={task.roomId}
-                task={task}
-                onStop={handleStop}
-              />
+              <RecordListRow key={task.roomId} task={task} onStop={handleStop} />
+            ))}
+          </div>
+        ) : (
+          <div className="cards-grid grid gap-4">
+            {sortedTasks.map((task) => (
+              <RecordCard key={task.roomId} task={task} onStop={handleStop} />
             ))}
           </div>
         )}

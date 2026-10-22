@@ -64,8 +64,10 @@ FEATURES-V2 的房间覆盖始终高于以上全局链（见 §5）。`GET /conf
 - 系统环境变量在启动时读取，运行期不可变。
 - **FEATURES-V2 特性值**（分段/命名/过滤/封面/弹幕/FLV/B05）：对**新会话**生效；运行中的会话使用启动时
   的不可变快照。通过 `/settings`、房间配置或 `config.json` 修改都是如此。
-- **其余环境类配置**（端口、目录、并发、日志、下载器/修复二进制、FRP、转码等）：写入后需要重启进程；
-  `PUT /config` 返回的 `restart_required` 会列出待重启键，重启后清空。API 也以 `restart_required` 字段
+- **热更新配置**：`WEBHOOK_URLS`、`FRONTEND_URLS`/`FRONTEND_URL`、`LOCAL_LOGS_GROUPS` 通过
+  `/config` 保存后立即生效，不进入 `restart_required`；
+- **其余环境类配置**（端口、目录、并发、日志路径/格式/轮转、下载器/修复二进制、FRP、转码等）：
+  写入后需要重启进程；`PUT /config` 返回的 `restart_required` 会列出待重启键，重启后清空。API 也以 `restart_required` 字段
   暴露该列表。
 - `GET /settings` 的 `values` 是"全局默认值 + 全局覆盖"合并结果；房间覆盖在解析会话快照时再叠加。
 - 默认文件名模板（CONFIG-V2 §3）：`{roomid}-{uname}/{date}_{time}_{title}`，相对 `OUTPUT_DIR`，`/` 建子目录；
@@ -178,6 +180,16 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   下载 404。启用但文件尚未写入：`exists=false`、`lines=[]`，页面显示“等待日志写入”并继续轮询。
 - 只读取当前文件；`lumberjack` 轮转出的备份文件不会通过 API 暴露。
 - 拆分后磁盘占用约增加一倍：main 保留非网络日志副本，来源文件各自保存完整日志。
+
+## 4c. 在线重启
+
+- 管理端右上角红色电源按钮打开确认框；
+- `POST /system/restart` 返回 202，后端优雅停止 fx 生命周期后自替换进程；
+- combined 镜像中 nginx 不重启，只重启 bilirec 子进程；
+- 前端轮询 `/version`，成功后刷新页面；最多等待 90 秒；
+- viewer 不显示按钮、直接请求 403；Android/嵌入式返回 501；
+- 修改端口/TLS/认证/域名后旧页面地址可能失效，需要手动使用新地址。
+
 
 ## 5. FEATURES-V2 设置与房间覆盖
 

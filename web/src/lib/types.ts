@@ -338,6 +338,10 @@ export interface WebhookTestReport {
   results: WebhookTestResult[]
 }
 
+export interface RestartResponse {
+  status: string
+}
+
 /**
  * Per-room overrides (FEATURES-V2 §1.3). New fields are nullable: `null`
  * (or absent) means "inherit global"; legacy fields keep their old shape.

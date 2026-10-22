@@ -158,9 +158,9 @@ var fieldSpecs = []Field{
 
 	{Key: "FLV_WRITE_METADATA", Group: "features", Kind: "bool", Default: "true", Min: nil, Max: nil, Enum: nil, RestartRequired: false, Sensitive: false, Requires: "", Label: LangText{ZhCN: "保留 FLV 元数据", ZhTW: "保留 FLV 中繼資料", En: "FLV write metadata"}, Description: LangText{ZhCN: "keep 保留、drop 移除 onMetaData 等脚本标签。", ZhTW: "keep 保留、drop 移除 onMetaData 等腳本標籤。", En: "keep preserves metadata; drop strips onMetaData script tags."}},
 
-	{Key: "FRONTEND_URL", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "旧版前端地址", ZhTW: "舊版前端位址", En: "Legacy frontend URL"}, Description: LangText{ZhCN: "单个旧版前端的访问地址。", ZhTW: "單一舊版前端的存取位址。", En: "Base URL of the legacy single frontend."}},
+	{Key: "FRONTEND_URL", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: false, Sensitive: false, Requires: "", Label: LangText{ZhCN: "旧版前端地址", ZhTW: "舊版前端位址", En: "Legacy frontend URL"}, Description: LangText{ZhCN: "单个旧版前端的访问地址。", ZhTW: "單一舊版前端的存取位址。", En: "Base URL of the legacy single frontend."}},
 
-	{Key: "FRONTEND_URLS", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "前端来源列表", ZhTW: "前端來源清單", En: "Frontend origins"}, Description: LangText{ZhCN: "允许跨域访问 API 的前端来源，逗号分隔。", ZhTW: "允許跨網域存取 API 的前端來源，以逗號分隔。", En: "Comma-separated origins allowed to call the API (CORS)."}},
+	{Key: "FRONTEND_URLS", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: false, Sensitive: false, Requires: "", Label: LangText{ZhCN: "前端来源列表", ZhTW: "前端來源清單", En: "Frontend origins"}, Description: LangText{ZhCN: "允许跨域访问 API 的前端来源，逗号分隔。", ZhTW: "允許跨網域存取 API 的前端來源，以逗號分隔。", En: "Comma-separated origins allowed to call the API (CORS)."}},
 
 	{Key: "FRP_BASE_DOMAIN", Group: "frp", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "FRP 基础域名", ZhTW: "FRP 基礎網域", En: "FRP base domain"}, Description: LangText{ZhCN: "frp 隧道使用的基础域名。", ZhTW: "frp 通道使用的基礎網域。", En: "Base domain used by frp tunnels."}},
 
@@ -202,7 +202,7 @@ var fieldSpecs = []Field{
 
 	{Key: "LOCAL_LOGS_FORMAT", Group: "logging", Kind: "enum", Default: "pretty", Min: nil, Max: nil, Enum: []string{"pretty", "json"}, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "本地日志格式", ZhTW: "本機日誌格式", En: "Local log format"}, Description: LangText{ZhCN: "pretty 或 json。", ZhTW: "pretty 或 json。", En: "pretty or json."}},
 
-	{Key: "LOCAL_LOGS_GROUPS", Group: "logging", Kind: "csv", Default: "live,system,recorder,access,update", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "日志类别", ZhTW: "日誌類別", En: "Log groups"}, Description: LangText{ZhCN: "选择写入本地文件的日志类别；按 live/system/recorder/access/update 分组。", ZhTW: "選擇寫入本機檔案的日誌類別；依 live/system/recorder/access/update 分組。", En: "Select which log groups are written to local files (live/system/recorder/access/update)."}},
+	{Key: "LOCAL_LOGS_GROUPS", Group: "logging", Kind: "csv", Default: "live,system,recorder,access,update", Min: nil, Max: nil, Enum: nil, RestartRequired: false, Sensitive: false, Requires: "", Label: LangText{ZhCN: "日志类别", ZhTW: "日誌類別", En: "Log groups"}, Description: LangText{ZhCN: "选择写入本地文件的日志类别；按 live/system/recorder/access/update 分组。", ZhTW: "選擇寫入本機檔案的日誌類別；依 live/system/recorder/access/update 分組。", En: "Select which log groups are written to local files (live/system/recorder/access/update)."}},
 
 	{Key: "LOCAL_LOGS_MAX_AGE_DAYS", Group: "logging", Kind: "number", Default: "7", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "日志保留天数", ZhTW: "日誌保留天數", En: "Log retention days"}, Description: LangText{ZhCN: "日志文件保留的最大天数。", ZhTW: "日誌檔案保留的最大天數。", En: "Maximum age of retained log files in days."}},
 
@@ -328,7 +328,7 @@ var fieldSpecs = []Field{
 
 	{Key: "VIEWER_USERNAME", Group: "server", Kind: "string", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "访客用户名", ZhTW: "訪客使用者名稱", En: "Viewer username"}, Description: LangText{ZhCN: "只读访客账号的用户名。", ZhTW: "唯讀訪客帳號的使用者名稱。", En: "Username of the read-only viewer account."}},
 
-	{Key: "WEBHOOK_URLS", Group: "server", Kind: "textarea", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "Webhook 地址列表", ZhTW: "Webhook 位址清單", En: "Webhook URLs"}, Description: LangText{ZhCN: "录制事件通知的 Webhook 地址，每行一个。", ZhTW: "錄製事件通知的 Webhook 位址，每行一個。", En: "Webhook URLs notified for recording events, one per line."}},
+	{Key: "WEBHOOK_URLS", Group: "server", Kind: "textarea", Default: "", Min: nil, Max: nil, Enum: nil, RestartRequired: false, Sensitive: false, Requires: "", Label: LangText{ZhCN: "Webhook 地址列表", ZhTW: "Webhook 位址清單", En: "Webhook URLs"}, Description: LangText{ZhCN: "录制事件通知的 Webhook 地址，每行一个。", ZhTW: "錄製事件通知的 Webhook 位址，每行一個。", En: "Webhook URLs notified for recording events, one per line."}},
 
 	{Key: "WEBPUSH_SUBSCRIBER", Group: "server", Kind: "string", Default: "mailto:webpush@example.com", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "WebPush 订阅者", ZhTW: "WebPush 訂閱者", En: "WebPush subscriber"}, Description: LangText{ZhCN: "WebPush VAPID 订阅者标识（mailto）。", ZhTW: "WebPush VAPID 訂閱者識別（mailto）。", En: "WebPush VAPID subscriber identity (mailto)."}},
 }

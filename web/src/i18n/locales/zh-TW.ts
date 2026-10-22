@@ -511,6 +511,18 @@ export const common = {
     "sortMtime": "修改時間",
     "groupByStatus": "依錄製狀態分組"
   },
+  "restart": {
+    "action": "重新啟動服務",
+    "title": "重新啟動 Bilirec 服務？",
+    "description": "服務會先安全結束目前錄製任務，然後重新載入設定。",
+    "warning": "如修改了連接埠、TLS、認證或網域，目前頁面位址可能失效，請使用新位址存取。頁面會在服務恢復後自動重新整理。",
+    "confirm": "立即重新啟動",
+    "cancel": "取消",
+    "restarting": "正在重新啟動服務…",
+    "restartingShort": "重新啟動中…",
+    "timeout": "等待服務恢復逾時，請重新整理頁面或檢查服務位址。",
+    "failed": "重新啟動服務失敗"
+  },
 "settingsView": {
     "title": "設定",
     "description": "全域錄製設定；變更僅套用於新啟動的錄製會話。",
@@ -613,7 +625,7 @@ export const common = {
       "webhookTestSuccess": "測試 Webhook 已傳送（{{count}} 個目標）",
       "webhookTestFailed": "測試 Webhook 傳送失敗",
       "webhookTestHint": "傳送一則完整的 FileClosed 範例事件",
-      "webhookDirtyHint": "Webhook 位址有未儲存修改；儲存並重新啟動後再測試",
+      "webhookDirtyHint": "Webhook 位址有未儲存修改；儲存後立即生效",
 
       "description": "由設定檔（config.json / .env）與環境變數管理；環境變數提供的值無法在此修改，部分變更需要重啟後生效。",
       "searchPlaceholder": "搜尋設定項或環境變數",

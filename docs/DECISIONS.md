@@ -220,3 +220,19 @@ LSIO 兼容用法应当可用；重复 ID 下进程仍按请求的数值 UID/GID
 - `settings.db`：仅兼容旧数据，迁移后可备份删除。
 
 不把全局配置迁入 bbolt，避免破坏 CONFIG-V2 的文件优先级与 secret 文件语义。
+
+## D020 (2026-10-23, Lead) — 在线重启与可热更新配置
+
+后端右上角提供管理员重启入口，`POST /system/restart` 返回 202 后：
+fx 生命周期优雅停止 → 录制/log sink 收尾 → `syscall.Exec` 自替换当前二进制。
+combined 镜像中 nginx 不重启，只重启 bilirec 子进程；Android/嵌入式返回 501。
+
+不是所有 `RestartRequired` 都适合无重启：需要重建监听端口、文件句柄、认证/JWT 中间件、
+外部下载器/转码/FRP/metrics 进程或缓冲区池的键保持重启。对有安全运行时路径的键改为热更新：
+
+- `WEBHOOK_URLS`：webhook Service 动态 URL，recorder/convert 只在运行时检查 enabled；
+- `FRONTEND_URLS` / `FRONTEND_URL`：CORS 使用动态 `AllowOriginsFunc`；
+- `LOCAL_LOGS_GROUPS`：source router 运行时替换 enabledGroups；
+- 19 个 FEATURES-V2 录制设置继续保持“无需重启、新会话生效”。
+
+`configfile.Store` 增加配置变更监听，热更新服务通过监听 `/config` 写入动作立即应用新值。

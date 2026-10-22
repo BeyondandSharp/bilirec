@@ -82,9 +82,7 @@ func NewService(ls fx.Lifecycle, cfg *config.Config, pathSvc *path.Service, metr
 
 	if cfg.ConvertToMp4 && len(svc.managers) > 0 {
 		sidecars.exporter = metrics
-		if cfg.WebhookConfigured() {
-			sidecars.webhook = webhookSvc
-		}
+		sidecars.webhook = webhookSvc
 	}
 
 	stop := func() error {

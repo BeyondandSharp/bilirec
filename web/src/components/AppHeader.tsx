@@ -9,7 +9,8 @@ import {
   GearIcon,
   CheckIcon,
   UserIcon,
-  InfoIcon
+  InfoIcon,
+  PowerIcon
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,6 +39,8 @@ interface AppHeaderProps {
   onRefreshBilibiliStatus: () => Promise<BilibiliAuthStatus | null>;
   onOpenBilibiliDialog: () => void;
   onOpenAbout: () => void;
+  onOpenRestart: () => void;
+  showRestart: boolean;
   onLogout: () => void;
   showLogout: boolean; // = !VIEWER_MODE_ENABLED
   showServerOutdatedBadge: boolean;
@@ -150,6 +153,8 @@ export function AppHeader({
   onRefreshBilibiliStatus,
   onOpenBilibiliDialog,
   onOpenAbout,
+  onOpenRestart,
+  showRestart,
   onLogout,
   showLogout,
   showServerOutdatedBadge
@@ -236,6 +241,19 @@ export function AppHeader({
               </DropdownMenu>
             )}
 
+            {showRestart && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0 rounded-md p-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                aria-label={t("restart.action")}
+                title={t("restart.action")}
+                onClick={onOpenRestart}
+              >
+                <PowerIcon size={18} />
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="sm"
@@ -296,6 +314,15 @@ export function AppHeader({
                 <DropdownMenuSeparator />
                 <LanguageMenuItems />
                 <DropdownMenuSeparator />
+                {showRestart && (
+                  <DropdownMenuItem
+                    onSelect={onOpenRestart}
+                    className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <PowerIcon size={14} className="shrink-0" />
+                    {t("restart.action")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuLabel>{t("about.section")}</DropdownMenuLabel>
                 <DropdownMenuItem
                   onSelect={onOpenAbout}

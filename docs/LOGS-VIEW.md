@@ -34,7 +34,7 @@ With `LOCAL_LOGS_SPLIT=true` (default):
   - Unknown named loggers fall back to `system`.
 - `LOCAL_LOGS_GROUPS` (default all five) controls which groups are written at all;
   an unchecked group writes neither its file nor a main copy. Empty value = no
-  named groups. Requires restart.
+  named groups. It is hot-applied through `/config` (no process restart).
 - `LOCAL_LOGS_SPLIT=false` preserves the old single-file behavior and ignores
   `LOCAL_LOGS_GROUPS`.
 

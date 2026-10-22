@@ -12,6 +12,7 @@ import (
 	lg "github.com/bilirec/bilirec/internal/controllers/logs"
 	nc "github.com/bilirec/bilirec/internal/controllers/notify"
 	"github.com/bilirec/bilirec/internal/controllers/record"
+	restartctl "github.com/bilirec/bilirec/internal/controllers/restart"
 	"github.com/bilirec/bilirec/internal/controllers/room"
 	cs "github.com/bilirec/bilirec/internal/controllers/settings"
 	whc "github.com/bilirec/bilirec/internal/controllers/webhook"
@@ -32,6 +33,7 @@ import (
 	pa "github.com/bilirec/bilirec/internal/services/path"
 	re "github.com/bilirec/bilirec/internal/services/recorder"
 	rp "github.com/bilirec/bilirec/internal/services/repair"
+	restartsvc "github.com/bilirec/bilirec/internal/services/restart"
 	ro "github.com/bilirec/bilirec/internal/services/room"
 	se "github.com/bilirec/bilirec/internal/services/settings"
 	st "github.com/bilirec/bilirec/internal/services/stream"
@@ -80,6 +82,16 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 
 		fx.Invoke(updatecheck.InvokeCheck),
 
+		fx.Invoke(func(svc *wh.Service, store *configfile.Store) {
+			svc.BindConfigStore(store)
+		}),
+		fx.Invoke(func(cfg *config.Config, store *configfile.Store) {
+			rest.BindConfigStore(cfg, store)
+		}),
+		fx.Invoke(func(store *configfile.Store) {
+			logging.BindConfigStore(store)
+		}),
+
 		fx.Invoke(room.NewController),
 		fx.Invoke(cs.NewController),
 		fx.Invoke(configapi.NewController),
@@ -90,6 +102,10 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Invoke(auth.NewController),
 		fx.Invoke(convert.NewController),
 		fx.Invoke(whc.NewController),
+		fx.Invoke(restartctl.NewController),
+		fx.Invoke(func(shutdowner fx.Shutdowner) {
+			restartsvc.SetShutdowner(shutdowner)
+		}),
 	)
 }
 

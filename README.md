@@ -77,8 +77,9 @@ BILIREC_IMAGE=yourname/bilirec:latest docker compose up -d
 - 文件由应用原子写入；secrets 文件过宽时会收紧为 `0600`；未知键在读写/重置中保留。
 - 启动时会把误放在 `config.json` 中的密钥迁移到 `secrets.json`；旧 `settings.db` 的 FEATURES-V2 全局覆盖会导入
   `config.json`（幂等）。
-- 修改生效规则：FEATURES-V2 特性值对**新会话**生效；其余环境类配置需要重启，`/config` 的
-  `restart_required` 会列出待重启键。
+- 修改生效规则：FEATURES-V2 特性值对**新会话**生效；`WEBHOOK_URLS`、`FRONTEND_URLS`/
+  `FRONTEND_URL`、`LOCAL_LOGS_GROUPS` 通过 UI 保存后热更新；其余环境类配置需要重启，
+  `/config` 的 `restart_required` 会列出待重启键。
 
 HTTP API（`GET` 为 admin+viewer，写操作为 admin；启用认证时需登录 cookie）：
 
@@ -143,8 +144,8 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
   - 可选 `LOCAL_LOGS_GROUPS=live,system,recorder,access,update` 勾选要输出的类别，
     取消的类别不写本地文件（stdout 不受影响）；
   - 如需旧版单文件行为，设置 `LOCAL_LOGS_SPLIT=false` 并重启。
-- 该开关属于需要重启的配置：可在 `deploy/.env`/环境变量中设置，或在 web 的
-  设置 → 系统配置 → 日志 中修改后重启容器。相关键还有 `LOCAL_LOGS_FORMAT`（`pretty`/`json`）、
+- `LOCAL_LOGS_ENABLED`、`LOCAL_LOGS_PATH`、格式/轮转等属于需要重启的配置；`LOCAL_LOGS_GROUPS`
+  可通过设置页热更新。相关键还有 `LOCAL_LOGS_FORMAT`（`pretty`/`json`）、
   `LOCAL_LOGS_MAX_SIZE_MB`/`LOCAL_LOGS_MAX_AGE_DAYS`/`LOCAL_LOGS_MAX_BACKUPS`/`LOCAL_LOGS_COMPRESS`
   （轮转/保留）与刷新/缓冲相关项。
 - 开启后，管理员在 web 侧边栏会看到“日志”页：可选择日志来源，自动刷新、按级别过滤、搜索、
@@ -161,7 +162,7 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 系统配置中的 `WEBHOOK_URLS` 旁提供“发送测试 Webhook”按钮（仅管理员）。点击后后端向当前生效的
 所有 webhook 地址发送一条完整的 `FileClosed` 示例事件，覆盖 `SessionId`、房间信息、相对路径、
 文件大小/时间/时长等全部字段，并返回每个目标的 HTTP 成功/失败结果。测试使用示例数据，不读取或
-创建真实录制文件；修改地址后需保存并重启再测试。
+创建真实录制文件；保存新的 `WEBHOOK_URLS` 后立即生效，无需重启。
 
 ## 列表布局、排序与分组
 
@@ -169,6 +170,20 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 - 录制管理可按房间号、名称、添加时间排序；录制文件可按修改时间、名称排序；订阅可按房间号、
   名称、添加时间排序，均支持升降序；
 - 订阅页支持按录制状态分组（录制中/恢复中/未录制），可随时关闭。
+
+## 重启与热更新
+
+管理员可以在右上角点击红色电源图标重启后端，重启会先安全结束录制、刷新日志文件并重新读取配置。
+接口为 `POST /system/restart`（202；viewer 403；Android/嵌入式 501）。
+
+无需重启即可生效的设置：
+
+- 19 个 FEATURES-V2 录制设置（保存后对之后启动的会话生效）；
+- `WEBHOOK_URLS`（保存后立即替换 webhook 目标）；
+- `FRONTEND_URLS` / `FRONTEND_URL`（保存后立即更新 CORS 允许来源）；
+- `LOCAL_LOGS_GROUPS`（保存后立即更新本地日志类别过滤）。
+
+其余 `/config` 配置仍需要重启；列表布局、排序、分组等前端偏好保存在浏览器本地。
 
 ## 数据目录、端口与卷
 

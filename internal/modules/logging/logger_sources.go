@@ -114,6 +114,19 @@ func (s *sourceLoggerSet) groupEnabled(group string) bool {
 	return ok
 }
 
+func (s *sourceLoggerSet) SetGroups(groups []string) {
+	if s == nil {
+		return
+	}
+	enabled := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		enabled[group] = struct{}{}
+	}
+	s.mu.Lock()
+	s.enabledGroups = enabled
+	s.mu.Unlock()
+}
+
 func (s *sourceLoggerSet) SourceDir() string {
 	if s == nil {
 		return ""

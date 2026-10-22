@@ -29,6 +29,15 @@ var SecretKeys = []string{
 	"PASSWORD", "VIEWER_PASSWORD", "JWT_SECRET", "CLOUDCONVERT_API_KEY", "FRP_TOKEN", "NOTIFY_SSE_TOKEN",
 }
 
+// HotApplyKeys can be updated through /config and applied to runtime services
+// without restarting the process.
+var HotApplyKeys = []string{
+	"WEBHOOK_URLS",
+	"FRONTEND_URLS",
+	"FRONTEND_URL",
+	"LOCAL_LOGS_GROUPS",
+}
+
 // FeatureKeys are the FEATURES-V2 keys owned by /settings.
 var FeatureKeys = []string{
 	"SEGMENT_MODE", "SEGMENT_MINUTES", "SEGMENT_SIZE_MB", "SEGMENT_BY_TITLE",
@@ -42,6 +51,7 @@ var (
 	secretKeySet  = toSet(SecretKeys)
 	bootstrapSet  = toSet(BootstrapKeys)
 	featureKeySet = toSet(FeatureKeys)
+	hotApplySet   = toSet(HotApplyKeys)
 )
 
 func toSet(keys []string) map[string]struct{} {
@@ -61,6 +71,12 @@ func IsSecretKey(key string) bool {
 // IsFeatureKey reports whether key is a FEATURES-V2 /settings key.
 func IsFeatureKey(key string) bool {
 	_, ok := featureKeySet[key]
+	return ok
+}
+
+// IsHotApplyKey reports whether key can be applied without a process restart.
+func IsHotApplyKey(key string) bool {
+	_, ok := hotApplySet[key]
 	return ok
 }
 
@@ -128,6 +144,49 @@ type Store struct {
 
 	sources         map[string]Source
 	restartRequired map[string]struct{}
+
+	changeMu        sync.RWMutex
+	changeListeners []func(ConfigChange)
+}
+
+// ConfigChange describes one effective config value change after a successful
+// /config write. Present=false means the key was removed.
+type ConfigChange struct {
+	Key     string
+	Value   string
+	Present bool
+}
+
+// OnConfigChange registers a listener invoked after config values are persisted.
+// Listeners are called synchronously after the store lock is released.
+func (s *Store) OnConfigChange(fn func(ConfigChange)) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.changeMu.Lock()
+	s.changeListeners = append(s.changeListeners, fn)
+	s.changeMu.Unlock()
+}
+
+func (s *Store) notifyConfigChanges(changes []ConfigChange) {
+	if s == nil || len(changes) == 0 {
+		return
+	}
+	s.changeMu.RLock()
+	listeners := append([]func(ConfigChange){}, s.changeListeners...)
+	s.changeMu.RUnlock()
+	for _, change := range changes {
+		for _, fn := range listeners {
+			func() {
+				defer func() {
+					if recovered := recover(); recovered != nil {
+						log.Printf("configfile: config change listener panic: %v", recovered)
+					}
+				}()
+				fn(change)
+			}()
+		}
+	}
 }
 
 // LoadStore loads the files and .env chain without applying values to the

@@ -345,14 +345,14 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
               </p>
             )}
           </div>
-          <div className="flex w-full flex-wrap items-end gap-2 sm:w-auto sm:gap-3">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             {sourceReport?.split && sources.length > 0 && (
-              <div className="w-full space-y-1 sm:w-auto">
-                <Label htmlFor="logs-source" className="text-xs text-muted-foreground">
+              <div className="flex w-full items-center gap-1.5 sm:w-auto">
+                <Label htmlFor="logs-source" className="shrink-0 text-xs text-muted-foreground">
                   {t('logs.source')}
                 </Label>
                 <Select value={selectedSource} onValueChange={handleSourceChange}>
-                  <SelectTrigger id="logs-source" className="w-full sm:w-40">
+                  <SelectTrigger id="logs-source" className="w-full sm:w-36">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -365,27 +365,94 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
                 </Select>
               </div>
             )}
-            <Button
-              variant="outline"
-              onClick={() => void fetchLogs()}
-              disabled={isLoading && data !== null}
-            >
-              <ArrowsClockwiseIcon size={16} className={isLoading && data !== null ? 'animate-spin' : undefined} />
-              {isLoading && data !== null ? t('logs.refreshing') : t('logs.refresh')}
-            </Button>
-            <div className="flex items-center gap-2">
-              <Label htmlFor="logs-auto-refresh" className="text-sm font-normal text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="logs-line-count" className="shrink-0 text-xs text-muted-foreground">
+                {t('logs.lineCount')}
+              </Label>
+              <Select value={String(lineCount)} onValueChange={(value) => setLineCount(Number(value))}>
+                <SelectTrigger id="logs-line-count" className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LINE_COUNT_OPTIONS.map((count) => (
+                    <SelectItem key={count} value={String(count)}>
+                      {count}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="logs-level" className="shrink-0 text-xs text-muted-foreground">
+                {t('logs.level')}
+              </Label>
+              <Select value={levelFilter} onValueChange={(value) => setLevelFilter(value as LevelFilter)}>
+                <SelectTrigger id="logs-level" className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LEVEL_FILTERS.map((level) => (
+                    <SelectItem key={level} value={level}>
+                      {level === 'all'
+                        ? t('logs.levelAll')
+                        : t(`logs.level${level.charAt(0).toUpperCase()}${level.slice(1)}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="relative min-w-40 flex-1 sm:min-w-52">
+              <MagnifyingGlassIcon
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                id="logs-search"
+                value={search}
+                placeholder={t('logs.searchPlaceholder')}
+                className="pl-8"
+                aria-label={t('logs.search')}
+                onChange={(event) => setSearch(event.target.value)}
+                clearable
+                onClear={() => setSearch('')}
+                clearAriaLabel={t('logs.search')}
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="logs-auto-refresh" className="text-xs font-normal text-muted-foreground">
                 {t('logs.autoRefresh')}
               </Label>
-              <Switch
-                id="logs-auto-refresh"
-                checked={autoRefresh}
-                onCheckedChange={setAutoRefresh}
-              />
-              <span className="hidden text-xs text-muted-foreground sm:inline">
-                {t('logs.autoRefreshHint')}
-              </span>
+              <Switch id="logs-auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
             </div>
+            <Button variant="outline" size="sm" onClick={() => void fetchLogs()} disabled={isLoading && data !== null}>
+              <ArrowsClockwiseIcon size={16} className={isLoading && data !== null ? 'animate-spin' : undefined} />
+              <span className="hidden sm:inline">{isLoading && data !== null ? t('logs.refreshing') : t('logs.refresh')}</span>
+            </Button>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="logs-follow" className="text-xs font-normal text-muted-foreground">
+                {t('logs.follow')}
+              </Label>
+              <Switch id="logs-follow" checked={follow} onCheckedChange={setFollow} />
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => void handleDownload()}
+              disabled={isDownloading}
+              aria-label={isDownloading ? t('logs.downloading') : t('logs.download')}
+              title={isDownloading ? t('logs.downloading') : t('logs.download')}
+            >
+              <DownloadSimpleIcon size={16} />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => void handleCopy()}
+              aria-label={t('logs.copy')}
+              title={t('logs.copy')}
+            >
+              <CopySimpleIcon size={16} />
+            </Button>
           </div>
         </div>
       </div>
@@ -447,99 +514,6 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
           </section>
         ) : showViewer ? (
           <>
-            {/* Filter / action toolbar */}
-            <div className="space-y-3 rounded-xl border border-border bg-card p-3 shadow-sm">
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="logs-line-count" className="text-xs text-muted-foreground">
-                    {t('logs.lineCount')}
-                  </Label>
-                  <Select
-                    value={String(lineCount)}
-                    onValueChange={(value) => setLineCount(Number(value))}
-                  >
-                    <SelectTrigger id="logs-line-count" className="w-28">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {LINE_COUNT_OPTIONS.map((count) => (
-                        <SelectItem key={count} value={String(count)}>
-                          {count}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="logs-level" className="text-xs text-muted-foreground">
-                    {t('logs.level')}
-                  </Label>
-                  <Select
-                    value={levelFilter}
-                    onValueChange={(value) => setLevelFilter(value as LevelFilter)}
-                  >
-                    <SelectTrigger id="logs-level" className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {LEVEL_FILTERS.map((level) => (
-                        <SelectItem key={level} value={level}>
-                          {level === 'all'
-                            ? t('logs.levelAll')
-                            : t(`logs.level${level.charAt(0).toUpperCase()}${level.slice(1)}`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="min-w-48 flex-1 space-y-1">
-                  <Label htmlFor="logs-search" className="text-xs text-muted-foreground">
-                    {t('logs.search')}
-                  </Label>
-                  <div className="relative">
-                    <MagnifyingGlassIcon
-                      size={14}
-                      className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <Input
-                      id="logs-search"
-                      value={search}
-                      placeholder={t('logs.searchPlaceholder')}
-                      className="pl-8"
-                      onChange={(event) => setSearch(event.target.value)}
-                      clearable
-                      onClear={() => setSearch('')}
-                      clearAriaLabel={t('logs.search')}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 pb-0.5">
-                  <Label htmlFor="logs-follow" className="text-sm font-normal text-muted-foreground">
-                    {t('logs.follow')}
-                  </Label>
-                  <Switch id="logs-follow" checked={follow} onCheckedChange={setFollow} />
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => void handleDownload()} disabled={isDownloading}>
-                  <DownloadSimpleIcon size={16} />
-                  {isDownloading ? t('logs.downloading') : t('logs.download')}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => void handleCopy()}>
-                  <CopySimpleIcon size={16} />
-                  {t('logs.copy')}
-                </Button>
-                {!follow && (
-                  <Badge variant="secondary" className="text-xs font-normal">
-                    {t('logs.paused')}
-                  </Badge>
-                )}
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {t('logs.filteredCount', { shown: parsedLines.length, total: totalLines })}
-                </span>
-              </div>
-            </div>
-
             {/* File metadata */}
             <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               <span>
@@ -565,6 +539,9 @@ export function LogsView({ onOpenSettings }: LogsViewProps) {
                   {t('logs.truncatedHint')}
                 </Badge>
               )}
+              <span className="ml-auto">
+                {t('logs.filteredCount', { shown: parsedLines.length, total: totalLines })}
+              </span>
             </div>
 
             {/* Log viewer */}

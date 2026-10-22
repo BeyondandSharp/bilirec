@@ -62,13 +62,17 @@ func (s *Service) SendSample(ctx context.Context) (*TestReport, error) {
 		EventData:      data,
 	}
 
+	targets := s.urlsSnapshot()
+	if len(targets) == 0 {
+		return nil, ErrNotConfigured
+	}
 	report := &TestReport{
 		Sent:      true,
 		EventType: EventFileClosed,
 		EventID:   eventID,
-		Results:   make([]TestResult, 0, len(s.urls)),
+		Results:   make([]TestResult, 0, len(targets)),
 	}
-	for _, target := range s.urls {
+	for _, target := range targets {
 		result := TestResult{URL: target}
 		resp, postErr := s.client.R().
 			SetContext(ctx).
