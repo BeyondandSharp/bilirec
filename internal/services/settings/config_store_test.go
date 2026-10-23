@@ -176,3 +176,18 @@ func TestSettingsRestartRequiredScopedToFeatureKeys(t *testing.T) {
 		t.Fatalf("/settings restart_required must not include generic env keys: %v", pending)
 	}
 }
+
+func TestConfigStoreDoesNotCreateLegacySettingsDB(t *testing.T) {
+	clearSettingsEnv(t)
+	store := newStoreForTest(t)
+	dbDir := t.TempDir()
+	lc := fxtest.NewLifecycle(t)
+	svc := newService(lc, &config.Config{DatabaseDir: dbDir}, nil, store)
+	lc.RequireStart()
+	lc.RequireStop()
+	_ = svc
+
+	if _, err := os.Stat(filepath.Join(dbDir, settingsDBFile)); !os.IsNotExist(err) {
+		t.Fatalf("fresh CONFIG-V2 start must not create settings.db, stat err=%v", err)
+	}
+}

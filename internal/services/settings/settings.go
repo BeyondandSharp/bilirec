@@ -175,7 +175,71 @@ func (s *Service) start() error {
 	if s.cfg == nil {
 		return errors.New("settings：缺少配置")
 	}
-	client, err := db.Open(filepath.Join(s.cfg.DatabaseDir, settingsDBFile))
+	dbPath := filepath.Join(s.cfg.DatabaseDir, settingsDBFile)
+
+	// With the CONFIG-V2 store, settings.db is only a legacy migration source.
+	// Do not create it on a fresh installation: only open it when an existing
+	// legacy file is present.
+	if s.store != nil {
+		if _, err := os.Stat(dbPath); err != nil {
+			if os.IsNotExist(err) {
+				s.mu.Lock()
+				s.patch = patchFromStore(s.store)
+				s.recomputeLocked()
+				s.mu.Unlock()
+				return nil
+			}
+			return fmt.Errorf("settings：检查旧设置数据库失败：%w", err)
+		}
+
+		client, err := db.Open(dbPath)
+		if err != nil {
+			log.Warnf("旧 settings.db 无法打开，跳过迁移：%v", err)
+			s.mu.Lock()
+			s.patch = patchFromStore(s.store)
+			s.recomputeLocked()
+			s.mu.Unlock()
+			return nil
+		}
+		bucket, err := client.Bucket(settingsBucket)
+		if err != nil {
+			_ = client.Close()
+			log.Warnf("旧 settings.db bucket 无法打开，跳过迁移：%v", err)
+			s.mu.Lock()
+			s.patch = patchFromStore(s.store)
+			s.recomputeLocked()
+			s.mu.Unlock()
+			return nil
+		}
+
+		s.mu.Lock()
+		s.client = client
+		s.bucket = bucket
+		legacyPatch, loadErr := s.loadOverridesLocked()
+		if loadErr != nil {
+			log.Warnf("设置数据库内容无效，使用默认设置：%v", loadErr)
+			legacyPatch = GlobalSettingsPatch{}
+		}
+		// Startup migration (docs/CONFIG-V2.md §1): import legacy settings.db
+		// overrides into config.json for feature keys the file does not have
+		// yet, then read the overrides from config.json (idempotent).
+		if err := s.store.ImportMissingConfig(envMapFromPatch(legacyPatch)); err != nil {
+			log.Warnf("迁移设置数据库到 config.json 失败：%v", err)
+		}
+		s.patch = patchFromStore(s.store)
+		s.recomputeLocked()
+		s.bucket = nil
+		s.client = nil
+		s.mu.Unlock()
+
+		if err := client.Close(); err != nil {
+			log.Warnf("关闭旧 settings.db 失败：%v", err)
+		}
+		return nil
+	}
+
+	// Legacy mode (no config store): keep the historical settings.db store.
+	client, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("settings：打开设置数据库失败：%w", err)
 	}
@@ -194,18 +258,7 @@ func (s *Service) start() error {
 		log.Warnf("设置数据库内容无效，使用默认设置：%v", err)
 		legacyPatch = GlobalSettingsPatch{}
 	}
-	if s.store != nil {
-		// Startup migration (docs/CONFIG-V2.md §1): import legacy settings.db
-		// overrides into config.json for feature keys the file does not have
-		// yet, then read the overrides from config.json (idempotent; the old
-		// settings.db is kept untouched).
-		if err := s.store.ImportMissingConfig(envMapFromPatch(legacyPatch)); err != nil {
-			log.Warnf("迁移设置数据库到 config.json 失败：%v", err)
-		}
-		s.patch = patchFromStore(s.store)
-	} else {
-		s.patch = legacyPatch
-	}
+	s.patch = legacyPatch
 	s.recomputeLocked()
 	return nil
 }
