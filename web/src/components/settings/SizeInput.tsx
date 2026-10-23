@@ -74,10 +74,18 @@ export function SizeInput({ id, value, canonicalUnit = 'B', disabled, onChange }
       return
     }
     const parsed = parseSize(value, canonicalUnit)
+    // The parent for API-backed settings stores a canonical number (e.g. MiB)
+    // while this control keeps the user's selected unit. If both represent the
+    // same byte count, keep the selected unit instead of resetting it.
+    const localBytes = (Number(amount) || 0) * FACTORS[unit]
+    if (parsed.bytes === localBytes) {
+      lastValue.current = value
+      return
+    }
     setAmount(formatAmount(parsed.amount))
     setUnit(parsed.unit)
     lastValue.current = value
-  }, [canonicalUnit, value])
+  }, [amount, canonicalUnit, unit, value])
 
   const emit = (nextAmount: string, nextUnit: SizeUnit) => {
     const normalized = nextAmount.trim()
