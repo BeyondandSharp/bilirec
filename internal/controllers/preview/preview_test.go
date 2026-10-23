@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/modules/config"
 	pvs "github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/pkg/flv"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 	"github.com/gofiber/fiber/v3"
+	"go.uber.org/fx"
 )
 
 func withPreviewTestConfig(t *testing.T) {
@@ -171,4 +173,18 @@ func TestFLVAudioOnlyBootstrapUsedInHTTP(t *testing.T) {
 	if !bytes.Contains(body, []byte{0x44}) {
 		t.Fatal("missing AAC raw")
 	}
+}
+
+func bootConfigReadOnly(tb testing.TB) {
+	tb.Helper()
+	old := config.ReadOnly
+	app := fx.New(config.Module, fx.NopLogger, fx.Invoke(func(*config.Config) {}))
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() {
+		_ = app.Stop(ctx)
+		config.ReadOnly = old
+	})
 }

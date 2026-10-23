@@ -49,7 +49,7 @@ func (r *RoundRobin) SetCyclePeriod(d time.Duration) {
 	r.mu.Unlock()
 }
 
-// SetMinTick overrides the minimum tick interval (tests or high participant counts).
+// SetMinTick overrides the minimum tick interval (e.g. high participant counts).
 func (r *RoundRobin) SetMinTick(d time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

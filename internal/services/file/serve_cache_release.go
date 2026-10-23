@@ -10,6 +10,8 @@ import (
 
 const serveCacheFinalReleaseDelay = 5 * time.Minute
 
+var dropFilePageCache = filecache.DropFilePageCache
+
 // BeginServeCacheRelease pairs with the returned done callback around SendFile.
 // When DROP_FILE_PAGE_CACHE is enabled, drops page cache after the last active
 // serve ends and ServeCacheIdleReleaseSecs of idle (zero config uses default 60s),
@@ -119,11 +121,7 @@ func (s *Service) scheduleServeCacheReleaseLocked(fullPath string, sess *serveCa
 }
 
 func (s *Service) dropPageCache(fullPath string, attempt int) {
-	fn := s.dropPageCacheFn
-	if fn == nil {
-		fn = filecache.DropFilePageCache
-	}
-	if err := fn(fullPath); err != nil {
+	if err := dropFilePageCache(fullPath); err != nil {
 		log.Debugf("serve-cache-release: 释放 page cache 失败 path=%s attempt=%d err=%v", fullPath, attempt, err)
 	} else {
 		log.Debugf("serve-cache-release: 释放 page cache 成功 path=%s attempt=%d", fullPath, attempt)
@@ -131,9 +129,6 @@ func (s *Service) dropPageCache(fullPath string, attempt int) {
 }
 
 func (s *Service) serveCacheIdleDelay() time.Duration {
-	if s.serveCacheIdleDelayOverride > 0 {
-		return s.serveCacheIdleDelayOverride
-	}
 	if config.ReadOnly == nil {
 		return 0
 	}
@@ -145,9 +140,6 @@ func (s *Service) serveCacheIdleDelay() time.Duration {
 }
 
 func (s *Service) serveCacheFinalDelay() time.Duration {
-	if s.serveCacheIdleDelayOverride > 0 {
-		return s.serveCacheIdleDelayOverride
-	}
 	return serveCacheFinalReleaseDelay
 }
 

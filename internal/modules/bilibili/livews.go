@@ -67,10 +67,6 @@ type LiveMessageClient struct {
 
 	handlers map[string][]LiveMessageHandler
 
-	// plainWS dials ws:// instead of wss://; only used by tests against a
-	// local plaintext websocket server.
-	plainWS bool
-
 	writeMu sync.Mutex // serializes frame writes (read loop control replies + heartbeat)
 	connMu  sync.Mutex
 	conn    net.Conn
@@ -101,11 +97,11 @@ func (c *LiveMessageClient) Close() {
 // Run dials the given host, enters the room, starts the heartbeat loop and
 // blocks dispatching messages until the connection fails or ctx is canceled.
 func (c *LiveMessageClient) Run(ctx context.Context, host DanmuInfoHost, token string) error {
-	scheme := "wss"
-	if c.plainWS {
-		scheme = "ws"
-	}
-	url := fmt.Sprintf("%s://%s:%d/sub", scheme, host.Host, host.WssPort)
+	url := fmt.Sprintf("wss://%s:%d/sub", host.Host, host.WssPort)
+	return c.runAt(ctx, url, token)
+}
+
+func (c *LiveMessageClient) runAt(ctx context.Context, url string, token string) error {
 	dialer := ws.Dialer{
 		Timeout: liveWSDialTimeout,
 		Header: ws.HandshakeHeaderHTTP(http.Header{

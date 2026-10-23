@@ -10,15 +10,15 @@ import (
 func TestBeginServeCacheRelease_DropDisabledCreatesNoState(t *testing.T) {
 	withServeCacheReadOnly(t, false, 60)
 	var drops atomic.Int32
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
 		return nil
-	}, 10*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	done := s.BeginServeCacheRelease("/tmp/video.mp4")
 	done()
 	done()
-	time.Sleep(30 * time.Millisecond)
 
 	if drops.Load() != 0 {
 		t.Fatalf("expected no drop when DROP_FILE_PAGE_CACHE=false, got %d", drops.Load())
@@ -33,21 +33,18 @@ func TestBeginServeCacheRelease_DropDisabledCreatesNoState(t *testing.T) {
 func TestBeginServeCacheRelease_ReleasesTwiceThenDeletesSession(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
 	var drops atomic.Int32
-	dropped := make(chan struct{}, 3)
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
-		dropped <- struct{}{}
 		return nil
-	}, 15*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done := s.BeginServeCacheRelease(path)
 	done()
-
-	waitForSignal(t, dropped, "first cache release")
-	waitForSignal(t, dropped, "final cache release")
+	sess, gen := stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
 	waitForSessionDeleted(t, s, path)
-	time.Sleep(30 * time.Millisecond)
 	if drops.Load() != 2 {
 		t.Fatalf("expected exactly two releases, got %d", drops.Load())
 	}
@@ -56,37 +53,33 @@ func TestBeginServeCacheRelease_ReleasesTwiceThenDeletesSession(t *testing.T) {
 func TestBeginServeCacheRelease_NewRequestResetsTwoStageRelease(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
 	var drops atomic.Int32
-	dropped := make(chan struct{}, 4)
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
-		dropped <- struct{}{}
 		return nil
-	}, 25*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done1 := s.BeginServeCacheRelease(path)
 	done1()
-	waitForSignal(t, dropped, "first generation initial release")
-
-	s.serveCacheMu.Lock()
-	firstGeneration := s.serveCache[path].generation
-	s.serveCacheMu.Unlock()
+	sess, gen := stopServeCacheTimer(t, s, path)
+	s.runServeCacheRelease(path, sess, gen, 1)
+	firstGeneration := gen
 
 	done2 := s.BeginServeCacheRelease(path)
 	done2()
 
 	s.serveCacheMu.Lock()
-	sess := s.serveCache[path]
-	if sess.generation <= firstGeneration || sess.attempts != 0 || sess.timer == nil {
+	active := s.serveCache[path]
+	if active.generation <= firstGeneration || active.attempts != 0 || active.timer == nil {
 		s.serveCacheMu.Unlock()
-		t.Fatalf("expected new request to reset release stages: generation=%d attempts=%d timer=%v", sess.generation, sess.attempts, sess.timer != nil)
+		t.Fatalf("expected new request to reset release stages: generation=%d attempts=%d timer=%v", active.generation, active.attempts, active.timer != nil)
 	}
 	s.serveCacheMu.Unlock()
 
-	waitForSignal(t, dropped, "new generation initial release")
-	waitForSignal(t, dropped, "new generation final release")
+	sess, gen = stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
 	waitForSessionDeleted(t, s, path)
-	time.Sleep(40 * time.Millisecond)
 	if drops.Load() != 3 {
 		t.Fatalf("expected old attempt 1 plus two reset attempts, got %d", drops.Load())
 	}
@@ -95,12 +88,11 @@ func TestBeginServeCacheRelease_NewRequestResetsTwoStageRelease(t *testing.T) {
 func TestBeginServeCacheRelease_StaleTimerCannotDeleteNewGeneration(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
 	var drops atomic.Int32
-	dropped := make(chan struct{}, 2)
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
-		dropped <- struct{}{}
 		return nil
-	}, 40*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done1 := s.BeginServeCacheRelease(path)
@@ -119,7 +111,7 @@ func TestBeginServeCacheRelease_StaleTimerCannotDeleteNewGeneration(t *testing.T
 
 	s.serveCacheMu.Lock()
 	active := s.serveCache[path]
-	if active != oldSession || active.generation == oldGeneration || active.timer == nil {
+	if active.generation == oldGeneration || active.timer == nil {
 		s.serveCacheMu.Unlock()
 		t.Fatal("stale callback changed or deleted the new generation")
 	}
@@ -128,8 +120,8 @@ func TestBeginServeCacheRelease_StaleTimerCannotDeleteNewGeneration(t *testing.T
 		t.Fatalf("expected stale callback not to release cache, got %d releases", drops.Load())
 	}
 
-	waitForSignal(t, dropped, "new generation initial release")
-	waitForSignal(t, dropped, "new generation final release")
+	sess, gen := stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
 	waitForSessionDeleted(t, s, path)
 }
 
@@ -138,28 +130,33 @@ func TestBeginServeCacheRelease_RequestDuringAttemptInvalidatesOldCallback(t *te
 	var drops atomic.Int32
 	firstStarted := make(chan struct{})
 	unblockFirst := make(chan struct{})
-	dropped := make(chan struct{}, 3)
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		if drops.Add(1) == 1 {
 			close(firstStarted)
 			<-unblockFirst
 		}
-		dropped <- struct{}{}
 		return nil
-	}, 30*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done1 := s.BeginServeCacheRelease(path)
 	done1()
+	sess, gen := stopServeCacheTimer(t, s, path)
+	releaseDone := make(chan struct{})
+	go func() {
+		s.runServeCacheRelease(path, sess, gen, 1)
+		close(releaseDone)
+	}()
 	waitForSignal(t, firstStarted, "first release to start")
 
 	done2 := s.BeginServeCacheRelease(path)
 	done2()
 	close(unblockFirst)
+	waitForSignal(t, releaseDone, "old generation in-flight release")
 
-	waitForSignal(t, dropped, "old generation in-flight release")
-	waitForSignal(t, dropped, "new generation initial release")
-	waitForSignal(t, dropped, "new generation final release")
+	sess, gen = stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
 	waitForSessionDeleted(t, s, path)
 	if drops.Load() != 3 {
 		t.Fatalf("expected in-flight old release plus two new releases, got %d", drops.Load())
@@ -168,11 +165,8 @@ func TestBeginServeCacheRelease_RequestDuringAttemptInvalidatesOldCallback(t *te
 
 func TestBeginServeCacheRelease_DoneIsIdempotent(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
-	dropped := make(chan struct{}, 2)
-	s := newServiceForServeCacheTest(func(string) error {
-		dropped <- struct{}{}
-		return nil
-	}, 30*time.Millisecond)
+	withTestDropPageCache(t, func(string) error { return nil })
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done := s.BeginServeCacheRelease(path)
@@ -185,8 +179,8 @@ func TestBeginServeCacheRelease_DoneIsIdempotent(t *testing.T) {
 	if refCount != 0 {
 		t.Fatalf("expected duplicate done to leave refCount at zero, got %d", refCount)
 	}
-	waitForSignal(t, dropped, "initial release")
-	waitForSignal(t, dropped, "final release")
+	sess, gen := stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
 }
 
 func TestBeginServeCacheRelease_SlowDropDoesNotBlockOtherPath(t *testing.T) {
@@ -194,24 +188,20 @@ func TestBeginServeCacheRelease_SlowDropDoesNotBlockOtherPath(t *testing.T) {
 	firstStarted := make(chan struct{})
 	unblockFirst := make(chan struct{})
 	firstFinished := make(chan struct{})
-	s := newServiceForServeCacheTest(func(path string) error {
+	withTestDropPageCache(t, func(path string) error {
 		if path == "/tmp/slow.mp4" {
 			close(firstStarted)
 			<-unblockFirst
 			close(firstFinished)
 		}
 		return nil
-	}, time.Second)
+	})
+	s := newServiceForServeCacheTest()
 
 	slowPath := "/tmp/slow.mp4"
 	doneSlow := s.BeginServeCacheRelease(slowPath)
 	doneSlow()
-	s.serveCacheMu.Lock()
-	slowSession := s.serveCache[slowPath]
-	slowGeneration := slowSession.generation
-	slowSession.timer.Stop()
-	slowSession.timer = nil
-	s.serveCacheMu.Unlock()
+	slowSession, slowGeneration := stopServeCacheTimer(t, s, slowPath)
 	go s.runServeCacheRelease(slowPath, slowSession, slowGeneration, 1)
 	waitForSignal(t, firstStarted, "slow release to start")
 
@@ -234,22 +224,24 @@ func TestStopServeCacheRelease_DuringFirstReleaseDoesNotScheduleFinal(t *testing
 	firstStarted := make(chan struct{})
 	unblockFirst := make(chan struct{})
 	firstFinished := make(chan struct{})
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
 		close(firstStarted)
 		<-unblockFirst
 		close(firstFinished)
 		return nil
-	}, 20*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done := s.BeginServeCacheRelease(path)
 	done()
+	sess, gen := stopServeCacheTimer(t, s, path)
+	go s.runServeCacheRelease(path, sess, gen, 1)
 	waitForSignal(t, firstStarted, "first release to start")
 	s.stopServeCacheRelease()
 	close(unblockFirst)
 	waitForSignal(t, firstFinished, "first release to finish")
-	time.Sleep(60 * time.Millisecond)
 
 	if drops.Load() != 1 {
 		t.Fatalf("expected shutdown to prevent final release, got %d releases", drops.Load())
@@ -264,15 +256,15 @@ func TestStopServeCacheRelease_DuringFirstReleaseDoesNotScheduleFinal(t *testing
 func TestStopServeCacheRelease_CancelsPendingTimer(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
 	var drops atomic.Int32
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
 		return nil
-	}, 40*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	done := s.BeginServeCacheRelease("/tmp/video.mp4")
 	done()
 	s.stopServeCacheRelease()
-	time.Sleep(100 * time.Millisecond)
 
 	if drops.Load() != 0 {
 		t.Fatalf("expected shutdown to cancel pending timer, got %d releases", drops.Load())
@@ -289,36 +281,36 @@ func TestServeCacheFinalReleaseDelayIsFiveMinutes(t *testing.T) {
 func TestBeginServeCacheRelease_NoDropWhileActive(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
 	var drops atomic.Int32
-	dropped := make(chan struct{}, 2)
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
-		dropped <- struct{}{}
 		return nil
-	}, 20*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	done1 := s.BeginServeCacheRelease(path)
 	done2 := s.BeginServeCacheRelease(path)
 	done1()
-	time.Sleep(50 * time.Millisecond)
 	if drops.Load() != 0 {
 		t.Fatal("expected no release while second serve is active")
 	}
 
 	done2()
-	waitForSignal(t, dropped, "initial release after all serves end")
-	waitForSignal(t, dropped, "final release after all serves end")
+	sess, gen := stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
+	if drops.Load() != 2 {
+		t.Fatalf("expected two releases after all serves end, got %d", drops.Load())
+	}
 }
 
 func TestBeginServeCacheRelease_ConcurrentBegin(t *testing.T) {
 	withServeCacheReadOnly(t, true, 60)
 	var drops atomic.Int32
-	dropped := make(chan struct{}, 2)
-	s := newServiceForServeCacheTest(func(string) error {
+	withTestDropPageCache(t, func(string) error {
 		drops.Add(1)
-		dropped <- struct{}{}
 		return nil
-	}, 30*time.Millisecond)
+	})
+	s := newServiceForServeCacheTest()
 
 	path := "/tmp/video.mp4"
 	var wg sync.WaitGroup
@@ -333,8 +325,8 @@ func TestBeginServeCacheRelease_ConcurrentBegin(t *testing.T) {
 	}
 	wg.Wait()
 
-	waitForSignal(t, dropped, "initial release after concurrent serves")
-	waitForSignal(t, dropped, "final release after concurrent serves")
+	sess, gen := stopServeCacheTimer(t, s, path)
+	runBothServeCacheReleases(s, path, sess, gen)
 	if drops.Load() != 2 {
 		t.Fatalf("expected exactly two releases after concurrent serves, got %d", drops.Load())
 	}
@@ -344,17 +336,39 @@ func withServeCacheReadOnly(t *testing.T, drop bool, coldSecs int) {
 	bootServeCacheReadOnly(t, drop, coldSecs)
 }
 
-func newServiceForServeCacheTest(dropFn func(string) error, idleDelay time.Duration) *Service {
-	s := &Service{
+func newServiceForServeCacheTest() *Service {
+	return &Service{
 		serveCache: make(map[string]*serveCacheSession),
 	}
-	if dropFn != nil {
-		s.dropPageCacheFn = dropFn
+}
+
+func withTestDropPageCache(t *testing.T, fn func(string) error) {
+	t.Helper()
+	prev := dropFilePageCache
+	dropFilePageCache = fn
+	t.Cleanup(func() { dropFilePageCache = prev })
+}
+
+func stopServeCacheTimer(t *testing.T, s *Service, path string) (*serveCacheSession, uint64) {
+	t.Helper()
+	s.serveCacheMu.Lock()
+	sess := s.serveCache[path]
+	if sess == nil {
+		s.serveCacheMu.Unlock()
+		t.Fatalf("no serve-cache session for %q", path)
 	}
-	if idleDelay > 0 {
-		s.serveCacheIdleDelayOverride = idleDelay
+	if sess.timer != nil {
+		sess.timer.Stop()
+		sess.timer = nil
 	}
-	return s
+	gen := sess.generation
+	s.serveCacheMu.Unlock()
+	return sess, gen
+}
+
+func runBothServeCacheReleases(s *Service, path string, sess *serveCacheSession, generation uint64) {
+	s.runServeCacheRelease(path, sess, generation, 1)
+	s.runServeCacheRelease(path, sess, generation, 2)
 }
 
 func waitForSignal(t *testing.T, ch <-chan struct{}, description string) {

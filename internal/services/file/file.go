@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bilirec/bilirec/pkg/logger"
 
@@ -28,11 +27,9 @@ type Service struct {
 
 	path *path.Service
 
-	serveCacheMu                sync.Mutex
-	serveCache                  map[string]*serveCacheSession
-	serveCacheStopped           bool
-	dropPageCacheFn             func(string) error
-	serveCacheIdleDelayOverride time.Duration
+	serveCacheMu      sync.Mutex
+	serveCache        map[string]*serveCacheSession
+	serveCacheStopped bool
 }
 
 type Tree struct {

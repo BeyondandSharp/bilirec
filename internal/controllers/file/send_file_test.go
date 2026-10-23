@@ -1,6 +1,7 @@
 package file
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,10 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/bilirec/bilirec/internal/modules/config"
 	fileservice "github.com/bilirec/bilirec/internal/services/file"
 	"github.com/gofiber/fiber/v3"
+	"go.uber.org/fx"
 	"go.uber.org/fx/fxtest"
 )
 
@@ -92,4 +95,31 @@ func assertPlaybackResponse(t *testing.T, resp *http.Response, status int, conte
 	if string(body) != string(wantBody) {
 		t.Fatalf("expected body %q, got %q", wantBody, body)
 	}
+}
+
+func bootConfigReadOnly(tb testing.TB, env map[string]string) {
+	tb.Helper()
+	for k, v := range env {
+		tb.Setenv(k, v)
+	}
+	old := config.ReadOnly
+	app := fx.New(config.Module, fx.NopLogger, fx.Invoke(func(*config.Config) {}))
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() {
+		_ = app.Stop(ctx)
+		config.ReadOnly = old
+	})
+}
+
+func bootServeCacheReadOnly(tb testing.TB, dropFilePageCache bool, coldCacheReleaseSecs int) {
+	env := map[string]string{
+		"LIVE_STREAM_WRITER_COLD_CACHE_RELEASE_SECS": strconv.Itoa(coldCacheReleaseSecs),
+	}
+	if !dropFilePageCache {
+		env["DROP_FILE_PAGE_CACHE"] = "false"
+	}
+	bootConfigReadOnly(tb, env)
 }
