@@ -78,6 +78,9 @@ BILIREC_IMAGE=yourname/bilirec:latest docker compose up -d
 - 启动时会把误放在 `config.json` 中的密钥迁移到 `secrets.json`；旧 `settings.db` 的 FEATURES-V2 全局覆盖会导入
   `config.json`（幂等）。
 - `MAX_RECORDING_HOURS` 默认 `0` 表示单次录制不限制时长；显式指定 `duration_minutes` 时仍按指定值执行。
+- 存储大小设置支持 `B`、`KiB`、`MiB`、`GiB`、`TiB`、`PiB` 单位；设置页保存为带单位的形式
+  （如 `2 GiB`），后端解析后转换为内部字节/MiB 值。`SEGMENT_SIZE_MB`、`MIN_FILE_SIZE_MB` 等
+  录制大小设置也可在设置页选择单位。
 
 - 修改生效规则：FEATURES-V2 特性值对**新会话**生效；`WEBHOOK_URLS`、`FRONTEND_URLS`/
   `FRONTEND_URL`、`LOCAL_LOGS_GROUPS` 通过 UI 保存后热更新；其余环境类配置需要重启，

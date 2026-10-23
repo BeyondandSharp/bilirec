@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { SizeInput } from '@/components/settings/SizeInput'
 import { useLanguage } from '@/hooks/use-language'
 import type { ConfigField, LocalizedText } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -94,6 +95,17 @@ export function ConfigFieldControl({
           disabled={disabled}
           className="font-mono"
           onChange={(event) => onChange(event.target.value)}
+        />
+      )
+      break
+    case 'size':
+      control = (
+        <SizeInput
+          id={id}
+          value={value}
+          canonicalUnit={field.size_unit || 'B'}
+          disabled={disabled}
+          onChange={onChange}
         />
       )
       break

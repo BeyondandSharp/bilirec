@@ -259,6 +259,7 @@ export interface LocalizedText {
 
 export type ConfigFieldKind =
   | 'number'
+  | 'size'
   | 'bool'
   | 'string'
   | 'textarea'
@@ -272,6 +273,8 @@ export interface ConfigField {
   key: string
   kind: ConfigFieldKind
   default?: string
+  /** Canonical unit for size fields (B or MiB); bare defaults use it. */
+  size_unit?: string
   min?: number | null
   max?: number | null
   enum?: string[] | null

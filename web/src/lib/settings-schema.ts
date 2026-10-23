@@ -10,7 +10,7 @@ import type { GlobalSettings, RoomConfig, UpdateRoomConfigRequest } from './type
 
 export type SettingsSectionId = 'segment' | 'naming' | 'cover' | 'danmaku' | 'flv' | 'bili'
 
-export type SettingsFieldKind = 'boolean' | 'number' | 'string' | 'textarea' | 'enum' | 'string-list'
+export type SettingsFieldKind = 'boolean' | 'number' | 'size' | 'string' | 'textarea' | 'enum' | 'string-list'
 
 export interface SettingsFieldOption {
   value: string
@@ -199,7 +199,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDescriptor[] = [
       },
       {
         path: 'segment_size_mb',
-        kind: 'number',
+        kind: 'size',
         labelKey: 'settingsView.fields.segmentSizeMb',
         hintKey: 'settingsView.fields.segmentSizeMbHint',
         min: 16,
@@ -214,7 +214,7 @@ export const SETTINGS_SECTIONS: SettingsSectionDescriptor[] = [
     fields: [
       {
         path: 'min_file_size_mb',
-        kind: 'number',
+        kind: 'size',
         labelKey: 'settingsView.fields.minFileSizeMb',
         hintKey: 'settingsView.fields.minFileSizeMbHint',
         min: 0,

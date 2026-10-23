@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { SizeInput, sizeToCanonical } from '@/components/settings/SizeInput'
 import {
   formatSettingValue,
   type SettingsFieldDescriptor,
@@ -152,6 +153,22 @@ export function SettingsFieldControl({
             }
             const parsed = Number(raw)
             onChange(Number.isFinite(parsed) ? parsed : undefined)
+          }}
+        />
+      )
+      break
+    }
+    case 'size': {
+      const displayValue = inherit ? fallbackValue ?? '' : value ?? fallbackValue ?? ''
+      control = (
+        <SizeInput
+          id={id}
+          value={String(displayValue)}
+          canonicalUnit="MiB"
+          disabled={isDisabled}
+          onChange={(next) => {
+            const parsed = sizeToCanonical(next, 'MiB')
+            onChange(parsed === undefined ? undefined : Math.round(parsed))
           }}
         />
       )

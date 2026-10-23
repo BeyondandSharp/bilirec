@@ -224,3 +224,25 @@ func TestLiveStreamWriterSyncPeriodGetterDoesNotLogExternalWarnings(t *testing.T
 		t.Fatalf("getter must not emit external config warnings, got %q", out)
 	}
 }
+
+func TestSizeSettingsAcceptBinaryUnits(t *testing.T) {
+	setConfigTestDirs(t)
+	t.Setenv("MIN_DISK_SPACE_BYTES", "2 GiB")
+	t.Setenv("LOCAL_LOGS_MAX_SIZE_MB", "1.5 GiB")
+	t.Setenv("UPLOAD_BUFFER_SIZE", "8 MiB")
+	t.Setenv("FLV_REPAIR_MAX_BUFFER_MB", "2 GiB")
+	cfg := loadTestConfig(t)
+
+	if cfg.MinDiskSpaceBytes != 2*(1<<30) {
+		t.Fatalf("MIN_DISK_SPACE_BYTES = %d", cfg.MinDiskSpaceBytes)
+	}
+	if cfg.LocalLogsMaxSizeMB != 1536 {
+		t.Fatalf("LOCAL_LOGS_MAX_SIZE_MB = %d", cfg.LocalLogsMaxSizeMB)
+	}
+	if cfg.uploadBufferSize != 8*(1<<20) {
+		t.Fatalf("UPLOAD_BUFFER_SIZE = %d", cfg.uploadBufferSize)
+	}
+	if cfg.FLVRepairMaxBufferMB != 2048 {
+		t.Fatalf("FLV_REPAIR_MAX_BUFFER_MB = %d", cfg.FLVRepairMaxBufferMB)
+	}
+}

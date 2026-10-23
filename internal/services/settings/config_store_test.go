@@ -191,3 +191,42 @@ func TestConfigStoreDoesNotCreateLegacySettingsDB(t *testing.T) {
 		t.Fatalf("fresh CONFIG-V2 start must not create settings.db, stat err=%v", err)
 	}
 }
+
+func TestFeatureSizeUnitsPersistAndLoad(t *testing.T) {
+	clearSettingsEnv(t)
+	store := newStoreForTest(t)
+	lc := fxtest.NewLifecycle(t)
+	svc := newService(lc, &config.Config{DatabaseDir: t.TempDir()}, nil, store)
+	lc.RequireStart()
+	defer lc.RequireStop()
+
+	segment := 2048
+	minFile := 512
+	if err := svc.Update(GlobalSettingsPatch{SegmentSizeMB: &segment, MinFileSizeMB: &minFile}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readFileBytes(store.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]string
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["SEGMENT_SIZE_MB"] != "2 GiB" || raw["MIN_FILE_SIZE_MB"] != "512 MiB" {
+		t.Fatalf("config size units = %q / %q", raw["SEGMENT_SIZE_MB"], raw["MIN_FILE_SIZE_MB"])
+	}
+
+	store2, err := configfile.LoadStore(configfile.Options{ConfigPath: store.ConfigPath(), SecretsPath: store.SecretsPath()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc2 := fxtest.NewLifecycle(t)
+	svc2 := newService(lc2, &config.Config{DatabaseDir: t.TempDir()}, nil, store2)
+	lc2.RequireStart()
+	defer lc2.RequireStop()
+	_, _, values := svc2.Get()
+	if values.SegmentSizeMB != segment || values.MinFileSizeMB != minFile {
+		t.Fatalf("loaded size values = %d / %d", values.SegmentSizeMB, values.MinFileSizeMB)
+	}
+}

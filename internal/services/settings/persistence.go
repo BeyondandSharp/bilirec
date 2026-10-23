@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bilirec/bilirec/internal/modules/configfile"
+	"github.com/bilirec/bilirec/pkg/size"
 )
 
 // featureEnvToJSON maps FEATURES-V2 env keys to the /settings JSON field names
@@ -109,7 +110,7 @@ func patchFromStore(store *configfile.Store) GlobalSettingsPatch {
 		}
 	}
 	if value, ok := get("SEGMENT_SIZE_MB"); ok {
-		if n, err := strconv.Atoi(value); err == nil {
+		if n, err := size.ParseMiB(value); err == nil {
 			patch.SegmentSizeMB = &n
 		}
 	}
@@ -119,7 +120,7 @@ func patchFromStore(store *configfile.Store) GlobalSettingsPatch {
 		}
 	}
 	if value, ok := get("MIN_FILE_SIZE_MB"); ok {
-		if n, err := strconv.Atoi(value); err == nil {
+		if n, err := size.ParseMiB(value); err == nil {
 			patch.MinFileSizeMB = &n
 		}
 	}
@@ -197,13 +198,13 @@ func envMapFromPatch(patch GlobalSettingsPatch) map[string]string {
 		out["SEGMENT_MINUTES"] = strconv.Itoa(*patch.SegmentMinutes)
 	}
 	if patch.SegmentSizeMB != nil {
-		out["SEGMENT_SIZE_MB"] = strconv.Itoa(*patch.SegmentSizeMB)
+		out["SEGMENT_SIZE_MB"] = size.FormatBytes(int64(*patch.SegmentSizeMB) << 20)
 	}
 	if patch.SegmentByTitle != nil {
 		out["SEGMENT_BY_TITLE"] = strconv.FormatBool(*patch.SegmentByTitle)
 	}
 	if patch.MinFileSizeMB != nil {
-		out["MIN_FILE_SIZE_MB"] = strconv.Itoa(*patch.MinFileSizeMB)
+		out["MIN_FILE_SIZE_MB"] = size.FormatBytes(int64(*patch.MinFileSizeMB) << 20)
 	}
 	if patch.FilenameTemplate != nil {
 		out["FILENAME_TEMPLATE"] = *patch.FilenameTemplate

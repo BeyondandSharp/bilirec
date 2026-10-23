@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/pkg/logger"
+	"github.com/bilirec/bilirec/pkg/size"
 	"github.com/bilirec/bilirec/utils"
 	"go.uber.org/fx"
 	"golang.org/x/crypto/bcrypt"
@@ -230,13 +231,13 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		LocalLogsPath:            strings.TrimSpace(os.Getenv("LOCAL_LOGS_PATH")),
 		LocalLogsGroups:          parseLocalLogsGroups(),
 		LocalLogsFormat:          strings.ToLower(strings.TrimSpace(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_FORMAT"), "pretty"))),
-		LocalLogsMaxSizeMB:       utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_SIZE_MB"), "20")),
+		LocalLogsMaxSizeMB:       parseSizeMiB(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_SIZE_MB"), "20"), 20),
 		LocalLogsMaxAgeDays:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_AGE_DAYS"), "7")),
 		LocalLogsMaxBackups:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_MAX_BACKUPS"), "3")),
 		LocalLogsCompress:        os.Getenv("LOCAL_LOGS_COMPRESS") == "true",
-		LocalLogsBatchBytes:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_BATCH_BYTES"), "65536")),
+		LocalLogsBatchBytes:      int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_BATCH_BYTES"), "65536"), 65536)),
 		LocalLogsFlushInterval:   parseDurationOrDefault(os.Getenv("LOCAL_LOGS_FLUSH_INTERVAL"), time.Second),
-		LocalLogsBufferSize:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_BUFFER_SIZE"), "4096")),
+		LocalLogsBufferSize:      int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("LOCAL_LOGS_BUFFER_SIZE"), "4096"), 4096)),
 		LocalLogsOverflow:        parseLocalLogsOverflow(os.Getenv("LOCAL_LOGS_OVERFLOW")),
 		FRPEnabled:               os.Getenv("FRP_ENABLED") == "true",
 		FRPServer:                frpServer,
@@ -254,8 +255,8 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		OutputDir:                          utils.EmptyOrElse(os.Getenv("OUTPUT_DIR"), "records"),
 		SecretDir:                          utils.EmptyOrElse(os.Getenv("SECRET_DIR"), "secrets"),
 		DatabaseDir:                        utils.EmptyOrElse(os.Getenv("DATABASE_DIR"), "database"),
-		CloudConvertThreshold:              utils.MustAtoi64(utils.EmptyOrElse(os.Getenv("CLOUDCONVERT_THRESHOLD"), "1073741824")), // 1 GB
-		CloudConvertApiKey:                 os.Getenv("CLOUDCONVERT_API_KEY"),                                                      // empty to disable
+		CloudConvertThreshold:              parseSizeBytes(utils.EmptyOrElse(os.Getenv("CLOUDCONVERT_THRESHOLD"), "1073741824"), 1073741824), // 1 GB
+		CloudConvertApiKey:                 os.Getenv("CLOUDCONVERT_API_KEY"),                                                                // empty to disable
 		ConvertToMp4:                       os.Getenv("CONVERT_TO_MP4") == "true",
 		NoConvertIfInvalid:                 os.Getenv("NO_CONVERT_IF_INVALID") == "true",
 		DeleteSourceAfterConvert:           os.Getenv("DELETE_SOURCE_AFTER_CONVERT") == "true",
@@ -275,7 +276,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		ServerKey:                          os.Getenv("SERVER_KEY"),
 		Debug:                              debug,
 		ProductionMode:                     os.Getenv("PRODUCTION_MODE") == "true",
-		MinDiskSpaceBytes:                  utils.MustAtoi64(utils.EmptyOrElse(os.Getenv("MIN_DISK_SPACE_BYTES"), "5368709120")), // 5GB
+		MinDiskSpaceBytes:                  parseSizeBytes(utils.EmptyOrElse(os.Getenv("MIN_DISK_SPACE_BYTES"), "5368709120"), 5368709120), // 5GB
 		CloudConvertCheckIntervalSecs:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("CLOUDCONVERT_CHECK_INTERVAL_SECS"), "180")),
 		CloudConvertMaxConcurrentDownloads: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("CLOUDCONVERT_MAX_CONCURRENT_DOWNLOADS"), "1")),
 		CloudConvertAllowDuringRecording:   os.Getenv("CLOUDCONVERT_ALLOW_DURING_RECORDING") == "true",
@@ -306,37 +307,37 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		FLVRepair:            parseFLVRepair(os.Getenv("FLV_REPAIR")),
 		FLVRepairBin:         utils.EmptyOrElse(strings.TrimSpace(os.Getenv("FLV_REPAIR_BIN")), "flvrepair"),
 		FLVRepairMode:        parseFLVRepairMode(os.Getenv("FLV_REPAIR_MODE")),
-		FLVRepairMaxBufferMB: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("FLV_REPAIR_MAX_BUFFER_MB"), "64")),
+		FLVRepairMaxBufferMB: parseSizeMiB(utils.EmptyOrElse(os.Getenv("FLV_REPAIR_MAX_BUFFER_MB"), "64"), 64),
 
 		// stream performance configs
-		ReadStreamBytesPoolSize:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_BYTES_POOL_SIZE"), "524288")),       // default 512KB
-		ReadStreamChanBufferSize:     utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_CHAN_BUFFER_SIZE"), "16")),          // default 16
-		readStreamBytesPoolSizeHigh:  utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_BYTES_POOL_SIZE_HIGH"), "1048576")), // default 1MB for 2K/4K
-		readStreamChanBufferSizeHigh: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_CHAN_BUFFER_SIZE_HIGH"), "48")),     // default 48 for 2K/4K
+		ReadStreamBytesPoolSize:      int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("READ_STREAM_BYTES_POOL_SIZE"), "524288"), 524288)),        // default 512KB
+		ReadStreamChanBufferSize:     utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_CHAN_BUFFER_SIZE"), "16")),                        // default 16
+		readStreamBytesPoolSizeHigh:  int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("READ_STREAM_BYTES_POOL_SIZE_HIGH"), "1048576"), 1048576)), // default 1MB for 2K/4K
+		readStreamChanBufferSizeHigh: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("READ_STREAM_CHAN_BUFFER_SIZE_HIGH"), "48")),                   // default 48 for 2K/4K
 
 		// global performance configs
-		uploadBufferSize:                       utils.MustAtoi(utils.EmptyOrElse(os.Getenv("UPLOAD_BUFFER_SIZE"), "5242880")),                      // default 5MB
-		downloadBufferSize:                     utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DOWNLOAD_BUFFER_SIZE"), "5242880")),                    // default 5MB
-		streamWriterBufferSize:                 utils.MustAtoi(utils.EmptyOrElse(os.Getenv("STREAM_WRITER_BUFFER_SIZE"), "1048576")),               // default 1MB
-		liveStreamWriterBufferSize:             utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_BUFFER_SIZE"), "8388608")),          // 8MB: prioritize lower flush frequency for SD card longevity
-		liveStreamWriterSyncPeriod:             utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_SYNC_PERIOD_SECS"), "0")),           // 0 = disabled; sync only on Close() to minimize SD card wear
-		liveStreamWriterColdCacheReleasePeriod: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_COLD_CACHE_RELEASE_SECS"), "60")),   // periodic cold page-cache release during recording
-		liveStreamWriterFlushPeriod:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_FLUSH_PERIOD_SECS"), "15")),         // default 15s: fewer flush operations, lower SD card wear
-		liveStreamWriterChanBufferSize:         utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_CHAN_BUFFER_SIZE"), "64")),          // default 64: limits in-flight memory while still tolerating write latency bursts
-		liveStreamWriterBytesPoolSize:          utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_BYTES_POOL_SIZE"), "524288")),       // 512KB per buffer
-		liveStreamWriterBytesPoolSizeHigh:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_BYTES_POOL_SIZE_HIGH"), "1048576")), // default 1MB for 2K/4K
-		skipSmallFlushThreshold:                utils.MustAtoi(utils.EmptyOrElse(os.Getenv("SKIP_SMALL_FLUSH_THRESHOLD"), "1048576")),              // default 1MB: delay file creation until buffered bytes reach this threshold
-		skipSmallFlush:                         os.Getenv("SKIP_SMALL_FLUSH") != "false",                                                           // enabled by default; when true, SD-card protection mode is enabled
-		sequentialWrite:                        os.Getenv("SEQUENTIAL_WRITE") != "false",                                                           // enabled by default; set false to disable global flush serialization
+		uploadBufferSize:                       int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("UPLOAD_BUFFER_SIZE"), "5242880"), 5242880)),                      // default 5MB
+		downloadBufferSize:                     int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("DOWNLOAD_BUFFER_SIZE"), "5242880"), 5242880)),                    // default 5MB
+		streamWriterBufferSize:                 int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("STREAM_WRITER_BUFFER_SIZE"), "1048576"), 1048576)),               // default 1MB
+		liveStreamWriterBufferSize:             int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_BUFFER_SIZE"), "8388608"), 8388608)),          // 8MB: prioritize lower flush frequency for SD card longevity
+		liveStreamWriterSyncPeriod:             utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_SYNC_PERIOD_SECS"), "0")),                         // 0 = disabled; sync only on Close() to minimize SD card wear
+		liveStreamWriterColdCacheReleasePeriod: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_COLD_CACHE_RELEASE_SECS"), "60")),                 // periodic cold page-cache release during recording
+		liveStreamWriterFlushPeriod:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_FLUSH_PERIOD_SECS"), "15")),                       // default 15s: fewer flush operations, lower SD card wear
+		liveStreamWriterChanBufferSize:         utils.MustAtoi(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_CHAN_BUFFER_SIZE"), "64")),                        // default 64: limits in-flight memory while still tolerating write latency bursts
+		liveStreamWriterBytesPoolSize:          int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_BYTES_POOL_SIZE"), "524288"), 524288)),        // 512KB per buffer
+		liveStreamWriterBytesPoolSizeHigh:      int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("LIVE_STREAM_WRITER_BYTES_POOL_SIZE_HIGH"), "1048576"), 1048576)), // default 1MB for 2K/4K
+		skipSmallFlushThreshold:                int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("SKIP_SMALL_FLUSH_THRESHOLD"), "1048576"), 1048576)),              // default 1MB: delay file creation until buffered bytes reach this threshold
+		skipSmallFlush:                         os.Getenv("SKIP_SMALL_FLUSH") != "false",                                                                         // enabled by default; when true, SD-card protection mode is enabled
+		sequentialWrite:                        os.Getenv("SEQUENTIAL_WRITE") != "false",                                                                         // enabled by default; set false to disable global flush serialization
 		dropFilePageCache:                      os.Getenv("DROP_FILE_PAGE_CACHE") != "false",
 
 		// danmaku recording performance configs (defaults tuned for Raspberry Pi 4B + SD card)
-		danmakuWriterBufferSize:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_BUFFER_SIZE"), "262144")),             // 256KB: absorb bursts; fewer mid-interval flushes on SD
-		danmakuWriterMinPeriodicFlushBytes: utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_MIN_PERIODIC_FLUSH_BYTES"), "16384")), // 16KB: skip tiny periodic flushes that contend with video
-		danmakuWriterFlushPeriod:           utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_FLUSH_PERIOD_SECS"), "15")),           // align with video flush period to reduce SD card flush frequency
-		danmakuWriterSyncPeriod:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_SYNC_PERIOD_SECS"), "0")),             // 0 = disabled; sync only on Close() to minimize SD card wear
-		danmakuChanBufferSize:              utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_CHAN_BUFFER_SIZE"), "256")),                  // message slots per room; overflow policy decides drop vs block
-		danmakuBytesPoolSize:               utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_BYTES_POOL_SIZE"), "4096")),                  // 4KB per fragment buffer
+		danmakuWriterBufferSize:            int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_BUFFER_SIZE"), "262144"), 262144)),            // 256KB: absorb bursts; fewer mid-interval flushes on SD
+		danmakuWriterMinPeriodicFlushBytes: int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_MIN_PERIODIC_FLUSH_BYTES"), "16384"), 16384)), // 16KB: skip tiny periodic flushes that contend with video
+		danmakuWriterFlushPeriod:           utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_FLUSH_PERIOD_SECS"), "15")),                       // align with video flush period to reduce SD card flush frequency
+		danmakuWriterSyncPeriod:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_SYNC_PERIOD_SECS"), "0")),                         // 0 = disabled; sync only on Close() to minimize SD card wear
+		danmakuChanBufferSize:              utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_CHAN_BUFFER_SIZE"), "256")),                              // message slots per room; overflow policy decides drop vs block
+		danmakuBytesPoolSize:               int(parseSizeBytes(utils.EmptyOrElse(os.Getenv("DANMAKU_BYTES_POOL_SIZE"), "4096"), 4096)),                   // 4KB per fragment buffer
 	}
 
 	// Warn once when an external downloader/repair env value was invalid and
@@ -465,6 +466,36 @@ func parseLocalLogsGroups() []string {
 
 func parseLocalLogsSplit(raw string) bool {
 	return !strings.EqualFold(strings.TrimSpace(raw), "false")
+}
+
+// parseSizeBytes parses a human-readable size with bare values interpreted as
+// bytes. Invalid values fall back to the legacy default and log a warning.
+func parseSizeBytes(raw string, fallback int64) int64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	value, err := size.ParseBytes(raw)
+	if err != nil {
+		log.Warnf("无效的字节大小 %q，使用默认值 %d：%v", raw, fallback, err)
+		return fallback
+	}
+	return value
+}
+
+// parseSizeMiB parses a size for integer-MiB settings. Bare values are MiB;
+// suffixed values are converted to MiB.
+func parseSizeMiB(raw string, fallback int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	value, err := size.ParseMiB(raw)
+	if err != nil {
+		log.Warnf("无效的大小 %q，使用默认值 %d MiB：%v", raw, fallback, err)
+		return fallback
+	}
+	return value
 }
 
 // parseMaxRetrySeconds returns the stream-disconnect recovery window.

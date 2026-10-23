@@ -39,7 +39,7 @@ func TestSchemaCompleteness(t *testing.T) {
 			t.Fatalf("field %s is missing a 3-language description", key)
 		}
 		switch field.Kind {
-		case "bool", "number", "string", "textarea", "enum", "csv", "duration":
+		case "bool", "number", "size", "string", "textarea", "enum", "csv", "duration":
 		default:
 			t.Fatalf("field %s has unexpected kind %q", key, field.Kind)
 		}
@@ -49,6 +49,11 @@ func TestSchemaCompleteness(t *testing.T) {
 		if field.Kind == "number" && field.Default != "" {
 			if _, err := strconv.ParseInt(field.Default, 10, 64); err != nil {
 				t.Fatalf("number field %s default %q is not an integer", key, field.Default)
+			}
+		}
+		if field.Kind == "size" && field.Default != "" {
+			if _, err := parseSizeValue(field.Default, field.SizeUnit); err != nil {
+				t.Fatalf("size field %s default %q invalid: %v", key, field.Default, err)
 			}
 		}
 		if field.Kind == "bool" && field.Default != "" && field.Default != "true" && field.Default != "false" {
@@ -244,4 +249,19 @@ func containsLongUpperRun(s string, n int) bool {
 		run = 0
 	}
 	return false
+}
+
+func TestSizeFieldValidation(t *testing.T) {
+	field, ok := FieldByKey("MIN_DISK_SPACE_BYTES")
+	if !ok || field.Kind != "size" || field.SizeUnit != "B" {
+		t.Fatalf("MIN_DISK_SPACE_BYTES field = %+v", field)
+	}
+	for _, value := range []string{"1 B", "512 KiB", "5 MiB", "2 GiB", "1 TiB", "1 PiB", "5368709120"} {
+		if err := ValidateFieldValue(field, value); err != nil {
+			t.Errorf("valid size %q rejected: %v", value, err)
+		}
+	}
+	if err := ValidateFieldValue(field, "5 XB"); err == nil {
+		t.Fatal("invalid size unit accepted")
+	}
 }

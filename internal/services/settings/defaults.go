@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/bilirec/bilirec/internal/services/naming"
+	"github.com/bilirec/bilirec/pkg/size"
 )
 
 // DefaultFilenameTemplate is the CONFIG-V2 §3 default path template (relative to
@@ -53,10 +54,10 @@ func loadDefaultsFromEnv() GlobalSettings {
 
 	d.SegmentMode = envString("SEGMENT_MODE", d.SegmentMode, validSegmentMode)
 	d.SegmentMinutes = envInt("SEGMENT_MINUTES", d.SegmentMinutes, 1, 1440)
-	d.SegmentSizeMB = envInt("SEGMENT_SIZE_MB", d.SegmentSizeMB, 16, 65536)
+	d.SegmentSizeMB = envSizeMiB("SEGMENT_SIZE_MB", d.SegmentSizeMB, 16, 65536)
 	d.SegmentByTitle = envBool("SEGMENT_BY_TITLE", d.SegmentByTitle)
 
-	d.MinFileSizeMB = envInt("MIN_FILE_SIZE_MB", d.MinFileSizeMB, 0, 1024)
+	d.MinFileSizeMB = envSizeMiB("MIN_FILE_SIZE_MB", d.MinFileSizeMB, 0, 1024)
 	// FILENAME_TEMPLATE distinguishes "unset" (new path-template default) from
 	// an explicit empty string (legacy naming, docs/CONFIG-V2.md §3).
 	if raw, ok := envRaw("FILENAME_TEMPLATE"); ok {
@@ -86,6 +87,20 @@ func loadDefaultsFromEnv() GlobalSettings {
 	d.BiliReplaceCN01 = envCSV("BILI_REPLACE_CN01", d.BiliReplaceCN01, validHostList)
 
 	return d
+}
+
+// envSizeMiB parses a size env value with bare numbers interpreted as MiB.
+func envSizeMiB(key string, def, minValue, maxValue int) int {
+	raw, ok := envRaw(key)
+	if !ok || raw == "" {
+		return def
+	}
+	parsed, err := size.ParseMiB(raw)
+	if err != nil || parsed < minValue || parsed > maxValue {
+		log.Warnf("环境变量 %s 无效（%q），使用默认值 %d", key, raw, def)
+		return def
+	}
+	return parsed
 }
 
 func envDanmakuTypes(def DanmakuTypes) DanmakuTypes {

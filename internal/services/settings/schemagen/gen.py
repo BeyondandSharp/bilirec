@@ -89,6 +89,18 @@ enums = {
  'SEGMENT_MODE': ['off','time','size'],
  'DANMAKU_TRANSPORT': ['auto','ws','wss'],
 }
+SIZE_BYTES = {
+    "MIN_DISK_SPACE_BYTES", "CLOUDCONVERT_THRESHOLD",
+    "DANMAKU_BYTES_POOL_SIZE", "DANMAKU_WRITER_BUFFER_SIZE",
+    "DANMAKU_WRITER_MIN_PERIODIC_FLUSH_BYTES",
+    "DOWNLOAD_BUFFER_SIZE", "LIVE_STREAM_WRITER_BUFFER_SIZE",
+    "LIVE_STREAM_WRITER_BYTES_POOL_SIZE", "LIVE_STREAM_WRITER_BYTES_POOL_SIZE_HIGH",
+    "LOCAL_LOGS_BATCH_BYTES", "LOCAL_LOGS_BUFFER_SIZE",
+    "READ_STREAM_BYTES_POOL_SIZE", "READ_STREAM_BYTES_POOL_SIZE_HIGH",
+    "SKIP_SMALL_FLUSH_THRESHOLD", "STREAM_WRITER_BUFFER_SIZE", "UPLOAD_BUFFER_SIZE",
+}
+SIZE_MIB = {"LOCAL_LOGS_MAX_SIZE_MB", "FLV_REPAIR_MAX_BUFFER_MB", "SEGMENT_SIZE_MB", "MIN_FILE_SIZE_MB"}
+
 minmax = {
  'PORT': (1,65535), 'METRICS_PORT': (1,65535), 'SEGMENT_MINUTES': (1,1440),
  'SEGMENT_SIZE_MB': (16,65536), 'MIN_FILE_SIZE_MB': (0,1024),
@@ -109,9 +121,9 @@ requires_ffmpeg = {'CONVERT_TO_MP4','NO_CONVERT_IF_INVALID','DELETE_SOURCE_AFTER
 features = {
  'SEGMENT_MODE': ('enum','off',['off','time','size']),
  'SEGMENT_MINUTES': ('number','120',(1,1440)),
- 'SEGMENT_SIZE_MB': ('number','2048',(16,65536)),
+ 'SEGMENT_SIZE_MB': ('size','2048',(16,65536)),
  'SEGMENT_BY_TITLE': ('bool','false',None),
- 'MIN_FILE_SIZE_MB': ('number','0',(0,1024)),
+ 'MIN_FILE_SIZE_MB': ('size','0',(0,1024)),
  'FILENAME_TEMPLATE': ('string','{roomid}-{uname}/{date}_{time}_{title}',None),
  'TITLE_FILTER_PATTERNS': ('textarea','',None),
  'SAVE_STREAM_COVER': ('bool','false',None),
@@ -238,6 +250,11 @@ def field_lit(key):
         enum, mm = enums.get(key), minmax.get(key)
         if enum:
             kind = 'enum'
+    size_unit = ''
+    if key in SIZE_BYTES:
+        kind, size_unit = 'size', 'B'
+    elif key in SIZE_MIB:
+        kind, size_unit = 'size', 'MiB'
     restart = 'false' if key in features or key in HOT_APPLY else 'true'
     requires = '"ffmpeg"' if key in requires_ffmpeg else '""'
     sensitive = key in secrets
@@ -259,7 +276,7 @@ def field_lit(key):
         desc_zh = f'{g[1]}：{zh}'
         desc_tw = f'{g[2]}：{label_zh_tw}'
         desc_en = f'{g[5]} ({en}).'
-    return (f'{{Key: "{key}", Group: "{gid}", Kind: "{kind}", Default: {json.dumps(default, ensure_ascii=False)}, '
+    return (f'{{Key: "{key}", Group: "{gid}", Kind: "{kind}", Default: {json.dumps(default, ensure_ascii=False)}, SizeUnit: {json.dumps(size_unit)}, '
             f'Min: {min_lit}, Max: {max_lit}, Enum: {enum_lit}, RestartRequired: {restart}, Sensitive: {str(sensitive).lower()}, '
             f'Requires: {requires}, Label: LangText{{ZhCN: {json.dumps(zh, ensure_ascii=False)}, ZhTW: {json.dumps(label_zh_tw, ensure_ascii=False)}, En: {json.dumps(en)}}}, '
             f'Description: LangText{{ZhCN: {json.dumps(desc_zh, ensure_ascii=False)}, ZhTW: {json.dumps(desc_tw, ensure_ascii=False)}, En: {json.dumps(desc_en)}}}}}')
@@ -296,6 +313,7 @@ type Field struct {
 	Group           string   `json:"-"`
 	Kind            string   `json:"kind"`
 	Default         string   `json:"default"`
+	SizeUnit        string   `json:"size_unit,omitempty"`
 	Min             *int64   `json:"min"`
 	Max             *int64   `json:"max"`
 	Enum            []string `json:"enum"`
@@ -449,6 +467,13 @@ func ValidateFieldValue(f Field, value string) error {
 		}
 		if f.Max != nil && n > *f.Max {
 			return fmt.Errorf("%s 不能大于 %d", f.Key, *f.Max)
+		}
+	case "size":
+		if value == "" {
+			return fmt.Errorf("%s 不能为空", f.Key)
+		}
+		if _, err := parseSizeValue(value, f.SizeUnit); err != nil {
+			return fmt.Errorf("%s 不是合法大小：%v", f.Key, err)
 		}
 	case "duration":
 		if value != "" {
