@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bilirec/bilirec/pkg/logger"
 
@@ -49,6 +50,8 @@ type ListOptions struct {
 	Filter    func(fs.DirEntry) bool // nil = no filter
 	Search    string                 // empty = no search
 	OnlyMedia bool                   // keep directories; hide non-media files
+	Start     *time.Time             // nil = no lower bound (files only, by filename time)
+	End       *time.Time             // nil = no upper bound (files only, by filename time)
 	Offset    int
 	Limit     int // 0 = all
 }
@@ -144,6 +147,9 @@ func (s *Service) ListTreeWithOptions(path string, opts ListOptions) (*PagedTree
 		}
 		filtered = append(filtered, entry)
 	}
+
+	filtered = filterByRecordingTimeRange(filtered, opts.Start, opts.End)
+	sortBrowseEntries(filtered)
 
 	total := len(filtered)
 

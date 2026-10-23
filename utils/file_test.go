@@ -73,6 +73,17 @@ func TestParseRecordingSegmentFilenameOrdersByNameOnly(t *testing.T) {
 	}
 }
 
+func TestParseRecordingFilenameStampAnyExtension(t *testing.T) {
+	stamp, seg, ok := ParseRecordingFilenameStamp("t-20260101_000000.jsonl")
+	if !ok || stamp != "20260101_000000" || seg != 0 {
+		t.Fatalf("jsonl stamp=%q seg=%d ok=%v", stamp, seg, ok)
+	}
+	_, seg2, ok2 := ParseRecordingFilenameStamp("t-20260101_000000-3.xml")
+	if !ok2 || seg2 != 3 {
+		t.Fatalf("xml seg=%d ok=%v", seg2, ok2)
+	}
+}
+
 func TestIsRecordingMediaFilename(t *testing.T) {
 	media := []string{"a.mp4", "b.M4A", "c.ts", "seg.fmp4", "live.flv"}
 	for _, name := range media {

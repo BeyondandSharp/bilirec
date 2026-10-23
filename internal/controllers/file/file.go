@@ -18,6 +18,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/path"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/pkg/logger"
+	"github.com/bilirec/bilirec/utils"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -163,7 +164,7 @@ func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string
 }
 
 // @Summary List files and directories
-// @Description List files and directories under a given path with optional pagination and search
+// @Description List files and directories under a given path. Directories sort by last modified (newest first); files sort by filename timestamp (newest first). Optional start/end filter files by embedded recording time (20060102_150405).
 // @Tags files
 // @Security BearerAuth
 // @Accept json
@@ -173,6 +174,8 @@ func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string
 // @Param limit query int false "Limit (default 0 = all, max 200)"
 // @Param search query string false "Search by filename (case-insensitive)"
 // @Param only_media query bool false "When true, list only directories and media files (mp4, m4a, ts, fmp4, flv)"
+// @Param start query string false "Filter files: filename time lower bound (20060102_150405)"
+// @Param end query string false "Filter files: filename time upper bound (20060102_150405)"
 // @Success 200 {object} file.PagedTree "Paged list of files and directories"
 // @Failure 400 {string} string "Invalid path"
 // @Failure 403 {string} string "Forbidden"
@@ -196,12 +199,26 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 
 	onlyMedia, _ := strconv.ParseBool(ctx.Query("only_media", "false"))
 
+	start, err := parseRecordingBrowseTimeQuery(ctx.Query("start"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "start 格式无效，应为 YYYYMMDD_HHMMSS")
+	}
+	end, err := parseRecordingBrowseTimeQuery(ctx.Query("end"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "end 格式无效，应为 YYYYMMDD_HHMMSS")
+	}
+	if start != nil && end != nil && start.After(*end) {
+		return fiber.NewError(fiber.StatusBadRequest, "start 不能晚于 end")
+	}
+
 	paged, err := c.fileSvc.ListTreeWithOptions(path, file.ListOptions{
 		Filter: func(f fs.DirEntry) bool {
 			return !strings.HasSuffix(f.Name(), ".tmp")
 		},
 		Search:    ctx.Query("search"),
 		OnlyMedia: onlyMedia,
+		Start:     start,
+		End:       end,
 		Offset:    offset,
 		Limit:     limit,
 	})
@@ -416,6 +433,17 @@ func (c *Controller) withRecordingStatus(items []file.Tree) []file.Tree {
 		}
 	}
 	return out
+}
+
+func parseRecordingBrowseTimeQuery(raw string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	t, err := time.ParseInLocation(utils.RecordingNameStampLayout, raw, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // mediaTokenFiberError maps media presigned token errors to HTTP responses.
