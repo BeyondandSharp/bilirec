@@ -5,8 +5,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/bilirec/bilirec/internal/modules/config"
 )
 
 func TestBeginServeCacheRelease_DropDisabledCreatesNoState(t *testing.T) {
@@ -343,10 +341,7 @@ func TestBeginServeCacheRelease_ConcurrentBegin(t *testing.T) {
 }
 
 func withServeCacheReadOnly(t *testing.T, drop bool, coldSecs int) {
-	t.Helper()
-	old := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyForTest(drop, coldSecs)
-	t.Cleanup(func() { config.ReadOnly = old })
+	bootServeCacheReadOnly(t, drop, coldSecs)
 }
 
 func newServiceForServeCacheTest(dropFn func(string) error, idleDelay time.Duration) *Service {

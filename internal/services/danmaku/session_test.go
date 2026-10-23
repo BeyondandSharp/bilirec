@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"go.uber.org/fx"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	"github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/pkg/pool"
@@ -22,8 +23,13 @@ import (
 const testDanmakuJSON = `{"cmd":"DANMU_MSG","info":[[0,1,25,16777215,1754668800000,0],"测试<弹幕>&\"'",[123456,"测试用户"],0,0,0,0,0]}`
 
 func TestMain(m *testing.M) {
-	// danmaku getters fall back to defaults when the underlying fields are zero
-	config.ReadOnly = config.NewGlobalReadOnlyForTest(false, 0)
+	if config.ReadOnly == nil {
+		app := fx.New(config.Module, fx.NopLogger, fx.Invoke(func(*config.Config) {}))
+		if err := app.Start(context.Background()); err != nil {
+			panic(err)
+		}
+		defer func() { _ = app.Stop(context.Background()) }()
+	}
 	os.Exit(m.Run())
 }
 
@@ -203,10 +209,6 @@ func TestSessionRotate(t *testing.T) {
 }
 
 func TestSessionChannelFullDropsMessages(t *testing.T) {
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest("drop")
-	t.Cleanup(func() { config.ReadOnly = prev })
-
 	svc := newTestService()
 	sess, _ := newTestSession(svc, "jsonl")
 
@@ -231,9 +233,7 @@ func TestSessionChannelFullDropsMessages(t *testing.T) {
 }
 
 func TestSessionChannelFullBlocksWhenPolicyBlock(t *testing.T) {
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest("block")
-	t.Cleanup(func() { config.ReadOnly = prev })
+	useDanmakuOverflowPolicy(t, "block")
 
 	svc := newTestService()
 	sess, _ := newTestSession(svc, "jsonl")
@@ -275,9 +275,7 @@ func TestSessionChannelFullBlocksWhenPolicyBlock(t *testing.T) {
 }
 
 func TestSessionChannelBlockRespectsCancel(t *testing.T) {
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest("block")
-	t.Cleanup(func() { config.ReadOnly = prev })
+	useDanmakuOverflowPolicy(t, "block")
 
 	svc := newTestService()
 	sess, _ := newTestSession(svc, "jsonl")

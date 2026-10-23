@@ -356,17 +356,3 @@ func (g *GlobalReadOnly) Validate() error {
 	}
 	return nil
 }
-
-// NewGlobalReadOnlyForTest builds read-only config for unit tests in other packages.
-func NewGlobalReadOnlyForTest(dropFilePageCache bool, liveStreamWriterColdCacheReleaseSecs int) *GlobalReadOnly {
-	return &GlobalReadOnly{config: &Config{
-		dropFilePageCache:                      dropFilePageCache,
-		liveStreamWriterColdCacheReleasePeriod: liveStreamWriterColdCacheReleaseSecs,
-	}}
-}
-
-// NewGlobalReadOnlyWithDanmakuOverflowForTest builds read-only config with a
-// specific DANMAKU_OVERFLOW_POLICY for unit tests.
-func NewGlobalReadOnlyWithDanmakuOverflowForTest(policy string) *GlobalReadOnly {
-	return &GlobalReadOnly{config: &Config{DanmakuOverflowPolicy: policy}}
-}

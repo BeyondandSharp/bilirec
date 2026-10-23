@@ -10,16 +10,13 @@ import (
 	"time"
 
 	pvs "github.com/bilirec/bilirec/internal/services/preview"
-	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/pkg/flv"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 	"github.com/gofiber/fiber/v3"
 )
 
 func withPreviewTestConfig(t *testing.T) {
-	old := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyForTest(false, 0)
-	t.Cleanup(func() { config.ReadOnly = old })
+	bootConfigReadOnly(t)
 }
 
 func TestMediaStreamsFanout(t *testing.T) {

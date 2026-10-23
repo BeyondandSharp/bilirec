@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/bilirec/bilirec/internal/modules/config"
 	fileservice "github.com/bilirec/bilirec/internal/services/file"
 	"github.com/gofiber/fiber/v3"
 	"go.uber.org/fx/fxtest"
@@ -53,9 +52,7 @@ func TestSendFileWithIdleCacheRelease_PlaybackResponse(t *testing.T) {
 
 func newPlaybackSendFileTestApp(t *testing.T, fullPath string) *fiber.App {
 	t.Helper()
-	oldReadOnly := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyForTest(false, 60)
-	t.Cleanup(func() { config.ReadOnly = oldReadOnly })
+	bootServeCacheReadOnly(t, false, 60)
 
 	fileSvc := fileservice.NewService(fxtest.NewLifecycle(t), nil, nil)
 	controller := &Controller{fileSvc: fileSvc}

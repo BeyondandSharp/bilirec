@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/pkg/logger"
 )
 
@@ -62,13 +61,6 @@ func quietDanmakuLogs(t testing.TB) {
 	prev := logger.Level()
 	logger.SetLevel(logger.ErrorLevel)
 	t.Cleanup(func() { logger.SetLevel(prev) })
-}
-
-func useDanmakuOverflowPolicy(t testing.TB, policy string) {
-	t.Helper()
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest(policy)
-	t.Cleanup(func() { config.ReadOnly = prev })
 }
 
 func snapshotHeap(runGC bool) (allocMB, sysMB float64, goroutines int) {
