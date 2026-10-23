@@ -85,6 +85,7 @@ func clearExternalEnv(t *testing.T) {
 		"FLV_REPAIR_MODE",
 		"FLV_REPAIR_MAX_BUFFER_MB",
 		"TITLE_POLL_SECS",
+		"MAX_RECORDING_HOURS",
 	} {
 		t.Setenv(key, "")
 	}
@@ -142,6 +143,9 @@ func TestExternalConfigDefaults(t *testing.T) {
 	}
 	if cfg.TitlePollSecs != 20 {
 		t.Fatalf("TITLE_POLL_SECS default = %d, want 20", cfg.TitlePollSecs)
+	}
+	if cfg.MaxRecordingHours != 0 {
+		t.Fatalf("MAX_RECORDING_HOURS default = %d, want 0 (unlimited)", cfg.MaxRecordingHours)
 	}
 }
 

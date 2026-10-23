@@ -36,7 +36,7 @@ func NewController(app *fiber.App, service *recorder.Service) *Controller {
 // @Accept json
 // @Produce json
 // @Param roomID path int true "Room ID"
-// @Param duration_minutes query int false "Recording duration in minutes. 0 = system default, -1 = unlimited, >0 = stop after N minutes, omit = system default (MAX_RECORDING_HOURS)"
+// @Param duration_minutes query int false "Recording duration in minutes. 0 = system default, -1 = unlimited, >0 = stop after N minutes, omit = system default (MAX_RECORDING_HOURS; 0 = unlimited)"
 // @Param stream_profile query string false "Allowed stream profiles (comma-separated): http-flv | hls-ts | hls-fmp4; empty = all"
 // @Param qn query int false "Stream quality code: 80,150,250,400,10000,20000,30000"
 // @Param only_audio query bool false "Whether to request only audio stream"

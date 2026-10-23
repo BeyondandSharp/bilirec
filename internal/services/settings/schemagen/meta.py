@@ -34,7 +34,7 @@ META = {
 "LIVE_STREAM_WRITER_FLUSH_PERIOD_SECS": ("写入刷新周期（秒）", "直播写入器刷新周期（秒）。", "寫入刷新週期（秒）", "直播寫入器刷新週期（秒）。", "Writer flush period", "Live writer flush period in seconds."),
 "LIVE_STREAM_WRITER_SYNC_PERIOD_SECS": ("写入同步周期（秒）", "直播写入器 fsync 周期（秒）。", "寫入同步週期（秒）", "直播寫入器 fsync 週期（秒）。", "Writer sync period", "Live writer fsync period in seconds."),
 "MAX_CONCURRENT_RECORDINGS": ("最大并发录制数", "同时进行的录制任务上限。", "最大並發錄製數", "同時進行的錄製任務上限。", "Max concurrent recordings", "Upper bound of simultaneous recordings."),
-"MAX_RECORDING_HOURS": ("单次录制最长小时", "单个录制会话的最长时长（小时）。", "單次錄製最長小時", "單一錄製工作階段的最長時長（小時）。", "Max recording hours", "Maximum duration of a single recording session in hours."),
+"MAX_RECORDING_HOURS": ("单次录制最长小时", "单个录制会话的最长时长（小时）；0 表示不限时长。", "單次錄製最長小時", "單一錄製工作階段的最長時長（小時）；0 表示不限時長。", "Max recording hours", "Maximum duration of a single recording session in hours; 0 means unlimited."),
 "MAX_RECOVERY_ATTEMPTS": ("最大恢复尝试次数", "录制中断后的最大恢复尝试次数。", "最大恢復嘗試次數", "錄製中斷後的最大恢復嘗試次數。", "Max recovery attempts", "Maximum recovery attempts after a recording interruption."),
 "MAX_RETRY_SECONDS": ("最大恢复时长（秒）", "断流但直播仍在时的恢复尝试窗口（秒）；0 表示不重试。", "最大恢復時長（秒）", "斷流但直播仍在時的恢復嘗試視窗（秒）；0 表示不重試。", "Max recovery window", "Recovery retry window in seconds while the room is still live; 0 disables retries."),
 "READ_STREAM_BYTES_POOL_SIZE": ("读取字节池大小", "读取流字节池的初始容量。", "讀取位元組池大小", "讀取串流位元組池的初始容量。", "Read stream bytes pool", "Initial capacity of the read stream bytes pool."),

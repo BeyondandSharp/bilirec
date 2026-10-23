@@ -77,6 +77,8 @@ BILIREC_IMAGE=yourname/bilirec:latest docker compose up -d
 - 文件由应用原子写入；secrets 文件过宽时会收紧为 `0600`；未知键在读写/重置中保留。
 - 启动时会把误放在 `config.json` 中的密钥迁移到 `secrets.json`；旧 `settings.db` 的 FEATURES-V2 全局覆盖会导入
   `config.json`（幂等）。
+- `MAX_RECORDING_HOURS` 默认 `0` 表示单次录制不限制时长；显式指定 `duration_minutes` 时仍按指定值执行。
+
 - 修改生效规则：FEATURES-V2 特性值对**新会话**生效；`WEBHOOK_URLS`、`FRONTEND_URLS`/
   `FRONTEND_URL`、`LOCAL_LOGS_GROUPS` 通过 UI 保存后热更新；其余环境类配置需要重启，
   `/config` 的 `restart_required` 会列出待重启键。

@@ -245,7 +245,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		FRPHttps:                 os.Getenv("FRP_HTTPS") == "true",
 		FRPSchemeHttps:           utils.EmptyOrElse(os.Getenv("FRP_SCHEME_HTTPS"), "true") == "true",
 		MaxConcurrentRecordings:  utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_CONCURRENT_RECORDINGS"), "3")),
-		MaxRecordingHours:        utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_RECORDING_HOURS"), "5")),
+		MaxRecordingHours:        utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_RECORDING_HOURS"), "0")),
 		MaxRecoveryAttempts:      utils.MustAtoi(utils.EmptyOrElse(os.Getenv("MAX_RECOVERY_ATTEMPTS"), "15")),
 		MaxRetrySeconds:          parseMaxRetrySeconds(),
 		RecordingRecoveryDuration: strings.ToLower(strings.TrimSpace(
