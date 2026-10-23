@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/modules/rest"
 	pvs "github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/pkg/logger"
 
@@ -22,7 +23,7 @@ type Controller struct {
 
 func NewController(app *fiber.App, svc *pvs.Service) *Controller {
 	c := &Controller{svc: svc}
-	g := app.Group("/preview/rooms/:roomID")
+	g := app.Group("/preview/rooms/:roomID", rest.AdminOnly)
 	g.Get("/media", c.media)
 	g.Get("/events", c.events)
 	return c

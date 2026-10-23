@@ -10,13 +10,21 @@ import (
 	"time"
 
 	pvs "github.com/bilirec/bilirec/internal/services/preview"
+	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/pkg/flv"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 	"github.com/gofiber/fiber/v3"
 )
 
+func withPreviewTestConfig(t *testing.T) {
+	old := config.ReadOnly
+	config.ReadOnly = config.NewGlobalReadOnlyForTest(false, 0)
+	t.Cleanup(func() { config.ReadOnly = old })
+}
+
 func TestMediaStreamsFanout(t *testing.T) {
 	t.Parallel()
+	withPreviewTestConfig(t)
 
 	svc := pvs.NewService()
 	pipe := pipeline.New(svc.Tap(1, "a.ts", ".ts", false))
@@ -63,6 +71,7 @@ func TestMediaStreamsFanout(t *testing.T) {
 
 func TestMediaRequiresRecording(t *testing.T) {
 	t.Parallel()
+	withPreviewTestConfig(t)
 	app := fiber.New()
 	NewController(app, pvs.NewService())
 	req := httptest.NewRequest(http.MethodGet, "/preview/rooms/1/media", nil)
@@ -78,6 +87,7 @@ func TestMediaRequiresRecording(t *testing.T) {
 
 func TestFLVBootstrapUsedInHTTP(t *testing.T) {
 	t.Parallel()
+	withPreviewTestConfig(t)
 	svc := pvs.NewService()
 	pipe := pipeline.New(svc.Tap(2, "a.flv", ".flv", false))
 	if err := pipe.Open(context.Background()); err != nil {
@@ -122,6 +132,7 @@ func TestFLVBootstrapUsedInHTTP(t *testing.T) {
 
 func TestFLVAudioOnlyBootstrapUsedInHTTP(t *testing.T) {
 	t.Parallel()
+	withPreviewTestConfig(t)
 
 	svc := pvs.NewService()
 	pipe := pipeline.New(svc.Tap(3, "a.flv", ".flv", true))

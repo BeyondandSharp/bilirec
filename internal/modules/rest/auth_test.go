@@ -106,6 +106,9 @@ func newAuthTestApp(cfg *config.Config) *fiber.App {
 	app.Delete("/files/batch", adminRoleFromJWT, func(c fiber.Ctx) error {
 		return c.SendStatus(fiber.StatusOK)
 	})
+	app.Get("/preview/rooms/1/media", adminRoleFromJWT, func(c fiber.Ctx) error {
+		return c.SendStatus(fiber.StatusOK)
+	})
 	return app
 }
 
@@ -225,6 +228,28 @@ func TestSessionJWT_viewerOriginCannotDelete(t *testing.T) {
 	hinomeCookie := sessionCookieName(testOriginHinome)
 
 	req := httptest.NewRequest(http.MethodDelete, "/files/batch", nil)
+	req.Header.Set("Origin", testOriginHinome)
+	req.Header.Set("Cookie", hinomeCookie+"="+viewerToken)
+
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 403, got %d: %s", resp.StatusCode, body)
+	}
+}
+
+func TestSessionJWT_viewerCannotPreviewMedia(t *testing.T) {
+	t.Parallel()
+
+	cfg := testAuthConfig(t)
+	app := newAuthTestApp(cfg)
+	viewerToken := mintSessionJWT(cfg, "viewer", string(RoleViewer))
+	hinomeCookie := sessionCookieName(testOriginHinome)
+
+	req := httptest.NewRequest(http.MethodGet, "/preview/rooms/1/media", nil)
 	req.Header.Set("Origin", testOriginHinome)
 	req.Header.Set("Cookie", hinomeCookie+"="+viewerToken)
 
