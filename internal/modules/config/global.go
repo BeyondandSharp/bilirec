@@ -28,6 +28,7 @@ const (
 	defaultDanmakuChanBufferSize                         = 256
 	defaultDanmakuBytesPoolSize                          = 4 * 1024 // 4KB per danmaku fragment buffer
 	defaultDanmakuOverflowPolicy                         = "drop"
+	defaultPreviewMediaMaxQueuedBytes                    = 4 * 1024 * 1024 // per preview HTTP viewer outbound queue
 )
 
 // for global readonly access
@@ -262,6 +263,21 @@ func (g *GlobalReadOnly) FFmpegAllowDuringRecordingMaxActiveRecordings() int {
 	return g.config.FFmpegAllowDuringRecordingMaxActiveRecordings
 }
 
+func (g *GlobalReadOnly) PreviewMediaMaxQueuedBytes() int {
+	if g.config.PreviewMediaMaxQueuedBytes <= 0 {
+		return defaultPreviewMediaMaxQueuedBytes
+	}
+	return g.config.PreviewMediaMaxQueuedBytes
+}
+
+// PreviewMediaMaxQueuedBytesFrom resolves the per-preview-connection outbound byte cap.
+func PreviewMediaMaxQueuedBytesFrom(cfg *Config) int {
+	if cfg == nil || cfg.PreviewMediaMaxQueuedBytes <= 0 {
+		return defaultPreviewMediaMaxQueuedBytes
+	}
+	return cfg.PreviewMediaMaxQueuedBytes
+}
+
 func (g *GlobalReadOnly) Validate() error {
 	switch g.config.BilibiliLoginMode {
 	case "startup", "controller", "anonymous":
@@ -346,6 +362,9 @@ func (g *GlobalReadOnly) Validate() error {
 	}
 	if g.config.danmakuBytesPoolSize <= 0 {
 		log.Warnf("DANMAKU_BYTES_POOL_SIZE 无效（%d），使用默认值 %d 字节", g.config.danmakuBytesPoolSize, defaultDanmakuBytesPoolSize)
+	}
+	if g.config.PreviewMediaMaxQueuedBytes <= 0 {
+		log.Warnf("PREVIEW_MEDIA_MAX_QUEUED_BYTES 无效（%d），使用默认值 %d 字节", g.config.PreviewMediaMaxQueuedBytes, defaultPreviewMediaMaxQueuedBytes)
 	}
 	// Reject protocol-mismatch configs between FRP backend mode and Fiber listener mode.
 	if g.config.ServerCrt != "" && g.config.ServerKey != "" && g.config.FRPEnabled && !g.config.FRPHttps {

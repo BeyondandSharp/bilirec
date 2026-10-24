@@ -19,7 +19,7 @@ func TestCatchupKeepsOnlyRecentLines(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService()
+	svc := NewService(nil)
 	mustTap(t, svc, 1, filepath.Join(dir, "a.flv"), ".flv", false)
 	lines, err := svc.Catchup(1)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestCatchupDropsIncompleteLastLine(t *testing.T) {
 	if err := os.WriteFile(path, []byte("{\"type\":\"danmaku\"}\n{\"type\":\"gif"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService()
+	svc := NewService(nil)
 	mustTap(t, svc, 1, filepath.Join(dir, "a.flv"), ".flv", false)
 	lines, err := svc.Catchup(1)
 	if err != nil {

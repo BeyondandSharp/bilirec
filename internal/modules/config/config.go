@@ -155,6 +155,9 @@ type Config struct {
 	danmakuWriterSyncPeriod            int
 	danmakuChanBufferSize              int
 	danmakuBytesPoolSize               int
+
+	// PreviewMediaMaxQueuedBytes: max bytes buffered per preview /media HTTP viewer before kick.
+	PreviewMediaMaxQueuedBytes int
 }
 
 var log = logger.Named("config")
@@ -301,6 +304,7 @@ func provider(lc fx.Lifecycle) (*Config, error) {
 		danmakuWriterSyncPeriod:            utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_WRITER_SYNC_PERIOD_SECS"), "0")),             // 0 = disabled; sync only on Close() to minimize SD card wear
 		danmakuChanBufferSize:              utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_CHAN_BUFFER_SIZE"), "256")),                  // message slots per room; overflow policy decides drop vs block
 		danmakuBytesPoolSize:               utils.MustAtoi(utils.EmptyOrElse(os.Getenv("DANMAKU_BYTES_POOL_SIZE"), "4096")),                  // 4KB per fragment buffer
+		PreviewMediaMaxQueuedBytes:         utils.MustAtoi(utils.EmptyOrElse(os.Getenv("PREVIEW_MEDIA_MAX_QUEUED_BYTES"), "4194304")),         // 4MB per preview viewer outbound queue
 	}
 
 	ReadOnly = &GlobalReadOnly{config: c}

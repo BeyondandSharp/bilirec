@@ -11,7 +11,7 @@ import (
 )
 
 func TestJoinRequiresBoundPath(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := pipeline.New(h.Tap(8, "a.ts", ".ts", false))
 	if err := pipe.Open(context.Background()); err != nil {
 		t.Fatal(err)
@@ -26,14 +26,14 @@ func TestJoinRequiresBoundPath(t *testing.T) {
 }
 
 func TestJoinWithoutBind(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	if _, err := h.Subscribe(1); err != ErrNotRecording {
 		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestTapOpenProcessClose(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	info := h.Tap(4, "x.ts", ".ts", false)
 	pipe := pipeline.New(info)
 	if err := pipe.Open(context.Background()); err != nil {
@@ -55,7 +55,7 @@ func TestTapOpenProcessClose(t *testing.T) {
 }
 
 func TestZeroSubscribersStillCapturesFmp4Init(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 2, "a.fmp4", ".fmp4", false)
 	initSeg := ftypMoov(32)
 	media := moofBox(48)
@@ -77,7 +77,7 @@ func TestZeroSubscribersStillCapturesFmp4Init(t *testing.T) {
 }
 
 func TestFmp4InitAfterMediaSubscribe(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 2, "a.fmp4", ".fmp4", false)
 	initSeg := ftypMoov(32)
 	media := moofBox(48)
@@ -98,7 +98,7 @@ func TestFmp4InitAfterMediaSubscribe(t *testing.T) {
 }
 
 func TestTSViewerGetsPipelineBytes(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 7, "a.ts", ".ts", false)
 	mustProcess(t, pipe, bytes.Repeat([]byte("a"), 40))
 	media, err := h.OpenMedia(7)
@@ -115,14 +115,15 @@ func TestTSViewerGetsPipelineBytes(t *testing.T) {
 }
 
 func TestSlowViewerIsKicked(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 3, "a.ts", ".ts", false)
 	media, err := h.OpenMedia(3)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer media.Body.Close()
-	half := bytes.Repeat([]byte("a"), mediaMaxQueuedBytes/2)
+	maxQueued := h.mediaMaxQueuedBytes
+	half := bytes.Repeat([]byte("a"), maxQueued/2)
 	mustProcess(t, pipe, half)
 	mustProcess(t, pipe, half)
 	mustProcess(t, pipe, []byte("x"))
@@ -130,8 +131,8 @@ func TestSlowViewerIsKicked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != mediaMaxQueuedBytes {
-		t.Fatalf("queued %d, want %d", len(got), mediaMaxQueuedBytes)
+	if len(got) != maxQueued {
+		t.Fatalf("queued %d, want %d", len(got), maxQueued)
 	}
 	if bytes.Contains(got, []byte("x")) {
 		t.Fatal("overflow chunk must not be delivered")
@@ -139,7 +140,7 @@ func TestSlowViewerIsKicked(t *testing.T) {
 }
 
 func TestFLVLateJoinStartsAtKeyframe(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 1, "a.flv", ".flv", false)
 	seq := flv.NewTagBytes(flv.TagTypeVideo, []byte{0x17, 0x00, 0x00, 0x00, 0x00, 0x01})
 	audio := flv.NewTagBytes(flv.TagTypeAudio, []byte{0xaf, 0x00, 0x12, 0x10})
@@ -180,7 +181,7 @@ func TestFLVLateJoinStartsAtKeyframe(t *testing.T) {
 }
 
 func TestPublishEventDroppedWhenFull(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	mustTap(t, h, 1, "a.ts", ".ts", false)
 	sub, err := h.Subscribe(1)
 	if err != nil {
@@ -206,7 +207,7 @@ func TestPublishEventDroppedWhenFull(t *testing.T) {
 }
 
 func TestSubscribeOriginTracksSegmentStart(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	mustTap(t, h, 9, "a.ts", ".ts", false)
 	sub, err := h.Subscribe(9)
 	if err != nil {
@@ -219,7 +220,7 @@ func TestSubscribeOriginTracksSegmentStart(t *testing.T) {
 }
 
 func TestFLVAudioOnlyLateJoin(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 5, "a.flv", ".flv", true)
 	aSeq := flv.NewTagBytes(flv.TagTypeAudio, []byte{0xaf, 0x00, 0x12, 0x10})
 	aRaw := flv.NewTagBytes(flv.TagTypeAudio, []byte{0xaf, 0x01, 0x11, 0x22})
@@ -253,7 +254,7 @@ func TestFLVAudioOnlyLateJoin(t *testing.T) {
 }
 
 func TestAudioOnlyBootstrapCapturedWithoutViewer(t *testing.T) {
-	h := NewService()
+	h := NewService(nil)
 	pipe := mustTap(t, h, 6, "a.flv", ".flv", true)
 	aSeq := flv.NewTagBytes(flv.TagTypeAudio, []byte{0xaf, 0x00, 0x12, 0x10})
 	aRaw := flv.NewTagBytes(flv.TagTypeAudio, []byte{0xaf, 0x01, 0x33})

@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 func newTestService() *Service {
 	return &Service{
 		outputFormat: "jsonl",
-		preview:      preview.NewService(),
+		preview:      preview.NewService(nil),
 		sessions:     xsync.NewMap[int, *session](),
 		metrics:      &metrics.Exporter{},
 		pool:         pool.NewBytesPool(4096),

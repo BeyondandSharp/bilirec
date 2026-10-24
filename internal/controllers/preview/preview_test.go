@@ -22,10 +22,9 @@ func withPreviewTestConfig(t *testing.T) {
 }
 
 func TestMediaStreamsFanout(t *testing.T) {
-	t.Parallel()
 	withPreviewTestConfig(t)
 
-	svc := pvs.NewService()
+	svc := pvs.NewService(nil)
 	pipe := pipeline.New(svc.Tap(1, "a.ts", ".ts", false))
 	if err := pipe.Open(context.Background()); err != nil {
 		t.Fatal(err)
@@ -69,10 +68,9 @@ func TestMediaStreamsFanout(t *testing.T) {
 }
 
 func TestMediaRequiresRecording(t *testing.T) {
-	t.Parallel()
 	withPreviewTestConfig(t)
 	app := fiber.New()
-	NewController(app, pvs.NewService())
+	NewController(app, pvs.NewService(nil))
 	req := httptest.NewRequest(http.MethodGet, "/preview/rooms/1/media", nil)
 	resp, err := app.Test(req)
 	if err != nil {
@@ -85,9 +83,8 @@ func TestMediaRequiresRecording(t *testing.T) {
 }
 
 func TestFLVBootstrapUsedInHTTP(t *testing.T) {
-	t.Parallel()
 	withPreviewTestConfig(t)
-	svc := pvs.NewService()
+	svc := pvs.NewService(nil)
 	pipe := pipeline.New(svc.Tap(2, "a.flv", ".flv", false))
 	if err := pipe.Open(context.Background()); err != nil {
 		t.Fatal(err)
@@ -130,10 +127,9 @@ func TestFLVBootstrapUsedInHTTP(t *testing.T) {
 }
 
 func TestFLVAudioOnlyBootstrapUsedInHTTP(t *testing.T) {
-	t.Parallel()
 	withPreviewTestConfig(t)
 
-	svc := pvs.NewService()
+	svc := pvs.NewService(nil)
 	pipe := pipeline.New(svc.Tap(3, "a.flv", ".flv", true))
 	if err := pipe.Open(context.Background()); err != nil {
 		t.Fatal(err)

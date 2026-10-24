@@ -8,8 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 )
+
+var log = logger.Named("preview")
 
 const eventChanSize = 256
 
@@ -18,8 +22,9 @@ var (
 )
 
 type Service struct {
-	mu    sync.Mutex
-	rooms map[int]*roomState
+	mu                 sync.Mutex
+	rooms              map[int]*roomState
+	mediaMaxQueuedBytes int
 }
 
 type EventSub struct {
@@ -56,8 +61,11 @@ type mediaSub struct {
 	join   joinFilter
 }
 
-func NewService() *Service {
-	return &Service{rooms: make(map[int]*roomState)}
+func NewService(cfg *config.Config) *Service {
+	return &Service{
+		rooms:               make(map[int]*roomState),
+		mediaMaxQueuedBytes: config.PreviewMediaMaxQueuedBytesFrom(cfg),
+	}
 }
 
 func (s *Service) Tap(roomID int, path, ext string, audioOnly bool) *pipeline.ProcessorInfo[[]byte] {
@@ -112,7 +120,7 @@ func (s *Service) OpenMedia(roomID int) (Media, error) {
 	}
 	id := r.nextSub + 1
 	r.nextSub = id
-	sub := &mediaSub{id: id, q: newMediaQ(), ext: r.ext}
+	sub := &mediaSub{id: id, q: newMediaQ(s.mediaMaxQueuedBytes), ext: r.ext}
 	r.media[id] = sub
 	r.mediaN.Add(1)
 	ext := r.ext
@@ -147,6 +155,10 @@ func (s *Service) unbind(roomID int, path string) {
 		return
 	}
 	s.broadcastLocked(r, []byte(`{"type":"segment"}`))
+	mediaCount := len(r.media)
+	if mediaCount > 0 {
+		log.Infof("房间 %d 录制分段结束，关闭 %d 路预览媒体连接（segment）", roomID, mediaCount)
+	}
 	for id, sub := range r.media {
 		sub.kick()
 		delete(r.media, id)
@@ -220,6 +232,10 @@ func (s *Service) fanout(roomID int, data []byte) {
 			continue
 		}
 		if !sub.q.tryPush(out) {
+			log.Warnf(
+				"房间 %d 预览媒体订阅 %d 出站队列已满（overflow）：queued=%d max=%d chunk=%d",
+				roomID, sub.id, sub.q.queuedBytes(), s.mediaMaxQueuedBytes, len(out),
+			)
 			sub.kick()
 			drops = append(drops, sub.id)
 		}

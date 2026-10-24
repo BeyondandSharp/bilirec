@@ -5,16 +5,13 @@ import (
 	"sync"
 )
 
-// mediaMaxQueuedBytes is how far a viewer may lag before being kicked.
-// Count bytes, not channel slots: ingest chunks are often 8–64KB.
-const mediaMaxQueuedBytes = 1 << 20
-
 type mediaQ struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	chunks [][]byte
-	nbytes int
-	closed bool
+	mu       sync.Mutex
+	cond     *sync.Cond
+	chunks   [][]byte
+	nbytes   int
+	maxBytes int
+	closed   bool
 }
 
 type chunkReader struct {
@@ -23,10 +20,16 @@ type chunkReader struct {
 	leave func()
 }
 
+func (q *mediaQ) queuedBytes() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.nbytes
+}
+
 func (q *mediaQ) tryPush(b []byte) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed || q.nbytes+len(b) > mediaMaxQueuedBytes {
+	if q.closed || q.nbytes+len(b) > q.maxBytes {
 		return false
 	}
 	q.chunks = append(q.chunks, b)
@@ -90,8 +93,8 @@ func (r *chunkReader) nextChunk() ([]byte, error) {
 	return next, nil
 }
 
-func newMediaQ() *mediaQ {
-	q := &mediaQ{}
+func newMediaQ(maxBytes int) *mediaQ {
+	q := &mediaQ{maxBytes: maxBytes}
 	q.cond = sync.NewCond(&q.mu)
 	return q
 }
