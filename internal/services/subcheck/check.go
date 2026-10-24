@@ -343,14 +343,17 @@ func (s *Service) processRooms(shardRooms map[int]*subscribe.RoomConfig, roomInf
 					}
 
 					err := s.recSvc.Start(roomID, autoRecordArgs...)
-					switch err {
-					case nil, recorder.ErrRecordingStarted, recorder.ErrRecordRecovering, recorder.ErrRecordingPending:
+					switch {
+					case startErrCompletesAutoStart(err):
 						if isRetry {
 							state = notify.LiveStateAutoRecordRetryStarted
 						} else {
 							state = notify.LiveStateAutoRecordStarted
 						}
 						log.Infof("已开始录制房间 %d（%s）", roomID, info.Uname)
+					case errors.Is(err, recorder.ErrRecordingPending):
+						// Another Start is still connecting; do not mark this live session done.
+						markNow = false
 					default:
 						attempts := 1
 						if isRetry {
@@ -429,6 +432,15 @@ func (s *Service) retryDueRooms() {
 			s.autoStartRetry.Store(roomID, retry)
 		}
 	}
+}
+
+// startErrCompletesAutoStart reports whether recorder.Start finished successfully
+// for this auto-start attempt. ErrRecordingPending means a connect is still in flight.
+func startErrCompletesAutoStart(err error) bool {
+	if err == nil {
+		return true
+	}
+	return errors.Is(err, recorder.ErrRecordingStarted) || errors.Is(err, recorder.ErrRecordRecovering)
 }
 
 func isTransientAutoStartError(err error) bool {

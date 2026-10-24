@@ -383,6 +383,26 @@ func newTestServiceWithBucket(t *testing.T) *Service {
 	}
 }
 
+func TestStartErrCompletesAutoStart(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{err: nil, want: true},
+		{err: recorder.ErrRecordingStarted, want: true},
+		{err: recorder.ErrRecordRecovering, want: true},
+		{err: recorder.ErrRecordingPending, want: false},
+		{err: recorder.ErrStreamURLsUnreachable, want: false},
+	}
+	for _, tc := range cases {
+		if got := startErrCompletesAutoStart(tc.err); got != tc.want {
+			t.Errorf("startErrCompletesAutoStart(%v) = %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
 func TestIsTransientAutoStartError(t *testing.T) {
 	t.Parallel()
 
