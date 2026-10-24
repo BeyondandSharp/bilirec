@@ -239,3 +239,22 @@ combined 镜像中 nginx 不重启，只重启 bilirec 子进程；Android/嵌�
 - 19 个 FEATURES-V2 录制设置继续保持“无需重启、新会话生效”。
 
 `configfile.Store` 增加配置变更监听，热更新服务通过监听 `/config` 写入动作立即应用新值。
+
+## D021 (2026-10-24, Lead) — 用 Git merge 同步 upstream v0.3.2
+
+上游 `v0.3.1` 之后到 `v0.3.2` 只有两个提交：
+
+- `2dd16c8 fix: subcheck auto-start record pending will mark as done`；
+- `a14359f fix: bump Go toolchain to 1.26.10 for emSign CA distrust`。
+
+本次使用 `git merge --no-ff v0.3.2` 合并，保留上游作者、提交时间和提交信息；
+不 cherry-pick、不 squash、不 rebase。冲突解决原则：
+
+- `internal/services/subcheck/check.go`：合并上游 pending 处理与 fork 的
+  title filter、duration、stream options、retry backoff；
+- `go.mod`：采用上游 `go 1.26.10`，保留 fork 依赖；
+- 根 `Dockerfile` 和 `.github/`：保持 fork 的删除/迁移决定，继续使用 `deploy/` 与 `.forgejo/`；
+- `deploy/upstream.Dockerfile`：同步 builder 到 `golang:1.26.10-alpine`。
+
+上游 `develop` 的 preview、文件浏览时间过滤等未发布提交没有合并：它们不属于 `v0.3.2`，
+且与 fork 的播放、列表与测试结构有交叉。以后需要时单独评估。

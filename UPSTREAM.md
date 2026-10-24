@@ -2,12 +2,17 @@
 
 - Bilirec fork: **the repository root** (Go module root)
   - Upstream: https://github.com/bilirec/bilirec
-  - Pinned tag: `v0.3.1`
-  - Pinned commit: `26f4f8df343eacfcd1398e1cc06c4b2049718be4`
+  - Pinned tag: `v0.3.2`
+  - Pinned commit: `a14359f6e9d18eee37c31f856e8ad39e28c377e9`
+  - The `v0.3.1` base was synced to `v0.3.2` with a real Git merge, so the upstream commits
+    and their original authorship remain in the fork history.
   - License: MIT (see `LICENSES/Bilirec-MIT.txt`; upstream notice preserved in NOTICE)
   - The upstream tree is overlaid at the root (`.git` removed) so the whole workspace is one git repo;
     our additions live in `rust/`, `web/`, `deploy/`, `scripts/`, `testdata/`, `docs/`.
-  - To re-sync: re-clone upstream at the pinned commit, re-apply our patches, update this file.
+  - The old root `Dockerfile` and `.github/` are intentionally not restored; this fork uses
+    `deploy/` and `.forgejo/` instead.
+  - To re-sync: fetch upstream `main` and merge the desired release tag into `main`;
+    resolve conflicts in favor of the fork's deploy/CI layout, then update this file.
 
 - Reference sources (read-only, NOT distributed, gitignored under `refs/`):
   - https://github.com/BililiveRecorder/BililiveRecorder — GPL-3.0-only; FLV repair behavior reference.
