@@ -85,6 +85,9 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Invoke(func(svc *wh.Service, store *configfile.Store) {
 			svc.BindConfigStore(store)
 		}),
+		fx.Invoke(func(client *bilibili.Client, svc *wh.Service) {
+			client.SetAuthFailureReporter(svc.AccountAuthFailed)
+		}),
 		fx.Invoke(func(cfg *config.Config, store *configfile.Store) {
 			rest.BindConfigStore(cfg, store)
 		}),

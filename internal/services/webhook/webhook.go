@@ -113,6 +113,12 @@ func (s *Service) enabled() bool {
 }
 
 func (s *Service) emit(eventType EventType, data roomEventData) {
+	s.emitAny(eventType, data.RoomID, data)
+}
+
+// emitAny enqueues an event under roomID. Account-level events use roomID 0 so
+// they still benefit from the existing retry/queue behavior without a room.
+func (s *Service) emitAny(eventType EventType, roomID int, data any) {
 	if !s.enabled() {
 		return
 	}
@@ -127,7 +133,7 @@ func (s *Service) emit(eventType EventType, data roomEventData) {
 		EventID:        eventID,
 		EventData:      data,
 	}
-	s.enqueue(data.RoomID, body)
+	s.enqueue(roomID, body)
 }
 
 func (s *Service) deliver(ctx context.Context, body envelope) {

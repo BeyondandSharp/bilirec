@@ -17,6 +17,11 @@ var (
 	ErrQRCodeLoginInProgress = errors.New("已有进行中的二维码登录")
 )
 
+const (
+	authStageStartupAccountInfo = "startup_account_info"
+	authStageCookieRefresh      = "cookie_refresh"
+)
+
 // loadCookiesOrLogin run on startup mode
 func (c *Client) loadCookiesOrLogin() error {
 	defer c.syncCookies()
@@ -39,7 +44,9 @@ func (c *Client) loadCookiesOrLogin() error {
 			c.wg.Go(func() { c.refreshCookiesPeriodically(c.ctx, 10*time.Minute) })
 			return nil
 		} else {
-			log.Warnf("使用已加载 Cookie 获取账号信息失败：%v", err)
+			wrapped := fmt.Errorf("使用已加载 Cookie 获取账号信息失败：%v", err)
+			log.Warnf("%v", wrapped)
+			c.reportAuthFailure(authStageStartupAccountInfo, "启动时账号信息获取失败", wrapped)
 		}
 
 	} else if !os.IsNotExist(err) {
@@ -68,7 +75,9 @@ func (c *Client) loadCookiesOrLogin() error {
 	}
 
 	if acc, err := c.GetAccountInformation(); err != nil {
-		return fmt.Errorf("登录后获取账号信息失败：%v，请重试。", err)
+		wrapped := fmt.Errorf("登录后获取账号信息失败：%v", err)
+		c.reportAuthFailure(authStageStartupAccountInfo, "启动时账号信息获取失败", wrapped)
+		return fmt.Errorf("%v，请重试。", wrapped)
 	} else {
 		log.Infof("登录成功，当前账号：%s（mid：%d）", acc.Uname, acc.Mid)
 		c.updateSession(func(as *AuthSession) {
@@ -128,7 +137,9 @@ func (c *Client) preloadCookies() error {
 	}
 
 	// If validation fails, log but don't fail startup
-	log.Warnf("使用预加载 Cookie 获取账号信息失败：%v", err)
+	wrapped := fmt.Errorf("使用预加载 Cookie 获取账号信息失败：%v", err)
+	log.Warnf("%v", wrapped)
+	c.reportAuthFailure(authStageStartupAccountInfo, "启动时账号信息获取失败", wrapped)
 	return nil
 }
 
@@ -164,6 +175,9 @@ func (c *Client) refreshCookiesIfRequired() error {
 		}
 		return nil, c.writerCookiesToFile()
 	})
+	if err != nil {
+		c.reportAuthFailure(authStageCookieRefresh, "刷新 Cookie 失败", err)
+	}
 	return err
 }
 

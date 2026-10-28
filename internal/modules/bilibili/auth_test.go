@@ -124,6 +124,21 @@ func TestAuth_SyncCookieToClient_UpdateAndAppend(t *testing.T) {
 	}
 }
 
+func TestAuthFailureReporter(t *testing.T) {
+	c := &Client{}
+	var gotStage, gotMessage, gotError string
+	c.SetAuthFailureReporter(func(stage, message string, err error) {
+		gotStage = stage
+		gotMessage = message
+		gotError = err.Error()
+	})
+
+	c.reportAuthFailure(authStageStartupAccountInfo, "启动时账号信息获取失败", errors.New("cookie expired"))
+	if gotStage != authStageStartupAccountInfo || gotMessage == "" || gotError != "cookie expired" {
+		t.Fatalf("reporter got stage=%q message=%q error=%q", gotStage, gotMessage, gotError)
+	}
+}
+
 func findCookieValue(cookies []*http.Cookie, name string) string {
 	for _, c := range cookies {
 		if c.Name == name {

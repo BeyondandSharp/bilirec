@@ -10,22 +10,25 @@ const (
 	EventFileClosed     EventType = "FileClosed"
 	EventStreamStarted  EventType = "StreamStarted"
 	EventStreamEnded    EventType = "StreamEnded"
+	// EventAccountAuthFailed is emitted when the Bilibili account credentials
+	// cannot be validated at startup or a cookie refresh fails.
+	EventAccountAuthFailed EventType = "AccountAuthFailed"
 )
 
 // SegmentMeta is persisted on convert tasks spawned by the recorder.
 type SegmentMeta struct {
-	SessionID          string
-	FileOpenTime       string // RFC3339Nano
-	RoomID             int
-	ShortID            int64
-	Name               string
-	Title              string
-	AreaNameParent     string
-	AreaNameChild      string
-	RecordDanmaku      bool
-	DanmakuConnected   bool
-	Recording          bool
-	Streaming          bool
+	SessionID        string
+	FileOpenTime     string // RFC3339Nano
+	RoomID           int
+	ShortID          int64
+	Name             string
+	Title            string
+	AreaNameParent   string
+	AreaNameChild    string
+	RecordDanmaku    bool
+	DanmakuConnected bool
+	Recording        bool
+	Streaming        bool
 }
 
 // envelope is the BililiveRecorder Webhook v2 POST body.
@@ -37,19 +40,27 @@ type envelope struct {
 }
 
 type roomEventData struct {
-	SessionID          string `json:"SessionId,omitempty"`
-	RoomID             int    `json:"RoomId"`
-	ShortID            int64  `json:"ShortId"`
-	Name               string `json:"Name"`
-	Title              string `json:"Title"`
-	AreaNameParent     string `json:"AreaNameParent"`
-	AreaNameChild      string `json:"AreaNameChild"`
-	Recording          bool   `json:"Recording"`
-	Streaming          bool   `json:"Streaming"`
-	DanmakuConnected   bool   `json:"DanmakuConnected"`
-	RelativePath       string `json:"RelativePath,omitempty"`
-	FileOpenTime       string `json:"FileOpenTime,omitempty"`
-	FileCloseTime      string `json:"FileCloseTime,omitempty"`
-	FileSize           int64  `json:"FileSize,omitempty"`
-	Duration           float64 `json:"Duration,omitempty"`
+	SessionID        string  `json:"SessionId,omitempty"`
+	RoomID           int     `json:"RoomId"`
+	ShortID          int64   `json:"ShortId"`
+	Name             string  `json:"Name"`
+	Title            string  `json:"Title"`
+	AreaNameParent   string  `json:"AreaNameParent"`
+	AreaNameChild    string  `json:"AreaNameChild"`
+	Recording        bool    `json:"Recording"`
+	Streaming        bool    `json:"Streaming"`
+	DanmakuConnected bool    `json:"DanmakuConnected"`
+	RelativePath     string  `json:"RelativePath,omitempty"`
+	FileOpenTime     string  `json:"FileOpenTime,omitempty"`
+	FileCloseTime    string  `json:"FileCloseTime,omitempty"`
+	FileSize         int64   `json:"FileSize,omitempty"`
+	Duration         float64 `json:"Duration,omitempty"`
+}
+
+// accountAuthEventData is attached to AccountAuthFailed. It has no room fields
+// because the failure is global to the configured Bilibili account.
+type accountAuthEventData struct {
+	Stage   string `json:"Stage"`
+	Message string `json:"Message"`
+	Error   string `json:"Error,omitempty"`
 }

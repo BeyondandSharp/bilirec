@@ -169,6 +169,14 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 文件大小/时间/时长等全部字段，并返回每个目标的 HTTP 成功/失败结果。测试使用示例数据，不读取或
 创建真实录制文件；保存新的 `WEBHOOK_URLS` 后立即生效，无需重启。
 
+除录制事件外，账号登录状态异常也会发送 `AccountAuthFailed` webhook：
+
+- 启动时获取 B 站账号信息失败；
+- Cookie 刷新失败（含启动时的刷新检查和每 10 分钟一次的定时刷新）。
+
+事件沿用现有 webhook envelope 格式，`EventData` 包含 `Stage`、`Message`、`Error`；`Stage` 为
+`startup_account_info` 或 `cookie_refresh`。未配置 `WEBHOOK_URLS` 时不发送。
+
 ## 列表布局、排序与分组
 
 - 录制管理、录制文件、订阅页面支持网格/列表布局切换，偏好保存在浏览器本地；

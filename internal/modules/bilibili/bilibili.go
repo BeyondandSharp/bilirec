@@ -41,6 +41,9 @@ type Client struct {
 	cookiePath       string
 	refreshTokenPath string
 
+	authFailureMu       sync.RWMutex
+	authFailureReporter func(stage, message string, err error)
+
 	// optional client
 	hlsPlaylistClientOnce sync.Once
 	liveHlsPlaylistClient *resty.Client
@@ -59,6 +62,24 @@ type Client struct {
 	cn01ProbeTimeout time.Duration
 
 	wg sync.WaitGroup
+}
+
+// SetAuthFailureReporter installs the callback used for account-level auth
+// failures. It is called synchronously from startup/refresh flows; the webhook
+// implementation only enqueues, so this does not block the login path.
+func (c *Client) SetAuthFailureReporter(reporter func(stage, message string, err error)) {
+	c.authFailureMu.Lock()
+	c.authFailureReporter = reporter
+	c.authFailureMu.Unlock()
+}
+
+func (c *Client) reportAuthFailure(stage, message string, err error) {
+	c.authFailureMu.RLock()
+	reporter := c.authFailureReporter
+	c.authFailureMu.RUnlock()
+	if reporter != nil {
+		reporter(stage, message, err)
+	}
 }
 
 func provider(cfg *config.Config, ls fx.Lifecycle) *Client {
