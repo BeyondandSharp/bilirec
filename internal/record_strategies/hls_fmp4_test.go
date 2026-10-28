@@ -97,7 +97,6 @@ func TestHlsFmp4Strategy_SkipsDuplicateInitInSingleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
-	// init + moof + moof (duplicate init skipped)
 	wantMin := int64(len(init) + len(testMediaFragment())*2)
 	if st.Size() < wantMin {
 		t.Fatalf("expected file size >= %d, got %d", wantMin, st.Size())

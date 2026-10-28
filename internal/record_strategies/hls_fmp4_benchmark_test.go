@@ -55,7 +55,6 @@ func BenchmarkHlsFmp4Strategy_PipelineThroughput(b *testing.B) {
 	b.ResetTimer()
 	mon.MarkTimerStart()
 	for i := 0; b.Loop(); i++ {
-		// Vary decode time so segment-dedup does not drop every iteration after the first.
 		if i > 0 {
 			fragment = makeFmp4Fragment(1, uint64(i+1)*90000)
 		}

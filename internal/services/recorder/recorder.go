@@ -203,7 +203,7 @@ func (r *Service) Stop(roomId int) bool {
 	return hasRecording
 }
 
-func (r *Service) prepare(roomId int, ch <-chan []byte, strategy rs.StreamRecordStrategy, ctx context.Context, info *Info, scheduleDurationCheck bool) error {
+func (r *Service) prepare(roomId int, ch <-chan []byte, strategy rs.RecordStrategy, ctx context.Context, info *Info, scheduleDurationCheck bool) error {
 	r.wg.Go(func() {
 		defer r.recover(roomId)
 		err := r.rotate(roomId, ch, strategy, info, ctx, scheduleDurationCheck)
@@ -218,7 +218,7 @@ func (r *Service) prepare(roomId int, ch <-chan []byte, strategy rs.StreamRecord
 	return nil
 }
 
-func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordStrategy, info *Info, ctx context.Context, userStart bool) error {
+func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.RecordStrategy, info *Info, ctx context.Context, userStart bool) error {
 	l := log.With("room", roomId)
 	defer strategy.Close()
 

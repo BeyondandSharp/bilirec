@@ -247,9 +247,9 @@ func (r *Service) connectStream(
 	streamInfo bilibili.StreamURLInfo,
 	urlPreview string,
 	idx, total int,
-) (<-chan []byte, rs.StreamRecordStrategy, *pool.BucketedBytesPool, bool, error) {
+) (<-chan []byte, rs.RecordStrategy, *pool.BucketedBytesPool, bool, error) {
 	var ch <-chan []byte
-	var strategy rs.StreamRecordStrategy
+	var strategy rs.RecordStrategy
 
 	chunkPool, releaseChunkPool := r.st.AcquireChunkPool(streamInfo.Qn)
 	connected := false
@@ -352,8 +352,8 @@ func (r *Service) connectStream(
 		ch = hlsCh
 		strategy = utils.TernaryFunc(
 			streamInfo.Format == "ts",
-			func() rs.StreamRecordStrategy { return rs.NewHlsTsStrategy(streamInfo.Qn) },
-			func() rs.StreamRecordStrategy { return rs.NewHlsFmp4Strategy(streamInfo.Qn) },
+			func() rs.RecordStrategy { return rs.NewHlsTsStrategy(streamInfo.Qn) },
+			func() rs.RecordStrategy { return rs.NewHlsFmp4Strategy(streamInfo.Qn) },
 		)
 		connected = true
 	case "flv":

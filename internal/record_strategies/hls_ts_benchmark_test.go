@@ -42,7 +42,7 @@ func BenchmarkHlsTsStrategy_PipelineThroughput(b *testing.B) {
 	}
 	defer pipe.Close()
 
-	segment := makeBenchmarkTSSegment(700) // ~131KB
+	segment := makeBenchmarkTSSegment(700)
 	mon := benchreport.Start(b, int64(len(segment)))
 	b.ReportAllocs()
 	b.SetBytes(int64(len(segment)))

@@ -2,16 +2,29 @@ package record_strategies
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"github.com/bilirec/bilirec/internal/processors"
+	"github.com/bilirec/bilirec/pkg/flv"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 	"github.com/bilirec/bilirec/pkg/pool"
 )
 
+// PipelineHooks are session-level observers applied when a segment pipeline is built.
+// Writer callbacks apply to every format. OnTimestampJump is used by FLV only.
+type PipelineHooks struct {
+	OnBytesWritten  func(n int)
+	OnFlush         func(processors.FlushEvent)
+	OnSync          func(processors.SyncEvent)
+	OnEnqueueWait   func(processors.EnqueueWaitEvent)
+	OnTimestampJump flv.TimestampJumpReporter
+}
+
 // RotationState carries format-specific state across segment rotations.
-// Each strategy stores and reads its own keys from Data.
 type RotationState struct {
 	Data map[string][]byte
 }
@@ -19,42 +32,36 @@ type RotationState struct {
 type ErrAction uint8
 
 const (
-	// ErrActionAbort stops recording gracefully (optionally after AbortDelay).
 	ErrActionAbort ErrAction = iota
-	// ErrActionRotate starts the next segment using State.
 	ErrActionRotate
 )
 
 type ErrHandleResult struct {
-	Action ErrAction
-	State  *RotationState
-
-	// AbortDelay is only used when Action == ErrActionAbort.
+	Action     ErrAction
+	State      *RotationState
 	AbortDelay time.Duration
 }
 
-// StreamRecordStrategy encapsulates format-specific pipeline construction
-// and rotation logic, keeping rotate() format-agnostic.
-//
-// Lifecycle per recording session:
-//
-//  1. BuildPipeline(ctx, outputPath, state, hooks) — called at the start of each segment.
-//     For segment 0, state.Data is empty. For subsequent segments, state contains
-//     whatever a previous HandleErr(Action=Rotate) returned. hooks observe the
-//     segment pipeline (writer I/O for all formats; timestamp jumps for FLV).
-//
-//  2. HandleErr(err) — called when the pipeline returns an error.
-//     Returns ErrActionRotate to continue with a new segment.
-//     Returns ErrActionAbort to stop gracefully.
-//
-//  3. Close() — called once when the recording session ends (deferred in rotate()).
-type StreamRecordStrategy interface {
-	// FileExtension returns the output file extension including the leading dot,
-	// e.g. ".flv", ".ts", ".mp4".
+// RecordStrategy encapsulates format-specific pipeline construction and rotation logic.
+type RecordStrategy interface {
 	FileExtension() string
 	BuildPipeline(ctx context.Context, outputPath string, state *RotationState, hooks PipelineHooks) (*pipeline.Pipe[[]byte], error)
 	HandleErr(err error) ErrHandleResult
 	Close() error
+}
+
+// NewFor selects a record strategy for the given stream URL metadata.
+func NewFor(info bilibili.StreamURLInfo) (RecordStrategy, error) {
+	switch info.Format {
+	case "flv":
+		return NewFlvStrategy(info.Qn), nil
+	case "ts":
+		return NewHlsTsStrategy(info.Qn), nil
+	case "fmp4":
+		return NewHlsFmp4Strategy(info.Qn), nil
+	default:
+		return nil, fmt.Errorf("unsupported format: %s", info.Format)
+	}
 }
 
 var (
@@ -89,7 +96,9 @@ func getWriterPools() *pool.LazyDualPool[*pool.BucketedBytesPool] {
 		writerPools = pool.NewLazyDualPool(
 			pool.DefaultLazyDualPoolIdleTTL,
 			func() *pool.BucketedBytesPool { return newWriterPool(config.ReadOnly.LiveStreamWriterBytesPoolSize()) },
-			func() *pool.BucketedBytesPool { return newWriterPool(config.ReadOnly.LiveStreamWriterBytesPoolSizeHigh()) },
+			func() *pool.BucketedBytesPool {
+				return newWriterPool(config.ReadOnly.LiveStreamWriterBytesPoolSizeHigh())
+			},
 		)
 	})
 	return writerPools
