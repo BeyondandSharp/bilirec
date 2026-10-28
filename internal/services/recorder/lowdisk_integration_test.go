@@ -21,6 +21,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/path"
 	"github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/internal/services/room"
+	"github.com/bilirec/bilirec/internal/services/subtitle"
 	"github.com/bilirec/bilirec/internal/services/stream"
 	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/pkg/tx"
@@ -226,7 +227,7 @@ func TestIntegration_LowDisk_RemovesDanmakuSidecarsWithMedia(t *testing.T) {
 
 	videoPath := writeRoomMediaFile(t, r.cfg.OutputDir, lowDiskTestUname, lowDiskTestRoomID,
 		"aaa-20200101_000000.flv", []byte("video"))
-	jsonlPath := danmaku.PathForVideo(videoPath, ".jsonl")
+	jsonlPath := utils.SidecarPathForVideo(videoPath, ".jsonl")
 	if err := os.WriteFile(jsonlPath, []byte("{}"), 0644); err != nil {
 		t.Fatalf("write sidecar: %v", err)
 	}
@@ -320,6 +321,7 @@ func newLowDiskFxRecorder(t *testing.T) *Service {
 		fx.Provide(notify.NewService),
 		fx.Provide(preview.NewService),
 		fx.Provide(danmaku.NewService),
+		fx.Provide(subtitle.NewService),
 		fx.Provide(NewService),
 		fx.Populate(&r),
 		fx.StartTimeout(60*time.Second),
