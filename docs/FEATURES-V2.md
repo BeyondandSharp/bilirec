@@ -130,6 +130,10 @@ Swagger annotations required for all three endpoints.
 - `MinFileSizeMB > 0`: in `finalize` before convert/webhook, `os.Stat`; if size < threshold: remove file,
   `dm.Discard`, metrics `ReasonSkippedSmall`, log, return (no FileClosed webhook).
 - Interaction: existing header-change rotation unchanged; first trigger wins; reason logged.
+- Filename time: before opening a live-rotated segment (`segment > 0`), advance `Info.fileTime`
+  to the rotation instant with `nextFileTime` (second granularity, strictly after the previous
+  timestamp). The first file of a session/recovery keeps its existing `fileTime`; `-<segment>`
+  suffixes remain for disambiguation.
 
 ### 3.2 Path template (R03, amended 2026-10-20: `/` allowed)
 

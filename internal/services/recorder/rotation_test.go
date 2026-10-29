@@ -205,6 +205,27 @@ func TestFinalizeKeepsSmallFileWhenThresholdDisabled(t *testing.T) {
 	}
 }
 
+func TestAdvanceRotationFileTime(t *testing.T) {
+	t0 := time.Date(2026, 3, 9, 14, 5, 7, 0, time.Local)
+	info := &Info{fileTime: t0}
+
+	advanceRotationFileTime(info, 0, t0.Add(10*time.Second))
+	if !info.fileTime.Equal(t0) {
+		t.Fatalf("segment 0 must keep fileTime, got %v", info.fileTime)
+	}
+
+	advanceRotationFileTime(info, 1, t0.Add(10*time.Second))
+	if want := t0.Add(10 * time.Second); !info.fileTime.Equal(want) {
+		t.Fatalf("segment 1 fileTime = %v, want %v", info.fileTime, want)
+	}
+
+	// Same-second rotations still advance so filenames cannot collide.
+	advanceRotationFileTime(info, 2, t0.Add(10*time.Second))
+	if want := t0.Add(11 * time.Second); !info.fileTime.Equal(want) {
+		t.Fatalf("same-second rotation fileTime = %v, want %v", info.fileTime, want)
+	}
+}
+
 func TestRotateFilePathLegacyDefaultNaming(t *testing.T) {
 	dir := t.TempDir()
 	r := &Service{cfg: &config.Config{OutputDir: dir}}

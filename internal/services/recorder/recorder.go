@@ -286,14 +286,20 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 	hooks := r.pipelineHooks(roomId, info)
 
 	for {
+		segmentOpen := time.Now()
+		if segment > 0 {
+			// A live rotation starts a new recording at this moment; advance
+			// the filename timestamp so each split file reflects its own start
+			// time instead of reusing the session start timestamp.
+			advanceRotationFileTime(info, segment, segmentOpen)
+		}
+
 		outputPath, err := r.rotateFilePath(info, segment, strategy.FileExtension())
 		if err != nil {
 			r.m.RecordingPipelineError(roomId, metrics.ReasonOpen)
 			return fmt.Errorf("无法准备文件路径：%v", err)
 		}
 		info.SetOutputPath(outputPath)
-
-		segmentOpen := time.Now()
 
 		// 弹幕录制与视频管道完全解耦：仅在此非阻塞地启动/轮换，
 		// 失败或缺失不影响录播。userStart 仅在使用者发起的首次分段为 true。
@@ -485,8 +491,9 @@ func (r *Service) recoveryStopReason(err error, attempt int, elapsed time.Durati
 }
 
 // Note: Each recovery attempt creates a NEW file with a new fileTime stamp
-// (second-granularity, strictly after the previous fileTime). Duration still
-// uses startTime; -N suffixes are only for live rotation within one fileTime.
+// (second-granularity, strictly after the previous fileTime), and each live
+// rotation also advances fileTime to the split time. Duration still uses
+// startTime; -N suffixes remain for live segment disambiguation.
 // Multiple files per session is expected.
 func (r *Service) recover(roomId int) {
 	l := log.With("room", roomId)
@@ -670,6 +677,16 @@ func (r *Service) stopAndPublish(roomId int, info *Info) {
 func (r *Service) giveUpRecover(roomId int, info *Info, reason string) {
 	r.m.RecordingGaveUp(roomId, reason)
 	r.stopAndPublish(roomId, info)
+}
+
+// advanceRotationFileTime moves the filename timestamp forward for a live
+// rotation. Segment 0 is the first file of a session/recovery and keeps the
+// existing fileTime; later segments use the rotation instant.
+func advanceRotationFileTime(info *Info, segment int, now time.Time) {
+	if info == nil || segment <= 0 {
+		return
+	}
+	info.fileTime = nextFileTime(info.fileTime, now)
 }
 
 // fileTime is used for the filename timestamp; startTime is for duration accounting.
