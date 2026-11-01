@@ -161,6 +161,25 @@ export interface ConvertProviders {
   enabled: boolean
 }
 
+export type RepairTaskStatus = 'pending' | 'queued' | 'running' | 'done' | 'failed'
+
+/** One video in the batch repair list (GET /repair/tasks). */
+export interface RepairTask {
+  path: string
+  output_path: string
+  size: number
+  status: RepairTaskStatus
+  error?: string
+  added_at: number
+  started_at?: number
+  finished_at?: number
+}
+
+export interface RepairListResponse {
+  enabled: boolean
+  items: RepairTask[]
+}
+
 export interface ConvertQueue {
   provider?: 'ffmpeg' | 'cloudconvert'
   task_id: string

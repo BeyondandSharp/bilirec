@@ -9,6 +9,7 @@ import { ConvertsView } from "@/components/ConvertsView";
 import { SubscribesView } from "@/components/SubscribesView";
 import { SettingsView } from "@/components/SettingsView";
 import { LogsView } from "@/components/LogsView";
+import { RepairView } from "@/components/RepairView";
 import { BilibiliAuthDialog } from "@/components/BilibiliAuthDialog";
 import { AboutDialog } from "@/components/AboutDialog";
 import { RestartDialog } from "@/components/RestartDialog";
@@ -34,7 +35,7 @@ import { useAnalyticsSession } from "@/hooks/use-analytics-session";
 import { apiClient } from "@/lib/api";
 import { ConvertCapabilityContext } from "@/lib/convert-capability";
 
-type AppTab = "records" | "files" | "converts" | "subscribe" | "settings" | "logs";
+type AppTab = "records" | "files" | "converts" | "repair" | "subscribe" | "settings" | "logs";
 
 function getTabFromSearch(search: string): AppTab | null {
   const params = new URLSearchParams(search);
@@ -42,6 +43,7 @@ function getTabFromSearch(search: string): AppTab | null {
   return tab === "records" ||
     tab === "files" ||
     tab === "converts" ||
+    tab === "repair" ||
     tab === "subscribe" ||
     tab === "settings" ||
     tab === "logs"
@@ -81,6 +83,7 @@ function App() {
   const { isAuthenticated, isCheckingAuth, userRole, userName, isReadOnly } = auth;
   // Log viewer is admin-only (LOGS-VIEW contract).
   const canViewLogs = !isReadOnly;
+  const canRepair = !isReadOnly;
 
   const bilibili = useBilibiliAuth(isAuthenticated, userRole);
   useDiskUsage(isAuthenticated, setDiskUsage);
@@ -101,6 +104,7 @@ function App() {
 
   const handleTabChange = (tab: AppTab) => {
     if (tab === "converts" && !canConvert) return;
+    if (tab === "repair" && !canRepair) return;
     if (tab === "logs" && !canViewLogs) return;
     if (tab !== "subscribe") setPinnedRoomId(null);
     setActiveTab(tab);
@@ -134,7 +138,10 @@ function App() {
     if (!canViewLogs && activeTab === "logs") {
       setActiveTab(VIEWER_MODE_ENABLED ? "files" : "records");
     }
-  }, [canConvert, canViewLogs, activeTab]);
+    if (!canRepair && activeTab === "repair") {
+      setActiveTab(VIEWER_MODE_ENABLED ? "files" : "records");
+    }
+  }, [canConvert, canViewLogs, canRepair, activeTab]);
 
   useEffect(() => {
     if (isCheckingAuth || !isAuthenticated) {
@@ -304,6 +311,7 @@ function App() {
             onTabChange={handleTabChange}
             diskUsage={diskUsage}
             showConverts={canConvert}
+            showRepair={canRepair}
             showLogs={canViewLogs}
           />
 
@@ -323,6 +331,8 @@ function App() {
                   <FilesView />
                 ) : activeTab === "converts" ? (
                   <ConvertsView />
+                ) : activeTab === "repair" ? (
+                  <RepairView />
                 ) : activeTab === "settings" ? (
                   <SettingsView />
                 ) : activeTab === "logs" ? (
@@ -339,6 +349,7 @@ function App() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
           showConverts={canConvert}
+          showRepair={canRepair}
           showLogs={canViewLogs}
         />
         <NetworkStatusToaster />

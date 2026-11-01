@@ -7,6 +7,7 @@ import type {
   RecordInfo,
   ConvertProviders,
   ConvertQueue,
+  RepairListResponse,
   ShareFileInfo,
   RoomInfo,
   RoomConfig,
@@ -524,6 +525,25 @@ class ApiClient {
 
   async deleteConvertTask(taskId: string): Promise<void> {
     await this.client.delete(`/convert/tasks/${encodeURIComponent(taskId)}`);
+  }
+  async getRepairTasks(): Promise<RepairListResponse> {
+    const response = await this.client.get<RepairListResponse>("/repair/tasks");
+    return response.data;
+  }
+
+  async addRepairTasks(paths: string[]): Promise<RepairListResponse> {
+    const response = await this.client.post<RepairListResponse>("/repair/tasks", { paths });
+    return response.data;
+  }
+
+  async deleteRepairTasks(paths: string[]): Promise<RepairListResponse> {
+    const response = await this.client.delete<RepairListResponse>("/repair/tasks", { data: { paths } });
+    return response.data;
+  }
+
+  async runRepairTasks(paths: string[]): Promise<RepairListResponse> {
+    const response = await this.client.post<RepairListResponse>("/repair/tasks/run", { paths });
+    return response.data;
   }
 
   // Room info methods

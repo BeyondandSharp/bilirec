@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CaretLeftIcon } from '@phosphor-icons/react'
+import { CaretLeftIcon, WrenchIcon } from '@phosphor-icons/react'
 import { SearchBar } from './SearchBar'
 import { apiClient } from '@/lib/api'
 import { isNetworkError, markOnline, noteTransportFailure } from '@/lib/network-status'
@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import type { RecordFile, RecordFileListResponse } from '@/lib/types'
 import { useTranslation } from 'react-i18next'
 import { loadOnlyMediaFiles, saveOnlyMediaFiles } from '@/lib/files-view-settings'
+import { useRole } from '@/lib/role-context'
 
 type FilesLayoutConfig = {
   pageSize: number
@@ -110,6 +111,8 @@ export function FilesView() {
   const [sortField, setSortField] = usePersistedState<'name' | 'mtime'>('files-sort', 'mtime')
   const [sortDirection, setSortDirection] = usePersistedState<SortDirection>('files-sort-dir', 'desc')
   const [playbackFile, setPlaybackFile] = useState<PlaybackFile | null>(null)
+  const [repairSelection, setRepairSelection] = useState<Set<string>>(() => new Set())
+  const { isReadOnly } = useRole()
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const loadMoreTriggerRef = useRef<HTMLDivElement | null>(null)
   const prevPathRef = useRef(currentPath)
@@ -222,6 +225,7 @@ export function FilesView() {
       setDisplayFiles([])
       setDisplayTotal(0)
       setIsSearchTransition(false)
+      setRepairSelection(new Set())
     } else if (isListFilterChange && displayFiles.length > 0) {
       // Search or media filter changed under same path: keep old items until new result arrives.
       setIsSearchTransition(true)
@@ -308,6 +312,26 @@ export function FilesView() {
     setPlaybackFile({ path, name })
   }, [])
 
+  const toggleRepairSelection = useCallback((path: string) => {
+    setRepairSelection((current) => {
+      const next = new Set(current)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }, [])
+
+  const addSelectedToRepair = async () => {
+    if (repairSelection.size === 0) return
+    try {
+      await apiClient.addRepairTasks([...repairSelection])
+      toast.success(t('filesView.addToRepairSuccess'))
+      setRepairSelection(new Set())
+    } catch (error: any) {
+      toast.error(t('filesView.addToRepairFailed') + (error?.response?.data ? `: ${error.response.data}` : ''))
+    }
+  }
+
   const handleBack = () => {
     const parts = currentPath.split('/').filter(Boolean)
     parts.pop()
@@ -332,6 +356,13 @@ export function FilesView() {
             )}
             <h2 className="text-xl font-bold">{t('filesView.title')}</h2>
           </div>
+
+          {!isReadOnly && repairSelection.size > 0 && (
+            <Button size="sm" onClick={() => void addSelectedToRepair()}>
+              <WrenchIcon size={16} />
+              {t('filesView.addToRepair', { count: repairSelection.size })}
+            </Button>
+          )}
 
           <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
@@ -429,6 +460,8 @@ export function FilesView() {
                     onNavigate={handleNavigate}
                     onPlayback={handlePlayback}
                     currentPath={currentPath}
+                    repairSelected={repairSelection.has(file.path)}
+                    onToggleRepairSelection={!isReadOnly ? toggleRepairSelection : undefined}
                   />
                 ))}
               </div>
@@ -464,6 +497,8 @@ export function FilesView() {
                             onPlayback={handlePlayback}
                             currentPath={currentPath}
                             siblingFileNames={siblingFileNames}
+                            repairSelected={repairSelection.has(file.path)}
+                            onToggleRepairSelection={!isReadOnly ? toggleRepairSelection : undefined}
                           />
                         )
                       })}

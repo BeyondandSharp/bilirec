@@ -1,20 +1,21 @@
 import { cn } from '@/lib/utils'
-import { FileIcon, SwapIcon, BellIcon, GearSixIcon, TerminalIcon } from '@phosphor-icons/react'
+import { FileIcon, WrenchIcon, SwapIcon, BellIcon, GearSixIcon, TerminalIcon } from '@phosphor-icons/react'
 import { DiskUsageDisplay } from './DiskUsageDisplay'
 import type { DiskUsage } from '@/lib/types'
 import { useTranslation } from 'react-i18next'
 
-type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings' | 'logs'
+type AppTab = 'records' | 'files' | 'converts' | 'repair' | 'subscribe' | 'settings' | 'logs'
 
 type LeftSidebarProps = {
   activeTab: AppTab
   onTabChange: (t: AppTab) => void
   diskUsage?: DiskUsage | null
   showConverts?: boolean
+  showRepair?: boolean
   showLogs?: boolean
 }
 
-export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = true, showLogs = true }: LeftSidebarProps) {
+export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = true, showRepair = true, showLogs = true }: LeftSidebarProps) {
   const { t } = useTranslation()
 
   return (
@@ -52,6 +53,22 @@ export function LeftSidebar({ activeTab, onTabChange, diskUsage, showConverts = 
           <span className="shrink-0"><FileIcon size={18} weight="bold" /></span>
           <span>{t('nav.files')}</span>
         </button>
+
+        {showRepair && (
+          <button
+            onClick={() => onTabChange('repair')}
+            aria-pressed={activeTab === 'repair'}
+            className={cn(
+              'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors w-full cursor-pointer',
+              activeTab === 'repair'
+                ? 'text-primary bg-primary/10'
+                : 'text-muted-foreground hover:text-primary hover:bg-secondary/10'
+            )}
+          >
+            <span className="shrink-0"><WrenchIcon size={18} weight="bold" /></span>
+            <span>{t('nav.repair')}</span>
+          </button>
+        )}
 
         {showConverts && (
           <button

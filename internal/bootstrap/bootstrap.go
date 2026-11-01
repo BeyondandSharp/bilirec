@@ -12,6 +12,7 @@ import (
 	lg "github.com/bilirec/bilirec/internal/controllers/logs"
 	nc "github.com/bilirec/bilirec/internal/controllers/notify"
 	"github.com/bilirec/bilirec/internal/controllers/record"
+	repairctl "github.com/bilirec/bilirec/internal/controllers/repair"
 	restartctl "github.com/bilirec/bilirec/internal/controllers/restart"
 	"github.com/bilirec/bilirec/internal/controllers/room"
 	cs "github.com/bilirec/bilirec/internal/controllers/settings"
@@ -33,6 +34,7 @@ import (
 	pa "github.com/bilirec/bilirec/internal/services/path"
 	re "github.com/bilirec/bilirec/internal/services/recorder"
 	rp "github.com/bilirec/bilirec/internal/services/repair"
+	rq "github.com/bilirec/bilirec/internal/services/repairqueue"
 	restartsvc "github.com/bilirec/bilirec/internal/services/restart"
 	ro "github.com/bilirec/bilirec/internal/services/room"
 	se "github.com/bilirec/bilirec/internal/services/settings"
@@ -68,6 +70,7 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Provide(st.NewService),
 		fx.Provide(cv.NewService),
 		fx.Provide(rp.NewService),
+		fx.Provide(rq.NewService),
 		fx.Provide(se.NewService),
 		fx.Provide(re.NewService),
 		fx.Provide(ro.NewService),
@@ -105,6 +108,7 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Invoke(auth.NewController),
 		fx.Invoke(convert.NewController),
 		fx.Invoke(whc.NewController),
+		fx.Invoke(repairctl.NewController),
 		fx.Invoke(restartctl.NewController),
 		fx.Invoke(func(shutdowner fx.Shutdowner) {
 			restartsvc.SetShutdowner(shutdowner)

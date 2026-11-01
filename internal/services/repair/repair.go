@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,9 @@ import (
 )
 
 var log = logger.Named("repair")
+
+// ErrNotAvailable is returned when the flvrepair binary was not resolved.
+var ErrNotAvailable = errors.New("flvrepair 不可用")
 
 const (
 	// maxRestarts is the number of sidecar restarts allowed per session.
@@ -149,6 +153,37 @@ func (s *Service) resolve(cfg *config.Config) {
 // Enabled reports whether repair is active for new sessions.
 func (s *Service) Enabled() bool {
 	return s != nil && s.enabled
+}
+
+// RepairFile runs the one-shot `flvrepair file` command for a batch repair.
+// It preserves metadata (the same default as live repair) and honors the
+// configured mode/max-buffer. The caller owns input/output path validation and
+// cleanup of a partial output on failure.
+func (s *Service) RepairFile(ctx context.Context, input, output string) error {
+	if s == nil || !s.enabled || s.binPath == "" {
+		return ErrNotAvailable
+	}
+	args := []string{
+		"file",
+		"--input", input,
+		"--output", output,
+		"--mode", s.mode,
+		"--max-buffer", fmt.Sprintf("%dMiB", s.maxBufferMB),
+	}
+	cmd := exec.CommandContext(ctx, s.binPath, args...)
+	configureProcessGroup(cmd)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		message := strings.TrimSpace(stderr.String())
+		if message != "" {
+			s.log.Warnf("批量修复失败：%s：%s", input, message)
+		}
+		return fmt.Errorf("flvrepair file 失败：%w", err)
+	}
+	s.log.Infof("批量视频修复完成：%s -> %s", input, output)
+	return nil
 }
 
 // WithRoom returns a shallow copy of the service whose logs carry the given

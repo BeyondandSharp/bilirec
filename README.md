@@ -177,6 +177,19 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 事件沿用现有 webhook envelope 格式，`EventData` 包含 `Stage`、`Message`、`Error`；`Stage` 为
 `startup_account_info` 或 `cookie_refresh`。未配置 `WEBHOOK_URLS` 时不发送。
 
+## 视频修复
+
+录制文件页可以多选 FLV 视频并“添加到修复列表”；左侧菜单“录制文件”下方的“视频修复”页面
+提供批量修复列表、全选/取消全选、删除和“修复”按钮。修复使用镜像内的 `flvrepair` 工具，
+默认输出到原文件旁边并在扩展名前添加 `_fix`：
+
+```text
+records/xxx.flv -> records/xxx_fix.flv
+```
+
+同名 `_fix` 文件已存在时依次使用 `_fix_1`、`_fix_2`，不会覆盖已有文件。修复列表保存在
+`DATABASE_DIR/repair-queue.json`，刷新或重启后仍然保留；同一时间只处理一个文件。
+
 ## 列表布局、排序与分组
 
 - 录制管理、录制文件、订阅页面支持网格/列表布局切换，偏好保存在浏览器本地；

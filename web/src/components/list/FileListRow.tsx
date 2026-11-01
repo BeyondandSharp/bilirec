@@ -11,11 +11,13 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { apiClient } from '@/lib/api'
 import {
   formatFileSize,
   isConvertibleVideoFile,
   isDanmakuSidecarFile,
+  isFLVFile,
   isRecordingMediaFilename,
 } from '@/lib/utils'
 import type { RecordFile } from '@/lib/types'
@@ -25,9 +27,18 @@ interface FileListRowProps {
   currentPath?: string
   onNavigate?: (path: string) => void
   onPlayback: (path: string, name: string) => void
+  repairSelected?: boolean
+  onToggleRepairSelection?: (path: string) => void
 }
 
-export function FileListRow({ file, currentPath = '', onNavigate, onPlayback }: FileListRowProps) {
+export function FileListRow({
+  file,
+  currentPath = '',
+  onNavigate,
+  onPlayback,
+  repairSelected = false,
+  onToggleRepairSelection,
+}: FileListRowProps) {
   const { t } = useTranslation()
   const [isDownloading, setIsDownloading] = useState(false)
   const isDir = file.is_dir
@@ -36,6 +47,7 @@ export function FileListRow({ file, currentPath = '', onNavigate, onPlayback }: 
   const isVideo = isConvertibleVideoFile(file.name)
   const extension = file.name.split('.').pop()?.toUpperCase() ?? ''
   const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name
+  const canRepairFile = !isDir && !file.is_recording && isFLVFile(file.name) && Boolean(onToggleRepairSelection)
 
   const download = async () => {
     if (isDir) {
@@ -59,6 +71,16 @@ export function FileListRow({ file, currentPath = '', onNavigate, onPlayback }: 
       className="flex min-h-[42px] cursor-pointer items-center gap-2.5 border-b border-border/60 px-3 py-1.5 last:border-b-0 hover:bg-muted/30"
       onClick={() => (isDir ? onNavigate?.(fullPath) : isVideo ? onPlayback(fullPath, file.name) : undefined)}
     >
+      {canRepairFile && (
+        <span onClick={(event) => event.stopPropagation()} className="flex shrink-0 items-center">
+          <Checkbox
+            checked={repairSelected}
+            onCheckedChange={() => onToggleRepairSelection?.(fullPath)}
+            aria-label={t('fileCard.selectRepair')}
+            title={t('fileCard.selectRepair')}
+          />
+        </span>
+      )}
       <div className={`flex size-7 shrink-0 items-center justify-center rounded-md ${isDir ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'bg-primary/10 text-primary'}`}>
         {isDir ? <FolderIcon size={16} /> : isDanmaku ? <FileTextIcon size={16} /> : file.name.endsWith('.m4a') ? <FileAudioIcon size={16} /> : <FileVideoIcon size={16} />}
       </div>

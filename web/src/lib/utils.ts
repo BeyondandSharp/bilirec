@@ -51,6 +51,10 @@ export function isDanmakuSidecarFile(filename: string): boolean {
   return ext ? DANMAKU_SIDECAR_EXTENSIONS.has(ext) : false
 }
 
+export function isFLVFile(filename: string): boolean {
+  return filename.split('.').pop()?.toLowerCase() === 'flv'
+}
+
 export function isConvertibleVideoFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase()
   return ext ? CONVERTIBLE_VIDEO_EXTENSIONS.has(ext) : false

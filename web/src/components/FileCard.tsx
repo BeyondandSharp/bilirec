@@ -13,6 +13,7 @@ import {
   findDanmakuSidecarAmongPeerNames,
   isConvertibleVideoFile,
   isDanmakuSidecarFile,
+  isFLVFile,
   isRecordingMediaFilename,
 } from '@/lib/utils'
 import type { RecordFile } from '@/lib/types'
@@ -31,6 +32,9 @@ interface FileCardProps {
   currentPath?: string
   /** Basenames in the current browse directory (from listing). */
   siblingFileNames?: ReadonlySet<string>
+  /** Selected for the batch video-repair list. */
+  repairSelected?: boolean
+  onToggleRepairSelection?: (path: string) => void
 }
 
 export function FileCard({
@@ -40,6 +44,8 @@ export function FileCard({
   onPlayback,
   currentPath = '',
   siblingFileNames,
+  repairSelected = false,
+  onToggleRepairSelection,
 }: FileCardProps) {
   const { t } = useTranslation()
   const { isReadOnly } = useRole()
@@ -62,6 +68,7 @@ export function FileCard({
   const canConvertFile = isConvertibleVideoFile(name)
 
   const isRecording = 'is_recording' in file ? !!(file as any).is_recording : false
+  const canRepairFile = isFLVFile(name) && !isRecording && !isReadOnly && Boolean(onToggleRepairSelection)
 
   const fullPath = currentPath ? `${currentPath}/${name}` : name
 
@@ -342,6 +349,14 @@ export function FileCard({
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {canRepairFile && (
+                <Checkbox
+                  checked={repairSelected}
+                  onCheckedChange={() => onToggleRepairSelection?.(fullPath)}
+                  aria-label={t('fileCard.selectRepair')}
+                  title={t('fileCard.selectRepair')}
+                />
+              )}
               <Badge variant="outline" className="shrink-0">
                 {extension}
               </Badge>

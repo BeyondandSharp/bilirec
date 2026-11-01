@@ -1,17 +1,18 @@
 import { cn } from '@/lib/utils'
-import { SwapIcon, BellIcon, GearSixIcon, TerminalIcon } from '@phosphor-icons/react'
+import { WrenchIcon, SwapIcon, BellIcon, GearSixIcon, TerminalIcon } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
-type AppTab = 'records' | 'files' | 'converts' | 'subscribe' | 'settings' | 'logs'
+type AppTab = 'records' | 'files' | 'converts' | 'repair' | 'subscribe' | 'settings' | 'logs'
 
 interface BottomNavProps {
   activeTab: AppTab
   onTabChange: (tab: AppTab) => void
   showConverts?: boolean
+  showRepair?: boolean
   showLogs?: boolean
 }
 
-export function BottomNav({ activeTab, onTabChange, showConverts = true, showLogs = true }: BottomNavProps) {
+export function BottomNav({ activeTab, onTabChange, showConverts = true, showRepair = true, showLogs = true }: BottomNavProps) {
   const { t } = useTranslation()
 
   return (
@@ -45,6 +46,20 @@ export function BottomNav({ activeTab, onTabChange, showConverts = true, showLog
           </svg>
           <span className="text-xs font-medium">{t('nav.files')}</span>
         </button>
+        {showRepair && (
+          <button
+            onClick={() => onTabChange('repair')}
+            className={cn(
+              'flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors',
+              activeTab === 'repair' ? 'text-primary' : 'text-muted-foreground'
+            )}
+          >
+            <span className="w-6 h-6 flex items-center justify-center">
+              <WrenchIcon size={18} weight="bold" />
+            </span>
+            <span className="text-xs font-medium">{t('nav.repair')}</span>
+          </button>
+        )}
         {showConverts && (
           <button
             onClick={() => onTabChange('converts')}
