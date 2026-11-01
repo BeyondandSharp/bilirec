@@ -18,6 +18,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/pkg/ds"
+	"github.com/bilirec/bilirec/pkg/flv"
 	"github.com/bilirec/bilirec/pkg/pipeline"
 	"github.com/puzpuzpuz/xsync/v4"
 )
@@ -123,7 +124,7 @@ func TestRevReturnsRotationSentinel(t *testing.T) {
 	chunk := make([]byte, 600*1024)
 	ch <- chunk
 	ch <- chunk
-	reasonChunk := []byte("next-chunk")
+	reasonChunk := flv.NewTagBytes(flv.TagTypeVideo, []byte{0x17, 0x01, 0x00, 0x00, 0x00})
 	ch <- reasonChunk
 	close(ch)
 
@@ -149,8 +150,8 @@ func TestRevTimeRotationBetweenChunks(t *testing.T) {
 	info.resetSegmentRotation(time.Now().Add(-2 * time.Minute))
 
 	ch := make(chan []byte, 2)
-	ch <- []byte("first")  // triggers the time rotation request
-	ch <- []byte("second") // consumed by the pending-rotation check
+	ch <- []byte("first")                                                         // triggers the time rotation request
+	ch <- flv.NewTagBytes(flv.TagTypeVideo, []byte{0x17, 0x01, 0x00, 0x00, 0x00}) // keyframe for the split
 	close(ch)
 
 	pipe := pipeline.New[[]byte]()
@@ -160,6 +161,32 @@ func TestRevTimeRotationBetweenChunks(t *testing.T) {
 	}
 	if reason := info.takeRotationReason(); reason != "time" {
 		t.Fatalf("rotation reason = %q, want time", reason)
+	}
+}
+
+func TestRevCarrySplitsAtKeyframe(t *testing.T) {
+	r := &Service{
+		recording: xsync.NewMap[int, *Info](),
+		m:         new(metrics.Exporter),
+	}
+	info := &Info{effective: settings.Effective{SegmentMode: "time", SegmentMinutes: 1}}
+	info.resetSegmentRotation(time.Now().Add(-2 * time.Minute))
+
+	nonKey := flv.NewTagBytes(flv.TagTypeVideo, []byte{0x27, 0x01, 0x00, 0x00, 0x00})
+	keyframe := flv.NewTagBytes(flv.TagTypeVideo, []byte{0x17, 0x01, 0x00, 0x00, 0x00})
+	ch := make(chan []byte, 3)
+	ch <- []byte("trigger-rotation")
+	ch <- nonKey
+	ch <- keyframe
+	close(ch)
+
+	pipe := pipeline.New[[]byte]()
+	carry, err := r.revCarry(42, ch, info, context.Background(), pipe, nil, flv.FindRotationBoundary)
+	if !errors.Is(err, rs.ErrRotationRequested) {
+		t.Fatalf("revCarry error = %v, want ErrRotationRequested", err)
+	}
+	if string(carry) != string(keyframe) {
+		t.Fatalf("carry should start at keyframe; got %d bytes", len(carry))
 	}
 }
 

@@ -120,9 +120,15 @@ Swagger annotations required for all three endpoints.
   - size: `segmentBytes >= SegmentSizeMB*1024*1024`
   - time: `time.Since(segmentOpenTime) >= SegmentMinutes*time.Minute`
   - title: set by poller when title changes (`SegmentByTitle`)
-  - On trigger: set `rotationRequested` with reason (`size|time|title`); before processing next chunk return `rs.ErrRotationRequested`.
+  - On trigger: set `rotationRequested` with reason (`size|time|title`); hold incoming
+    chunks until the next video keyframe (or audio tag for audio-only streams), then
+    rotate before that tag and carry it into the new segment.
 - `record_strategies`: define `ErrRotationRequested = errors.New("按配置切段")`; every strategy's
-  `HandleErr` maps `errors.Is(err, ErrRotationRequested)` to `ErrActionRotate` (no state reset; headers carried as today).
+  `HandleErr` maps `errors.Is(err, ErrRotationRequested)` to `ErrActionRotate`, carries the
+  current sequence headers, and resets FLV fixer timestamp/dedup state for the new file.
+- New file boundary follows BililiveRecorder's tag grouping: it starts at a video keyframe
+  so the second and later files are independently decodable; data before the keyframe stays
+  in the old segment and is not dropped.
 - Title poller (only if `SegmentByTitle`): one goroutine per active session, ticker `TITLE_POLL_SECS`
   (env, default 20, min 5), calls `bilic.GetLiveRoomInfo`; on title change: atomically update
   `Info.title` (new method `SetTitle/Title`, used by naming/webhook/stop messages) and request rotation;

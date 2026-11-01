@@ -277,6 +277,8 @@ func (r *Service) pollTitle(ctx context.Context, roomId int, info *Info, interva
 	}
 }
 
+const rotationSplitBufferLimit = 8 << 20
+
 func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordStrategy, info *Info, ctx context.Context, userStart bool) error {
 	l := log.With("room", roomId)
 	defer strategy.Close()
@@ -284,6 +286,11 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 	segment := 0
 	state := &rs.RotationState{Data: map[string][]byte{}}
 	hooks := r.pipelineHooks(roomId, info)
+	var carry []byte
+	var findBoundary func([]byte, bool) int
+	if keyframeStrategy, ok := strategy.(rs.KeyframeRotationStrategy); ok {
+		findBoundary = keyframeStrategy.FindRotationBoundary
+	}
 
 	for {
 		segmentOpen := time.Now()
@@ -346,7 +353,7 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 		r.writingFiles.Add(filepath.Base(info.OutputPath()))
 		r.pipes.Store(roomId, pipe)
 
-		err = r.rev(roomId, ch, info, ctx, pipe)
+		carry, err = r.revCarry(roomId, ch, info, ctx, pipe, carry, findBoundary)
 		if err != nil {
 			handle := strategy.HandleErr(err)
 			switch handle.Action {
@@ -393,6 +400,15 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 }
 
 func (r *Service) rev(roomId int, ch <-chan []byte, info *Info, ctx context.Context, pipe *pipeline.Pipe[[]byte]) error {
+	_, err := r.revCarry(roomId, ch, info, ctx, pipe, nil, nil)
+	return err
+}
+
+// revCarry processes the stream until a rotation is requested. It returns the
+// chunk that triggered rotation so rotate() can replay it into the new segment:
+// BililiveRecorder splits before the current group, so the next chunk must not
+// be dropped at the segment boundary.
+func (r *Service) revCarry(roomId int, ch <-chan []byte, info *Info, ctx context.Context, pipe *pipeline.Pipe[[]byte], carry []byte, findBoundary func([]byte, bool) int) ([]byte, error) {
 	log := log.With("room", roomId)
 	r.m.StreamConnectionActive(roomId, true)
 	defer func() {
@@ -405,18 +421,12 @@ func (r *Service) rev(roomId int, ch <-chan []byte, info *Info, ctx context.Cont
 		outputPath := info.OutputPath()
 		go r.finalize(roomId, info, outputPath, info.isAudioOnly.Load())
 	}()
-	for data := range ch {
-		// A configured segment cut applies to the next chunk (docs §3.1).
-		if info.RotationPending() {
-			if info.chunkPool != nil && cap(data) > 0 {
-				info.chunkPool.Put(data[:cap(data)])
-			}
-			return rs.ErrRotationRequested
-		}
+
+	process := func(data []byte, release bool) error {
 		info.bytesRead.Add(uint64(len(data)))
 		r.m.AddStreamBytes(roomId, len(data))
 		result, err := pipe.Process(ctx, data)
-		if info.chunkPool != nil && cap(data) > 0 {
+		if release && info.chunkPool != nil && cap(data) > 0 {
 			info.chunkPool.Put(data[:cap(data)])
 		}
 		if err == nil {
@@ -434,8 +444,60 @@ func (r *Service) rev(roomId int, ch <-chan []byte, info *Info, ctx context.Cont
 			}
 			return err
 		}
+		return nil
 	}
-	return nil
+
+	// Replay the chunk that caused the previous rotation into this new segment.
+	if len(carry) > 0 {
+		if err := process(carry, false); err != nil {
+			return nil, err
+		}
+	}
+
+	// While a configured rotation is pending, hold data until the next video
+	// keyframe so the new file starts at a decodable frame. BililiveRecorder
+	// splits between tag groups, and a data group starts with a keyframe.
+	var splitBuf []byte
+	for data := range ch {
+		if info.RotationPending() {
+			if findBoundary == nil {
+				// TS/fMP4 rotation has no FLV keyframe boundary to wait for.
+				return data, rs.ErrRotationRequested
+			}
+			splitBuf = append(splitBuf, data...)
+			if info.chunkPool != nil && cap(data) > 0 {
+				info.chunkPool.Put(data[:cap(data)])
+			}
+			boundary := findBoundary(splitBuf, info.isAudioOnly.Load())
+			if boundary < 0 && len(splitBuf) >= rotationSplitBufferLimit {
+				// Very long keyframe interval or audio-only stream: fall back to
+				// the first valid tag boundary instead of buffering indefinitely.
+				boundary = findBoundary(splitBuf, true)
+			}
+			if boundary < 0 {
+				continue
+			}
+			prefix := splitBuf[:boundary]
+			carryOut := append([]byte(nil), splitBuf[boundary:]...)
+			if len(prefix) > 0 {
+				if err := process(prefix, false); err != nil {
+					return nil, err
+				}
+			}
+			return carryOut, rs.ErrRotationRequested
+		}
+		if err := process(data, true); err != nil {
+			return nil, err
+		}
+	}
+	// Stream ended while waiting for a keyframe: flush the buffered tail into
+	// the old segment (there is no next segment to carry it into).
+	if len(splitBuf) > 0 {
+		if err := process(splitBuf, false); err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
 }
 
 func (r *Service) checkRecordingDurationPeriodically(roomId int, ctx context.Context, maxDuration time.Duration) {

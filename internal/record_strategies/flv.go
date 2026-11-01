@@ -68,6 +68,13 @@ func NewFlvStrategyWithOptions(qn int, split FlvSplitOptions) *FlvStrategy {
 
 func (s *FlvStrategy) FileExtension() string { return ".flv" }
 
+// FindRotationBoundary implements KeyframeRotationStrategy. The recorder uses
+// this to start a rotated file at a video keyframe (or audio tag for audio-only
+// streams) instead of an arbitrary downloader chunk boundary.
+func (s *FlvStrategy) FindRotationBoundary(data []byte, allowAudioFallback bool) int {
+	return flv.FindRotationBoundary(data, allowAudioFallback)
+}
+
 func (s *FlvStrategy) BuildPipeline(ctx context.Context, outputPath string, state *RotationState, hooks PipelineHooks) (*pipeline.Pipe[[]byte], error) {
 	videoHdr := state.Data[flvStateVideoHdr]
 	audioHdr := state.Data[flvStateAudioHdr]
@@ -127,12 +134,13 @@ func (s *FlvStrategy) observeHeaders(videoTag, audioTag []byte) {
 }
 
 func (s *FlvStrategy) HandleErr(err error) ErrHandleResult {
-	if errors.Is(err, ErrRotationRequested) {
-		return ErrHandleResult{Action: ErrActionRotate, State: s.currentHeadersState()}
-	}
-	if errors.Is(err, processors.ErrScriptTagSplit) || errors.Is(err, processors.ErrAnnexBSplit) {
-		// Configured FLV split detectors: rotate with the current headers so
-		// the next segment starts with a valid FLV header (docs §5.2).
+	if errors.Is(err, ErrRotationRequested) || errors.Is(err, processors.ErrScriptTagSplit) || errors.Is(err, processors.ErrAnnexBSplit) {
+		// Configured rotations and FLV split detectors start a fresh file.
+		// Like BililiveRecorder's PipelineNewFileAction, reset timestamp fixing
+		// and dedup state so the next segment begins from timestamp 0 and its
+		// first tags are not suppressed by the previous segment's cache.
+		s.sharedFixer.ResetTimestampStore()
+		s.sharedFixer.ResetDedupCache()
 		return ErrHandleResult{Action: ErrActionRotate, State: s.currentHeadersState()}
 	}
 

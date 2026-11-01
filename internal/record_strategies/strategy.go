@@ -63,6 +63,14 @@ type StreamRecordStrategy interface {
 	Close() error
 }
 
+// KeyframeRotationStrategy is implemented by strategies whose stream can be
+// split at a keyframe tag boundary. The recorder holds pending rotation data
+// until FindRotationBoundary returns an offset, then moves that suffix into the
+// next segment. Strategies without this interface keep chunk-boundary rotation.
+type KeyframeRotationStrategy interface {
+	FindRotationBoundary(data []byte, allowAudioFallback bool) int
+}
+
 var (
 	writerPoolOnce sync.Once
 	writerPools    *pool.LazyDualPool[*pool.BucketedBytesPool]
