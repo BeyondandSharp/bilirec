@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState, type RefObject } from "react"
 import { useVideoPlaybackTime } from "@/hooks/use-video-playback-time"
+import {
+  cancelAnimationFrameInClock,
+  requestAnimationFrameInClock,
+} from "@/lib/document-pip"
 import type { OverlayEvent } from "@/lib/danmaku"
 
 const SC_FALLBACK_SEC = 4.5
@@ -202,10 +206,10 @@ function useWallClock() {
     let raf = 0
     const loop = () => {
       setNow(performance.now())
-      raf = requestAnimationFrame(loop)
+      raf = requestAnimationFrameInClock(loop)
     }
-    raf = requestAnimationFrame(loop)
-    return () => cancelAnimationFrame(raf)
+    raf = requestAnimationFrameInClock(loop)
+    return () => cancelAnimationFrameInClock(raf)
   }, [])
   return now
 }
@@ -346,7 +350,7 @@ export function useOverlayEventQueue({
         prunedGuardsActive === prev.guards.active &&
         guards.active === prunedGuardsActive &&
         guards.parked === prev.guards.parked &&
-        gifts === prunedGifts
+        gifts === prev.gifts
       return unchanged ? prev : { guards, gifts }
     })
 

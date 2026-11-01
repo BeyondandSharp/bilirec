@@ -3,14 +3,23 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { DanmakuVideoPlayer } from "@/components/playback/DanmakuVideoPlayer"
 import { apiClient } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import type { PreviewFormat } from "@/hooks/use-preview"
 
 interface PlaybackPlayerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Relative path under recordings root, e.g. room/file.mp4 */
-  path: string
+  path?: string
   /** Display name for a11y */
   name: string
+  preview?: {
+    roomId: number
+    format: PreviewFormat
+    recordDanmaku?: boolean
+    audioOnly?: boolean
+  }
+  /** Live recording preview ended (stream/recording no longer previewable). */
+  onPreviewEnded?: () => void
 }
 
 interface PlaybackMedia {
@@ -21,10 +30,17 @@ interface PlaybackMedia {
   expiresAtMs: number
 }
 
-export function PlaybackPlayerDialog({ open, onOpenChange, path, name }: PlaybackPlayerDialogProps) {
+export function PlaybackPlayerDialog({
+  open,
+  onOpenChange,
+  path,
+  name,
+  preview,
+  onPreviewEnded,
+}: PlaybackPlayerDialogProps) {
   // The chat panel reports whether it took the extended side-column form so the
   // dialog can widen instead of shrinking the video area. Width classes must
-  // stay literal for Tailwind extraction (1664px = 1280px video + 320px panel).
+  // stay literal for Tailwind extraction (1620px = 1280px video + 340px panel).
   const [chatPanelExtended, setChatPanelExtended] = useState(false)
   const handleChatPanelExtended = useCallback((extended: boolean) => {
     setChatPanelExtended(extended)
@@ -35,7 +51,7 @@ export function PlaybackPlayerDialog({ open, onOpenChange, path, name }: Playbac
   // cookie-authenticated URL on backends without presigned playback.
   const [media, setMedia] = useState<PlaybackMedia | null>(null)
   useEffect(() => {
-    if (!open) return
+    if (!open || preview || !path) return
     let cancelled = false
     setMedia(null)
     apiClient
@@ -54,13 +70,16 @@ export function PlaybackPlayerDialog({ open, onOpenChange, path, name }: Playbac
     return () => {
       cancelled = true
     }
-  }, [open, path])
+  }, [open, path, preview])
 
   const renewPlaybackUrl = useCallback(async (): Promise<{ url: string; expiresAtMs: number } | null> => {
+    if (!path) return null
     const minted = await apiClient.mintPlaybackUrl(path)
     if (!minted) return null
     return { url: minted.url, expiresAtMs: minted.expiresAtMs }
   }, [path])
+
+  const playerReady = open && (preview || media)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,14 +87,24 @@ export function PlaybackPlayerDialog({ open, onOpenChange, path, name }: Playbac
         className={cn(
           "flex h-[min(100dvh,100vh)] max-h-dvh w-screen max-w-[100vw] translate-x-[-50%] translate-y-[-50%] flex-col gap-0 overflow-hidden rounded-none border-0 bg-black p-0 shadow-none transition-[width,max-width] duration-200 ease-out sm:h-[min(92dvh,920px)] sm:max-h-[92dvh] sm:rounded-lg sm:border",
           chatPanelExtended
-            ? "sm:w-[min(96vw,1664px)] sm:max-w-[min(96vw,1664px)]"
+            ? "sm:w-[min(96vw,1620px)] sm:max-w-[min(96vw,1620px)]"
             : "sm:w-[min(96vw,1280px)] sm:max-w-[min(96vw,1280px)]",
           "[&>button]:inline-flex [&>button]:items-center [&>button]:justify-center [&>button]:p-0 [&>button]:text-white [&>button]:hover:bg-white/10 [&>button]:top-2 [&>button]:right-2 [&>button]:z-50 max-sm:[&>button]:size-11 max-sm:[&>button>svg]:size-6! sm:[&>button]:size-8"
         )}
         aria-describedby={undefined}
       >
         <DialogTitle className="sr-only">{name}</DialogTitle>
-        {open && media ? (
+        {playerReady && preview ? (
+          <DanmakuVideoPlayer
+            key={`preview-${preview.roomId}-${preview.format}`}
+            preview={preview}
+            videoPath={String(preview.roomId)}
+            fileName={name}
+            onPreviewEnded={onPreviewEnded}
+            onChatPanelExtendedChange={handleChatPanelExtended}
+            className="min-h-0 flex-1 pt-8 sm:pt-0"
+          />
+        ) : playerReady && media && path ? (
           <DanmakuVideoPlayer
             key={path}
             playbackUrl={media.url}

@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { RoomCover } from '@/components/RoomCover'
-import { StopIcon, UserIcon, ClockIcon, VideoCameraIcon, ChatCircleDotsIcon, ArrowSquareOutIcon, CopySimpleIcon, WarningCircleIcon, LineVerticalIcon } from '@phosphor-icons/react'
+import { StopIcon, UserIcon, ClockIcon, VideoCameraIcon, ChatCircleDotsIcon, ArrowSquareOutIcon, CopySimpleIcon, WarningCircleIcon, LineVerticalIcon, PlayCircleIcon } from '@phosphor-icons/react'
+import { PlaybackPlayerDialog } from '@/components/playback/PlaybackPlayerDialog'
+import { previewFormatOf } from '@/hooks/use-preview'
 import { cn, formatFileSize, formatDuration } from '@/lib/utils'
 import { getRecordQualityLabelKey, getRecordSourceFormatLabel, getRecordStreamFormatLabel } from '@/lib/record-labels'
 import type { RecordTask } from '@/lib/types'
@@ -28,6 +30,65 @@ const DOWNLOADER_BADGE_LABEL_KEYS: Record<string, string> = {
   streamlink: 'downloaderStreamlink',
 }
 
+function EnterLiveRoomButton({
+  href,
+  label,
+  className,
+  variant = 'outline',
+  size = 'sm',
+  compact = false,
+}: {
+  href: string
+  label: string
+  className?: string
+  variant?: 'default' | 'outline'
+  size?: 'default' | 'sm'
+  /** Matches online-count row height in the card header (desktop). */
+  compact?: boolean
+}) {
+  if (compact) {
+    return (
+      <Button
+        asChild
+        variant="outline"
+        className={cn(
+          'h-6 shrink-0 gap-0 border-[#00AEEC]/50 bg-transparent px-1.5 py-1 text-xs leading-none font-normal text-[#00AEEC] shadow-none min-[1800px]:gap-1 min-[1800px]:px-2 hover:border-sky-300 hover:bg-transparent hover:text-sky-300 dark:border-sky-300/50 dark:text-sky-300 dark:hover:border-sky-200 dark:hover:bg-transparent dark:hover:text-sky-200',
+          className,
+        )}
+      >
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={label}
+          aria-label={label}
+        >
+          <ArrowSquareOutIcon size={14} />
+          <span className="hidden min-[1800px]:inline">{label}</span>
+        </a>
+      </Button>
+    )
+  }
+
+  return (
+    <Button
+      asChild
+      variant={variant}
+      size={size}
+      className={className}
+    >
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <ArrowSquareOutIcon size={size === 'sm' ? 16 : 18} />
+        {label}
+      </a>
+    </Button>
+  )
+}
+
 export function RecordCard({ task, onStop }: RecordCardProps) {
   const { t } = useTranslation()
   const { isReadOnly } = useRole()
@@ -35,7 +96,21 @@ export function RecordCard({ task, onStop }: RecordCardProps) {
   const [isStopDialogOpen, setIsStopDialogOpen] = useState(false)
   const isMobile = useIsMobile()
   const [isTitleInfoOpen, setIsTitleInfoOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const roomId = task.roomInfo?.room_id ?? task.roomId
+  const liveRoomUrl = `https://live.bilibili.com/${roomId}`
+  const enterLiveRoomLabel = t('recordCard.enterLiveRoom')
+  const previewFormat = previewFormatOf(task.actualStreamFormat)
+  const canPreview =
+    !isReadOnly && task.status === 'recording' && previewFormat != null
+
+  const closePreview = useCallback(() => setPreviewOpen(false), [])
+
+  useEffect(() => {
+    if (task.status !== 'recording') {
+      setPreviewOpen(false)
+    }
+  }, [task.status])
 
   const handleCopyRoomId = async () => {
     try {
@@ -159,8 +234,8 @@ export function RecordCard({ task, onStop }: RecordCardProps) {
             <div className="flex flex-col flex-1 min-w-0 w-full">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="inline-flex max-w-full items-center gap-1.5">
-                    <p className="font-semibold text-card-foreground record-title truncate max-w-full">
+                  <div className="flex max-w-full min-w-0 items-center gap-1.5">
+                    <p className="min-w-0 flex-1 truncate font-semibold text-card-foreground record-title">
                       { task.roomInfo?.uname ?? t('recordCard.roomFallback', { roomId: task.roomInfo?.room_id })}
                     </p>
                     <Button
@@ -293,12 +368,23 @@ export function RecordCard({ task, onStop }: RecordCardProps) {
                 </div>
 
                 <div className="flex flex-col items-end gap-2 ml-2 shrink-0">
-                  {task.roomInfo?.online !== undefined && (
-                    <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
-                      <UserIcon size={16} />
-                      <span className="font-mono" title={t('recordCard.onlineCount')}>
-                        {(task.roomInfo.online ?? 0).toLocaleString()}
-                      </span>
+                  {(canControlRecording || task.roomInfo?.online !== undefined) && (
+                    <div className="hidden sm:flex items-center gap-3">
+                      {canControlRecording && (
+                        <EnterLiveRoomButton
+                          href={liveRoomUrl}
+                          label={enterLiveRoomLabel}
+                          compact
+                        />
+                      )}
+                      {task.roomInfo?.online !== undefined && (
+                        <div className="flex h-5 items-center gap-2 text-sm leading-5 text-muted-foreground">
+                          <UserIcon size={16} className="shrink-0" />
+                          <span className="font-mono" title={t('recordCard.onlineCount')}>
+                            {(task.roomInfo.online ?? 0).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -404,34 +490,92 @@ export function RecordCard({ task, onStop }: RecordCardProps) {
         )}
 
         {canControlRecording ? (
-          <div className="flex flex-col sm:flex-row gap-2 mt-auto">
-            <Button
-              asChild
-              variant="default"
-              className="w-full sm:flex-1 transition-all hover:shadow-lg"
-            >
-              <a
-                href={`https://live.bilibili.com/${task.roomInfo?.room_id ?? task.roomId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <ArrowSquareOutIcon size={18} />
-                {t('recordCard.enterLiveRoom')}
-              </a>
-            </Button>
-
+          <>
             {!isReadOnly && (
-            <Button
-              onClick={handleStop}
-              disabled={isLoading}
-              variant="destructive"
-              className="w-full sm:w-1/2 transition-all hover:bg-destructive/90 hover:shadow-md hover:ring-1 hover:ring-destructive/30"
-            >
-              <StopIcon size={20} />
-              {t('recordCard.stopRecording')}
-            </Button>
+              <div className="mt-auto hidden gap-2 sm:flex">
+                {canPreview ? (
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="min-w-0 flex-1 bg-emerald-600 text-white shadow-xs hover:bg-emerald-600/90 focus-visible:ring-emerald-600/20 dark:bg-emerald-600 dark:hover:bg-emerald-600/90"
+                    onClick={() => setPreviewOpen(true)}
+                  >
+                    <PlayCircleIcon size={18} />
+                    {t('recordCard.previewRecording')}
+                  </Button>
+                ) : null}
+                <Button
+                  onClick={handleStop}
+                  disabled={isLoading}
+                  variant="destructive"
+                  className={cn(
+                    'min-w-0 flex-1 transition-all hover:bg-destructive/90 hover:shadow-md hover:ring-1 hover:ring-destructive/30',
+                    !canPreview && 'w-full',
+                  )}
+                >
+                  <StopIcon size={20} />
+                  {t('recordCard.stopRecording')}
+                </Button>
+              </div>
             )}
-          </div>
+
+            <div className="mt-auto flex flex-col gap-2 sm:hidden">
+              {isReadOnly ? (
+                <EnterLiveRoomButton
+                  href={liveRoomUrl}
+                  label={enterLiveRoomLabel}
+                  variant="default"
+                  size="default"
+                  className="w-full transition-all hover:shadow-lg"
+                />
+              ) : (
+                <>
+                  <EnterLiveRoomButton
+                    href={liveRoomUrl}
+                    label={enterLiveRoomLabel}
+                    variant="default"
+                    size="default"
+                    className="w-full transition-all hover:shadow-lg"
+                  />
+                  {canPreview ? (
+                    <Button
+                      type="button"
+                      variant="default"
+                      className="w-full min-w-0 bg-emerald-600 text-white shadow-xs hover:bg-emerald-600/90 focus-visible:ring-emerald-600/20 dark:bg-emerald-600 dark:hover:bg-emerald-600/90"
+                      onClick={() => setPreviewOpen(true)}
+                    >
+                      <PlayCircleIcon size={18} />
+                      {t('recordCard.previewRecording')}
+                    </Button>
+                  ) : null}
+                  <Button
+                    onClick={handleStop}
+                    disabled={isLoading}
+                    variant="destructive"
+                    className="w-full min-w-0 transition-all hover:bg-destructive/90 hover:shadow-md hover:ring-1 hover:ring-destructive/30"
+                  >
+                    <StopIcon size={20} />
+                    {t('recordCard.stopRecording')}
+                  </Button>
+                </>
+              )}
+            </div>
+          </>
+        ) : null}
+
+        {canPreview ? (
+          <PlaybackPlayerDialog
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+            onPreviewEnded={closePreview}
+            name={task.roomInfo?.title || t('recordCard.roomFallback', { roomId })}
+            preview={{
+              roomId,
+              format: previewFormat,
+              recordDanmaku: !!task.recordDanmaku,
+              audioOnly: !!task.isAudioOnly,
+            }}
+          />
         ) : null}
 
         <Dialog open={isStopDialogOpen} onOpenChange={setIsStopDialogOpen}>

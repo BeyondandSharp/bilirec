@@ -294,6 +294,17 @@ body {
   color: var(--card-foreground);
 }
 
+[data-appearance="dark"] .record-card .record-card-enter-live {
+  background-color: color-mix(in srgb, var(--card) 62%, #000);
+  border-color: rgba(255, 255, 255, 0.07);
+  color: color-mix(in srgb, var(--card-foreground) 90%, transparent);
+}
+
+[data-appearance="dark"] .record-card .record-card-enter-live:hover {
+  background-color: color-mix(in srgb, var(--card) 52%, #000);
+  color: var(--card-foreground);
+}
+
 .cards-grid {
   grid-template-columns: repeat(1, minmax(0, 1fr));
 }
@@ -342,12 +353,63 @@ body {
   }
 }
 
+/* media-chrome only fades slotted chrome while playing; mirror autohide when paused too. */
+.bilirec-playback-player[userinactive] > .bilirec-playback-controls-chrome {
+  opacity: 0;
+  transition: var(--media-control-transition-out, opacity 1s);
+}
+
+/* Inner chrome uses pointer-events-auto; when hidden it must not block video / tap layers. */
+.bilirec-playback-player[userinactive] > .bilirec-playback-controls-chrome * {
+  pointer-events: none;
+}
+
+.bilirec-playback-player:not([userinactive]) > .bilirec-playback-controls-chrome {
+  opacity: 1;
+  transition: var(--media-control-transition-in, opacity 0.25s);
+}
+
+.bilirec-playback-player[userinactive] video[slot="media"] {
+  cursor: none;
+}
+
 /* Danmaku playback player: kill media-chrome default gray control chrome */
 .bilirec-playback-player media-control-bar.bilirec-playback-bar,
 .bilirec-playback-player .bilirec-playback-bar {
   background: transparent !important;
   box-shadow: none !important;
   width: 100%;
+}
+
+.bilirec-playback-player .bilirec-playback-touch,
+.bilirec-playback-player media-play-button,
+.bilirec-playback-player media-seek-backward-button,
+.bilirec-playback-player media-seek-forward-button,
+.bilirec-playback-player media-mute-button,
+.bilirec-playback-player media-captions-button,
+.bilirec-playback-player media-playback-rate-menu-button {
+  cursor: pointer;
+}
+
+/* Spacer width matches PiP me-2.5 / sm:me-3 (Tailwind is unreliable on media-chrome tags). */
+.bilirec-playback-player .bilirec-playback-after-captions-spacer {
+  width: 0.625rem;
+}
+
+@media (min-width: 40rem) {
+  .bilirec-playback-player .bilirec-playback-after-captions-spacer {
+    width: 0.75rem;
+  }
+}
+
+.bilirec-playback-player media-chrome-button.bilirec-playback-pip-spacing {
+  margin-inline-end: 0.625rem;
+}
+
+@media (min-width: 40rem) {
+  .bilirec-playback-player media-chrome-button.bilirec-playback-pip-spacing {
+    margin-inline-end: 0.75rem;
+  }
 }
 
 .bilirec-playback-player media-control-bar.bilirec-playback-bar::part(container),
@@ -364,10 +426,74 @@ body {
   position: relative;
   z-index: 0;
   isolation: isolate;
+  overflow: visible;
 }
 
 .bilirec-playback-player .bilirec-playback-progress-timeline {
   overflow: visible;
+}
+
+.bilirec-playback-player .bilirec-hover-preview {
+  position: relative;
+  width: 160px;
+  height: 90px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.2);
+  border-radius: var(--media-preview-border-radius, 4px) var(--media-preview-border-radius, 4px) 0 0;
+}
+
+.bilirec-playback-player .bilirec-preview-dvr {
+  --dvr-pct: 0%;
+  appearance: none;
+  height: 12px;
+  margin: 0;
+  cursor: pointer;
+  background: transparent;
+}
+
+.bilirec-playback-player .bilirec-preview-dvr::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to right,
+    rgb(255 255 255 / 0.92) 0%,
+    rgb(255 255 255 / 0.92) var(--dvr-pct),
+    rgb(255 255 255 / 0.28) var(--dvr-pct),
+    rgb(255 255 255 / 0.28) 100%
+  );
+}
+
+.bilirec-playback-player .bilirec-preview-dvr::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+
+.bilirec-playback-player .bilirec-preview-dvr::-moz-range-track {
+  height: 4px;
+  border: none;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.28);
+}
+
+.bilirec-playback-player .bilirec-preview-dvr::-moz-range-progress {
+  height: 4px;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 0.92);
+}
+
+.bilirec-playback-player .bilirec-preview-dvr::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
 }
 
 /* Progress track: slim padding (with or without heatmap SVG). Heatmap sits bottom-full of range. */
@@ -445,11 +571,18 @@ media-playback-rate-menu.bilirec-playback-rate-menu {
 
   .bilirec-playback-player media-play-button,
   .bilirec-playback-player media-seek-backward-button,
-  .bilirec-playback-player media-seek-forward-button {
+  .bilirec-playback-player media-seek-forward-button,
+  .bilirec-playback-player media-mute-button {
     min-width: 2.75rem;
   }
 
   .bilirec-playback-player .bilirec-playback-touch {
+    min-width: 2.75rem;
+  }
+
+  .bilirec-playback-player .bilirec-playback-portrait-mute-slot media-mute-button,
+  .bilirec-playback-player .bilirec-playback-portrait-icon-slot .bilirec-playback-touch {
+    width: 100%;
     min-width: 2.75rem;
   }
 
@@ -462,4 +595,116 @@ media-playback-rate-menu.bilirec-playback-rate-menu {
     height: 2.5rem;
     line-height: 2.5rem;
   }
+}
+
+/* Portrait document PiP (fine pointer): same control sizing as @media (pointer: coarse). */
+.bilirec-playback-player--pip-phone-portrait media-play-button,
+.bilirec-playback-player--pip-phone-portrait media-seek-backward-button,
+.bilirec-playback-player--pip-phone-portrait media-seek-forward-button,
+.bilirec-playback-player--pip-phone-portrait media-mute-button,
+.bilirec-playback-player--pip-phone-portrait media-playback-rate-menu-button,
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-touch,
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-rate-btn {
+  --media-control-height: 2.75rem;
+  --media-button-icon-width: 1.5rem;
+  --media-button-icon-height: 1.5rem;
+  --media-button-padding: 0 0.35rem;
+  min-height: 2.75rem;
+}
+
+.bilirec-playback-player--pip-phone-portrait media-play-button,
+.bilirec-playback-player--pip-phone-portrait media-seek-backward-button,
+.bilirec-playback-player--pip-phone-portrait media-seek-forward-button,
+.bilirec-playback-player--pip-phone-portrait media-mute-button {
+  min-width: 2.75rem;
+}
+
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-touch {
+  min-width: 2.75rem;
+}
+
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-portrait-mute-slot media-mute-button,
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-portrait-icon-slot .bilirec-playback-touch {
+  width: 100%;
+  min-width: 2.75rem;
+}
+
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-rate-chip {
+  height: 2.5rem;
+}
+
+.bilirec-playback-player--pip-phone-portrait .bilirec-playback-rate-btn {
+  min-height: 2.5rem;
+  height: 2.5rem;
+  line-height: 2.5rem;
+}
+
+/* Custom subtitle overlay: keep native track for timing, hide browser rendering */
+.bilirec-playback-player video[slot="media"]::cue {
+  opacity: 0 !important;
+}
+
+.bilirec-playback-player video[slot="media"]::-webkit-media-text-track-container,
+.bilirec-playback-player video[slot="media"]::-webkit-media-text-track-display {
+  display: none !important;
+}
+
+.bilirec-subtitle-overlay-host {
+  pointer-events: none;
+}
+
+/* Above bilirec-playback-controls-chrome (z-20) so dragged subtitles stay draggable */
+.bilirec-subtitle-overlay-stage-layer {
+  z-index: 25;
+  overflow: visible;
+}
+
+.bilirec-subtitle-overlay-pill {
+  position: absolute;
+  max-width: 90%;
+  padding: 0.35rem 0.65rem 0.5rem 0.65rem;
+  border-radius: 0.375rem;
+  color: #fff;
+  font-size: clamp(0.75rem, 2.8vw, 1.05rem);
+  line-height: 1.35;
+  text-align: center;
+  white-space: pre-wrap;
+  word-break: break-word;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.95),
+    0 1px 3px rgba(0, 0, 0, 0.85),
+    1px 1px 0 rgba(0, 0, 0, 0.75),
+    -1px -1px 0 rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.bilirec-subtitle-overlay-pill:active {
+  cursor: grabbing;
+}
+
+.bilirec-subtitle-overlay-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  touch-action: none;
+  cursor: nwse-resize;
+}
+
+.bilirec-subtitle-overlay-resize::after {
+  content: "";
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid rgba(255, 255, 255, 0.85);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.85);
+  border-bottom-right-radius: 1px;
+  opacity: 0.75;
 }

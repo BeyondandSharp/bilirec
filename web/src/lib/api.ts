@@ -43,7 +43,7 @@ import {
   isRoomIdList,
   isServerVersionResult
 } from "./backend";
-import { danmakuSidecarCandidatesForVideo } from "./utils";
+import { danmakuSidecarCandidatesForVideo, subtitleSidecarPathForVideo } from "./utils";
 
 /** Encode each path segment for /files/* routes. */
 export function encodeFilePath(path: string): string {
@@ -113,6 +113,18 @@ class ApiClient {
 
   getDanmakuUrl(path: string): string {
     return `${this.originBase()}/files/danmaku/${encodeFilePath(path)}`;
+  }
+
+  getSubtitleUrl(path: string): string {
+    return `${this.originBase()}/files/subtitle/${encodeFilePath(path)}`;
+  }
+
+  previewMediaUrl(roomId: number): string {
+    return `${this.originBase()}/preview/rooms/${roomId}/media`;
+  }
+
+  previewEventsUrl(roomId: number): string {
+    return `${this.originBase()}/preview/rooms/${roomId}/events`;
   }
 
   // Token is handled by an HttpOnly cookie set by the server. We don't store it client-side.
@@ -236,6 +248,9 @@ class ApiClient {
     if (data.recordDanmaku) {
       params.record_danmaku = true;
     }
+    if (data.recordSubtitle) {
+      params.record_subtitle = true;
+    }
     if (data.deleteOldestOnLowDisk) {
       params.delete_oldest_on_low_disk = true;
     }
@@ -262,6 +277,8 @@ class ApiClient {
     onlyMedia: boolean = false,
     sort: "name" | "mtime" = "name",
     order: "asc" | "desc" = "asc",
+    start?: string,
+    end?: string,
   ): Promise<RecordFileListResponse> {
     const encodedPath = path
       .split("/")
@@ -276,6 +293,8 @@ class ApiClient {
       only_media?: boolean
       sort: "name" | "mtime"
       order: "asc" | "desc"
+      start?: string
+      end?: string
     } = {
       offset,
       limit,
@@ -285,6 +304,12 @@ class ApiClient {
     };
     if (onlyMedia) {
       params.only_media = true;
+    }
+    if (start) {
+      params.start = start;
+    }
+    if (end) {
+      params.end = end;
     }
     const response = await this.client.get<RecordFileListResponse>(url, { params });
     return response.data;
@@ -402,6 +427,54 @@ class ApiClient {
    * Resolve paired danmaku sidecar path via HEAD /files/danmaku (session cookie).
    * Do not use /files/download — that route requires a presigned token only.
    */
+  /**
+   * Load WebVTT via the API client (session cookie). Browsers do not reliably
+   * send cookies on cross-origin <track src="…"> even with video crossOrigin.
+   */
+  async loadSubtitleObjectUrl(
+    videoPath: string,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    return this.runWithoutUnauthorizedEvent(async () => {
+      try {
+        const response = await this.client.get(
+          `/files/subtitle/${encodeFilePath(videoPath)}`,
+          { responseType: "blob", signal },
+        );
+        return URL.createObjectURL(
+          new Blob([response.data], { type: "text/vtt" }),
+        );
+      } catch (error) {
+        if (isAxiosError(error) && error.response?.status === 404) {
+          return null;
+        }
+        return null;
+      }
+    });
+  }
+
+  async findSubtitleSidecarPath(videoPath: string): Promise<string | null> {
+    const encodedVideo = encodeFilePath(videoPath);
+    try {
+      const response = await this.client.head(`/files/subtitle/${encodedVideo}`);
+      const cd = response.headers["content-disposition"];
+      const disposition = typeof cd === "string" ? cd : undefined;
+      const match = disposition?.match(/filename="([^"]+)"/i);
+      const basename = match?.[1];
+      if (basename) {
+        const slash = videoPath.lastIndexOf("/");
+        const dir = slash >= 0 ? videoPath.slice(0, slash + 1) : "";
+        return `${dir}${basename}`;
+      }
+      return subtitleSidecarPathForVideo(videoPath);
+    } catch (error) {
+      if (isAxiosError(error) && error.response?.status === 404) {
+        return null;
+      }
+      return null;
+    }
+  }
+
   async findDanmakuSidecarPath(videoPath: string): Promise<string | null> {
     const encodedVideo = encodeFilePath(videoPath);
     try {

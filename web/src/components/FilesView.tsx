@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { usePersistedState } from '@/hooks/use-persisted-state'
 import { ViewModeToggle, type ViewMode } from '@/components/view/ViewModeToggle'
 import { SortControl, type SortDirection } from '@/components/view/SortControl'
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query'
 import { useGridVirtualizer } from '@/hooks/use-grid-virtualizer'
 import { FileCard } from './FileCard'
 import { FileListRow } from './list/FileListRow'
@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CaretLeftIcon, WrenchIcon } from '@phosphor-icons/react'
+import { RecordingBrowseTimeRange } from '@/components/files/RecordingBrowseTimeRange'
 import { SearchBar } from './SearchBar'
 import { apiClient } from '@/lib/api'
 import { isNetworkError, markOnline, noteTransportFailure } from '@/lib/network-status'
@@ -21,6 +22,10 @@ import type { RecordFile, RecordFileListResponse } from '@/lib/types'
 import { useTranslation } from 'react-i18next'
 import { loadOnlyMediaFiles, saveOnlyMediaFiles } from '@/lib/files-view-settings'
 import { useRole } from '@/lib/role-context'
+import {
+  isRecordingBrowseRangeInvalid,
+  recordingBrowseStampFromDatetimeLocal,
+} from '@/lib/recording-browse-time'
 
 type FilesLayoutConfig = {
   pageSize: number
@@ -69,20 +74,68 @@ function FileCardSkeleton() {
   )
 }
 
-const getFilesQueryKey = (path: string, search: string, pageSize: number, onlyMedia: boolean, sort: 'name' | 'mtime', order: SortDirection) => [
-  'files',
-  path,
-  search,
-  pageSize,
-  onlyMedia,
-  sort,
-  order,
-] as const
+const getFilesQueryKey = (
+  path: string,
+  search: string,
+  pageSize: number,
+  onlyMedia: boolean,
+  sort: 'name' | 'mtime',
+  order: SortDirection,
+  startStamp: string | null,
+  endStamp: string | null,
+) =>
+  ['files', path, search, pageSize, onlyMedia, sort, order, startStamp ?? '', endStamp ?? ''] as const
 
 const normalizeList = (items?: RecordFile[]) => {
   return Array.isArray(items)
     ? items.filter((file) => !file.is_dir || file.name !== '..')
     : []
+}
+
+function basenamesFromPaths(paths: readonly string[]): Set<string> {
+  return new Set(
+    paths.map((p) => {
+      const normalized = p.replace(/\\/g, '/')
+      const slash = normalized.lastIndexOf('/')
+      return slash >= 0 ? normalized.slice(slash + 1) : normalized
+    }),
+  )
+}
+
+function removeDeletedFromFilesQueries(
+  queryClient: QueryClient,
+  browsePath: string,
+  deletedBasenames: Set<string>,
+) {
+  if (deletedBasenames.size === 0) return
+
+  queryClient.setQueriesData<InfiniteData<RecordFileListResponse>>(
+    { queryKey: ['files', browsePath], exact: false },
+    (old) => {
+      if (!old?.pages?.length) return old
+
+      let removed = 0
+      const pages = old.pages.map((page) => {
+        const items = page.items.filter((item) => {
+          if (deletedBasenames.has(item.name)) {
+            removed += 1
+            return false
+          }
+          return true
+        })
+        return { ...page, items }
+      })
+
+      if (removed === 0) return old
+
+      const first = pages[0]
+      if (first) {
+        pages[0] = { ...first, total: Math.max(0, first.total - removed) }
+      }
+
+      return { ...old, pages }
+    },
+  )
 }
 
 const CARD_MIN_WIDTH = 300
@@ -101,6 +154,10 @@ export function FilesView() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [onlyMedia, setOnlyMedia] = useState(() => loadOnlyMediaFiles())
+  const [rangeStartInput, setRangeStartInput] = useState('')
+  const [rangeEndInput, setRangeEndInput] = useState('')
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
   const [displayFiles, setDisplayFiles] = useState<RecordFile[]>([])
   const [displayTotal, setDisplayTotal] = useState(0)
   const [isSearchTransition, setIsSearchTransition] = useState(false)
@@ -118,8 +175,30 @@ export function FilesView() {
   const prevPathRef = useRef(currentPath)
   const prevSearchRef = useRef(search)
   const prevOnlyMediaRef = useRef(onlyMedia)
-  const lastAppliedListFilterRef = useRef(`${search}:${onlyMedia}`)
+  const prevRangeStartRef = useRef(rangeStart)
+  const prevRangeEndRef = useRef(rangeEnd)
+  const lastAppliedListFilterRef = useRef(`${search}:${onlyMedia}::`)
   const queryClient = useQueryClient()
+
+  const startStamp = useMemo(
+    () => recordingBrowseStampFromDatetimeLocal(rangeStart, 'start'),
+    [rangeStart],
+  )
+  const endStamp = useMemo(
+    () => recordingBrowseStampFromDatetimeLocal(rangeEnd, 'end'),
+    [rangeEnd],
+  )
+  const rangeInvalid = useMemo(
+    () => isRecordingBrowseRangeInvalid(rangeStart, rangeEnd),
+    [rangeStart, rangeEnd],
+  )
+
+  const clearRangeFilter = useCallback(() => {
+    setRangeStartInput('')
+    setRangeEndInput('')
+    setRangeStart('')
+    setRangeEnd('')
+  }, [])
 
   useEffect(() => {
     const onResize = () => {
@@ -144,9 +223,27 @@ export function FilesView() {
     return () => window.clearTimeout(timer)
   }, [searchInput])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setRangeStart(rangeStartInput.trim())
+      setRangeEnd(rangeEndInput.trim())
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [rangeStartInput, rangeEndInput])
+
   const queryKey = useMemo(
-    () => getFilesQueryKey(currentPath, search, pageSize, onlyMedia, sortField, sortDirection),
-    [currentPath, search, pageSize, onlyMedia, sortField, sortDirection]
+    () =>
+      getFilesQueryKey(
+        currentPath,
+        search,
+        pageSize,
+        onlyMedia,
+        sortField,
+        sortDirection,
+        startStamp,
+        endStamp,
+      ),
+    [currentPath, search, pageSize, onlyMedia, sortField, sortDirection, startStamp, endStamp]
   )
 
   const {
@@ -161,8 +258,19 @@ export function FilesView() {
     hasNextPage
   } = useInfiniteQuery({
     queryKey,
+    enabled: !rangeInvalid,
     queryFn: async ({ pageParam = 0 }: { pageParam: number }) => {
-      const data = await apiClient.getFiles(currentPath, pageParam, pageSize, search, onlyMedia, sortField, sortDirection)
+      const data = await apiClient.getFiles(
+        currentPath,
+        pageParam,
+        pageSize,
+        search,
+        onlyMedia,
+        sortField,
+        sortDirection,
+        startStamp ?? undefined,
+        endStamp ?? undefined,
+      )
       return {
         ...data,
         items: normalizeList(data.items)
@@ -218,7 +326,10 @@ export function FilesView() {
   useEffect(() => {
     const isListFilterChange =
       prevPathRef.current === currentPath &&
-      (prevSearchRef.current !== search || prevOnlyMediaRef.current !== onlyMedia)
+      (prevSearchRef.current !== search ||
+        prevOnlyMediaRef.current !== onlyMedia ||
+        prevRangeStartRef.current !== rangeStart ||
+        prevRangeEndRef.current !== rangeEnd)
 
     if (prevPathRef.current !== currentPath) {
       // Path changed: clear immediately so skeleton can represent new directory load.
@@ -226,6 +337,7 @@ export function FilesView() {
       setDisplayTotal(0)
       setIsSearchTransition(false)
       setRepairSelection(new Set())
+      clearRangeFilter()
     } else if (isListFilterChange && displayFiles.length > 0) {
       // Search or media filter changed under same path: keep old items until new result arrives.
       setIsSearchTransition(true)
@@ -234,12 +346,14 @@ export function FilesView() {
     prevPathRef.current = currentPath
     prevSearchRef.current = search
     prevOnlyMediaRef.current = onlyMedia
-  }, [currentPath, search, onlyMedia, pageSize, displayFiles.length])
+    prevRangeStartRef.current = rangeStart
+    prevRangeEndRef.current = rangeEnd
+  }, [currentPath, search, onlyMedia, rangeStart, rangeEnd, pageSize, displayFiles.length, clearRangeFilter])
 
   useEffect(() => {
-    if (!isSuccess) return
+    if (!isSuccess || rangeInvalid) return
 
-    const listFilterKey = `${search}:${onlyMedia}`
+    const listFilterKey = `${search}:${onlyMedia}:${startStamp ?? ''}:${endStamp ?? ''}`
     if (lastAppliedListFilterRef.current !== listFilterKey) {
       scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
       lastAppliedListFilterRef.current = listFilterKey
@@ -248,7 +362,7 @@ export function FilesView() {
     setDisplayFiles(queryFiles)
     setDisplayTotal(queryTotal)
     setIsSearchTransition(false)
-  }, [isSuccess, queryFiles, queryTotal, search, onlyMedia])
+  }, [isSuccess, queryFiles, queryTotal, search, onlyMedia, startStamp, endStamp, rangeInvalid])
 
   useEffect(() => {
     if (isSearchTransition && !isFetching && !isDebouncingSearch) {
@@ -305,6 +419,7 @@ export function FilesView() {
   const handleNavigate = (path: string) => {
     setSearchInput('')
     setSearch('')
+    clearRangeFilter()
     setCurrentPath(path)
   }
 
@@ -332,11 +447,35 @@ export function FilesView() {
     }
   }
 
+  const handleFileDeleted = useCallback(
+    ({ paths }: { paths: string[] }) => {
+      const deletedNames = basenamesFromPaths(paths)
+      setPlaybackFile((open) => {
+        if (!open) return open
+        const openBase = open.path.replace(/\\/g, '/').split('/').pop()
+        if (openBase && deletedNames.has(openBase)) return null
+        return open
+      })
+      removeDeletedFromFilesQueries(queryClient, currentPath, deletedNames)
+      setDisplayFiles((prev) => {
+        const next = prev.filter((file) => !deletedNames.has(file.name))
+        const removedCount = prev.length - next.length
+        if (removedCount > 0) {
+          setDisplayTotal((total) => Math.max(0, total - removedCount))
+        }
+        return next
+      })
+      void queryClient.invalidateQueries({ queryKey: ['files', currentPath], exact: false })
+    },
+    [currentPath, queryClient],
+  )
+
   const handleBack = () => {
     const parts = currentPath.split('/').filter(Boolean)
     parts.pop()
     setSearchInput('')
     setSearch('')
+    clearRangeFilter()
     setCurrentPath(parts.join('/'))
   }
 
@@ -364,7 +503,7 @@ export function FilesView() {
             </Button>
           )}
 
-          <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
             <SortControl
               id="files-sort"
@@ -379,24 +518,33 @@ export function FilesView() {
               onDirectionChange={setSortDirection}
             />
             {currentPath ? (
-              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                <Label
-                  htmlFor="files-only-media"
-                  className="cursor-pointer text-xs text-muted-foreground sm:text-sm whitespace-nowrap"
-                >
-                  <span className="hidden min-[420px]:inline">{t('filesView.onlyMedia')}</span>
-                  <span className="min-[420px]:hidden">{t('filesView.onlyMediaShort')}</span>
-                </Label>
-                <Switch
-                  id="files-only-media"
-                  checked={onlyMedia}
-                  onCheckedChange={(checked) => {
-                    setOnlyMedia(checked)
-                    saveOnlyMediaFiles(checked)
-                  }}
-                  aria-label={t('filesView.onlyMedia')}
+              <>
+                <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                  <Label
+                    htmlFor="files-only-media"
+                    className="cursor-pointer text-xs text-muted-foreground sm:text-sm whitespace-nowrap"
+                  >
+                    <span className="hidden min-[420px]:inline">{t('filesView.onlyMedia')}</span>
+                    <span className="min-[420px]:hidden">{t('filesView.onlyMediaShort')}</span>
+                  </Label>
+                  <Switch
+                    id="files-only-media"
+                    checked={onlyMedia}
+                    onCheckedChange={(checked) => {
+                      setOnlyMedia(checked)
+                      saveOnlyMediaFiles(checked)
+                    }}
+                    aria-label={t('filesView.onlyMedia')}
+                  />
+                </div>
+                <RecordingBrowseTimeRange
+                  startValue={rangeStartInput}
+                  endValue={rangeEndInput}
+                  onStartChange={setRangeStartInput}
+                  onEndChange={setRangeEndInput}
+                  onClear={clearRangeFilter}
                 />
-              </div>
+              </>
             ) : null}
             <SearchBar
               value={searchInput}
@@ -411,11 +559,14 @@ export function FilesView() {
           </div>
         </div>
 
-        {currentPath && (
-          <p className="text-sm text-muted-foreground truncate">
-            {currentPath}
-          </p>
-        )}
+        {currentPath ? (
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground truncate">{currentPath}</p>
+            {rangeInvalid ? (
+              <p className="text-xs text-destructive">{t('filesView.timeRangeInvalid')}</p>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex-1 min-h-0 relative overflow-hidden">
@@ -493,7 +644,7 @@ export function FilesView() {
                             key={file.path}
                             file={file}
                             onNavigate={handleNavigate}
-                            onDelete={() => void queryClient.invalidateQueries({ queryKey })}
+                            onDelete={handleFileDeleted}
                             onPlayback={handlePlayback}
                             currentPath={currentPath}
                             siblingFileNames={siblingFileNames}

@@ -10,6 +10,8 @@ const DANMAKU_PREVENT_OVERLAP_KEY = "bilirec.playback.danmakuPreventOverlap"
 const DANMAKU_OVERLAP_MODE_KEY = "bilirec.playback.danmakuOverlapMode"
 const SCREEN_DANMAKU_VISIBLE_KEY = "bilirec.playback.screenDanmakuVisible"
 const OVERLAY_CORNER_KEY = "bilirec.playback.overlayCorner"
+const SUBTITLE_OFFSET_KEY = "bilirec.playback.subtitleOffset"
+const SUBTITLE_SCALE_KEY = "bilirec.playback.subtitleScale"
 
 export const DEFAULT_PLAYBACK_RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 /** ~1 frame at 30fps */
@@ -54,6 +56,14 @@ export const OVERLAY_CORNERS: readonly OverlayCorner[] = [
   "hidden",
 ]
 export const DEFAULT_OVERLAY_CORNER: OverlayCorner = "bottom-left"
+
+/** Normalized center of the subtitle pill within the picture box (0–1). */
+export type SubtitleOffset = { x: number; y: number }
+export const DEFAULT_SUBTITLE_OFFSET: SubtitleOffset = { x: 0.5, y: 0.92 }
+/** Subtitle overlay scale (1 = default CSS size). */
+export const DEFAULT_SUBTITLE_SCALE = 1
+export const SUBTITLE_SCALE_MIN = 0.65
+export const SUBTITLE_SCALE_MAX = 2.5
 
 /** Desktop (windowed) playback chat side panel visibility; hidden by default.
  *  Deliberately not persisted — every new playback starts with it closed. */
@@ -326,6 +336,60 @@ export function saveOverlayCorner(corner: OverlayCorner) {
   } catch {
     /* ignore */
   }
+}
+
+function clampSubtitleFraction(n: number): number {
+  if (!Number.isFinite(n)) return 0.5
+  return Math.min(1, Math.max(0, n))
+}
+
+export function loadSubtitleOffset(): SubtitleOffset {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_OFFSET_KEY)
+    if (!raw) return { ...DEFAULT_SUBTITLE_OFFSET }
+    const parsed = JSON.parse(raw) as { x?: unknown; y?: unknown }
+    return {
+      x: clampSubtitleFraction(Number(parsed.x)),
+      y: clampSubtitleFraction(Number(parsed.y)),
+    }
+  } catch {
+    return { ...DEFAULT_SUBTITLE_OFFSET }
+  }
+}
+
+export function saveSubtitleOffset(offset: SubtitleOffset) {
+  try {
+    localStorage.setItem(
+      SUBTITLE_OFFSET_KEY,
+      JSON.stringify({
+        x: clampSubtitleFraction(offset.x),
+        y: clampSubtitleFraction(offset.y),
+      })
+    )
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clampSubtitleScale(scale: number): number {
+  if (!Number.isFinite(scale)) return DEFAULT_SUBTITLE_SCALE
+  return Math.min(SUBTITLE_SCALE_MAX, Math.max(SUBTITLE_SCALE_MIN, scale))
+}
+
+export function loadSubtitleScale(): number {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_SCALE_KEY)
+    if (raw == null || raw === "") return DEFAULT_SUBTITLE_SCALE
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return DEFAULT_SUBTITLE_SCALE
+    return clampSubtitleScale(n)
+  } catch {
+    return DEFAULT_SUBTITLE_SCALE
+  }
+}
+
+export function saveSubtitleScale(scale: number) {
+  writeNumber(SUBTITLE_SCALE_KEY, clampSubtitleScale(scale))
 }
 
 export function loadDesktopChatLayout(): DesktopChatLayout {

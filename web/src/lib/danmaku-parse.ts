@@ -75,6 +75,11 @@ export interface ParseJsonlDanmakuOptions {
   onProgress?: (ratio: number) => void
   onBulletChunk?: (chunk: DanmakuListItem[]) => void
   chunkSize?: number
+  /**
+   * Live preview parses one SSE line at a time (lineNo is always 1). Pass a
+   * monotonic nonce so overlay/chat row ids stay unique across messages.
+   */
+  streamEventNonce?: number | string
 }
 
 export type ParseJsonlDanmakuResult =
@@ -107,6 +112,16 @@ function asString(v: unknown, fallback = ""): string {
 
 const GIFT_COALESCE_MS = 500
 
+function timelineRowId(
+  kind: string,
+  lineNo: number,
+  timeMs: number,
+  nonce?: number | string
+): string {
+  const base = `${kind}-${lineNo}-${timeMs}`
+  return nonce === undefined ? base : `${base}-${nonce}`
+}
+
 /** Drop near-duplicate gifts (same user + gift within window) to limit DOM storms. */
 function coalesceGifts<T extends { kind: string; user: string; giftName?: string; ts: number }>(items: T[]): T[] {
   const out: T[] = []
@@ -126,6 +141,32 @@ function coalesceGifts<T extends { kind: string; user: string; giftName?: string
   return out
 }
 
+/** Append live-preview overlay rows without duplicate ids; coalesce gift bursts. */
+export function mergeStreamOverlays(
+  prev: OverlayEvent[],
+  incoming: OverlayEvent[]
+): OverlayEvent[] {
+  if (incoming.length === 0) return prev
+  const ids = new Set(prev.map((e) => e.id))
+  const fresh = incoming.filter((e) => !ids.has(e.id))
+  if (fresh.length === 0) return prev
+  return coalesceGifts([...prev, ...fresh])
+}
+
+/** Append live-preview chat rows without duplicate ids; coalesce gift bursts. */
+export function mergeStreamChatItems(
+  prev: PlaybackChatItem[],
+  incoming: PlaybackChatItem[]
+): PlaybackChatItem[] {
+  if (incoming.length === 0) return prev
+  const ids = new Set(prev.map((e) => e.id))
+  const fresh = incoming.filter((e) => !ids.has(e.id))
+  if (fresh.length === 0) return prev
+  const merged = coalesceGifts([...prev, ...fresh])
+  merged.sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id))
+  return merged
+}
+
 function flushBulletChunk(
   bullets: DanmakuListItem[],
   onBulletChunk: ((chunk: DanmakuListItem[]) => void) | undefined
@@ -143,6 +184,7 @@ export function parseJsonlDanmaku(
 ): ParseJsonlDanmakuResult {
   const onBulletChunk = options?.onBulletChunk
   const chunkSize = options?.chunkSize ?? DANMAKU_LOAD_CHUNK_SIZE
+  const streamEventNonce = options?.streamEventNonce
   const textLen = text.length
   const onProgress = options?.onProgress
   let lastProgressAt = 0
@@ -196,7 +238,7 @@ export function parseJsonlDanmaku(
         }
       } else {
         const ts = asNumber(obj.ts)
-        const timeMs = Math.max(0, Math.round(ts * 1000))
+        const timeMs = Math.round(ts * 1000)
         const userInfo =
           obj.user_info && typeof obj.user_info === "object"
             ? (obj.user_info as Record<string, unknown>)
@@ -211,7 +253,6 @@ export function parseJsonlDanmaku(
           const textBody = asString(obj.text)
           const color = colorIntToCss(asNumber(obj.color, 0xffffff))
           const { type: dmType, reverse } = modeToType(asNumber(obj.mode, 1))
-          const recordDmType = asNumber(obj.dm_type, 0)
           const emoticonUrl = asString(obj.emoticon_url)
           const styles: DanmakuAttrs = {
             color,
@@ -225,7 +266,7 @@ export function parseJsonlDanmaku(
             custom_css: { "text-shadow": "1px 0 1px #000000" },
           }
           const bullet: BilirecDanmakuListItem = {
-            time: timeMs,
+            time: Math.max(0, timeMs),
             text: textBody,
             reset_styles: true,
             styles,
@@ -237,13 +278,15 @@ export function parseJsonlDanmaku(
             // (see attachEmoteRendering).
             bullet.bigEmote = { dmType: 1, emoticonUrl }
           }
-          bullets.push(bullet)
-          bulletCount += 1
-          if (onBulletChunk && bullets.length >= chunkSize) {
-            flushBulletChunk(bullets, onBulletChunk)
+          if (ts >= 0) {
+            bullets.push(bullet)
+            bulletCount += 1
+            if (onBulletChunk && bullets.length >= chunkSize) {
+              flushBulletChunk(bullets, onBulletChunk)
+            }
           }
           chatItems.push({
-            id: `dm-${lineNo}-${timeMs}`,
+            id: timelineRowId("dm", lineNo, timeMs, streamEventNonce),
             kind: "danmaku",
             ts,
             user,
@@ -253,7 +296,7 @@ export function parseJsonlDanmaku(
           })
         } else if (type === "super_chat") {
           const sc: OverlayEvent = {
-            id: `sc-${lineNo}-${timeMs}`,
+            id: timelineRowId("sc", lineNo, timeMs, streamEventNonce),
             kind: "super_chat",
             ts,
             user,
@@ -272,7 +315,7 @@ export function parseJsonlDanmaku(
           chatItems.push({ ...sc })
         } else if (type === "gift") {
           const gift: OverlayEvent = {
-            id: `gift-${lineNo}-${timeMs}`,
+            id: timelineRowId("gift", lineNo, timeMs, streamEventNonce),
             kind: "gift",
             ts,
             user,
@@ -286,7 +329,7 @@ export function parseJsonlDanmaku(
           chatItems.push({ ...gift })
         } else if (type === "guard") {
           const guard: OverlayEvent = {
-            id: `guard-${lineNo}-${timeMs}`,
+            id: timelineRowId("guard", lineNo, timeMs, streamEventNonce),
             kind: "guard",
             ts,
             user,
