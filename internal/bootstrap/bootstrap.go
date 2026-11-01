@@ -11,6 +11,7 @@ import (
 	"github.com/bilirec/bilirec/internal/controllers/file"
 	lg "github.com/bilirec/bilirec/internal/controllers/logs"
 	nc "github.com/bilirec/bilirec/internal/controllers/notify"
+	pc "github.com/bilirec/bilirec/internal/controllers/preview"
 	"github.com/bilirec/bilirec/internal/controllers/record"
 	repairctl "github.com/bilirec/bilirec/internal/controllers/repair"
 	restartctl "github.com/bilirec/bilirec/internal/controllers/restart"
@@ -32,6 +33,7 @@ import (
 	me "github.com/bilirec/bilirec/internal/services/media"
 	no "github.com/bilirec/bilirec/internal/services/notify"
 	pa "github.com/bilirec/bilirec/internal/services/path"
+	pv "github.com/bilirec/bilirec/internal/services/preview"
 	re "github.com/bilirec/bilirec/internal/services/recorder"
 	rp "github.com/bilirec/bilirec/internal/services/repair"
 	rq "github.com/bilirec/bilirec/internal/services/repairqueue"
@@ -40,6 +42,7 @@ import (
 	se "github.com/bilirec/bilirec/internal/services/settings"
 	st "github.com/bilirec/bilirec/internal/services/stream"
 	sc "github.com/bilirec/bilirec/internal/services/subcheck"
+	sub "github.com/bilirec/bilirec/internal/services/subtitle"
 	su "github.com/bilirec/bilirec/internal/services/subscribe"
 	wh "github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/pkg/logger"
@@ -66,7 +69,9 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Provide(pa.NewService),
 		fx.Provide(co.NewService),
 		fx.Provide(me.NewService),
+		fx.Provide(pv.NewService),
 		fx.Provide(dm.NewService),
+		fx.Provide(sub.NewService),
 		fx.Provide(st.NewService),
 		fx.Provide(cv.NewService),
 		fx.Provide(rp.NewService),
@@ -105,6 +110,7 @@ func MainModule(stores ...*configfile.Store) fx.Option {
 		fx.Invoke(nc.NewController),
 		fx.Invoke(record.NewController),
 		fx.Invoke(file.NewController),
+		fx.Invoke(pc.NewController),
 		fx.Invoke(auth.NewController),
 		fx.Invoke(convert.NewController),
 		fx.Invoke(whc.NewController),

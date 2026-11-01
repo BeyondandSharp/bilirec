@@ -14,6 +14,7 @@ import (
 	"github.com/bilirec/bilirec/pkg/backoff"
 	"github.com/bilirec/bilirec/pkg/ds"
 	"github.com/bilirec/bilirec/pkg/pipeline"
+	"github.com/bilirec/bilirec/utils"
 )
 
 const (
@@ -304,6 +305,9 @@ func (s *session) enqueue(build fragmentBuilder, eventType string) {
 		s.svc.pool.PutBytes(buf)
 		return
 	}
+	if s.encoder.Ext() == ".jsonl" && s.svc.preview != nil {
+		s.svc.preview.PublishEvent(s.roomID, frag)
+	}
 	if config.ReadOnly.DanmakuOverflowPolicy() == "block" {
 		select {
 		case s.msgCh <- frag:
@@ -373,7 +377,7 @@ func (s *session) writeLoop(videoPath string, segmentStart time.Time) {
 }
 
 func (s *session) openSegment(req rotateRequest) {
-	p := PathForVideo(req.videoPath, s.encoder.Ext())
+	p := utils.SidecarPathForVideo(req.videoPath, s.encoder.Ext())
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		log.Errorf("房间 %d 创建弹幕目录失败：%v", s.roomID, err)
 		return
@@ -509,7 +513,7 @@ func (s *session) applyDiscards() {
 }
 
 func (s *session) applyOneDiscard(videoPath string) {
-	if s.writer != nil && PathForVideo(videoPath, s.encoder.Ext()) == s.curPath {
+	if s.writer != nil && utils.SidecarPathForVideo(videoPath, s.encoder.Ext()) == s.curPath {
 		s.abandonCurrentSidecar()
 		return
 	}
@@ -532,7 +536,7 @@ func (s *session) abandonCurrentSidecar() {
 }
 
 func (s *session) removeSidecarFile(videoPath string) {
-	p := PathForVideo(videoPath, s.encoder.Ext())
+	p := utils.SidecarPathForVideo(videoPath, s.encoder.Ext())
 	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 		log.Warnf("房间 %d 删除弹幕文件失败：%s err=%v", s.roomID, p, err)
 	}

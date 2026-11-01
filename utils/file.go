@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bilirec/bilirec/pkg/ds"
 	"github.com/shirou/gopsutil/v4/disk"
@@ -40,6 +41,14 @@ func ChangePathFormat(path string, newFormat string) string {
 		return path + "." + newFormat
 	}
 	return path[0:len(path)-len(ext)] + "." + newFormat
+}
+
+// SidecarPathForVideo maps a video segment path to a paired sidecar path with the given extension (e.g. ".jsonl", ".vtt").
+func SidecarPathForVideo(videoPath, ext string) string {
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	return strings.TrimSuffix(videoPath, filepath.Ext(videoPath)) + ext
 }
 
 func IsFileExists(path string) bool {
@@ -92,12 +101,13 @@ func IsRecordingMediaFilename(name string) bool {
 	return recordingMediaExtensions.Contains(ext)
 }
 
-// ParseRecordingSegmentFilename extracts the trailing timestamp and optional rotation segment from a media basename.
-func ParseRecordingSegmentFilename(name string) (stamp string, segment int, ok bool) {
-	if !IsRecordingMediaFilename(name) {
-		return "", 0, false
-	}
-	m := recordingNameStamp.FindStringSubmatch(strings.TrimSuffix(name, filepath.Ext(name)))
+// RecordingNameStampLayout is the timestamp suffix in recording filenames (local time).
+const RecordingNameStampLayout = "20060102_150405"
+
+// ParseRecordingFilenameStamp extracts the trailing timestamp and optional rotation segment from a basename.
+func ParseRecordingFilenameStamp(name string) (stamp string, segment int, ok bool) {
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	m := recordingNameStamp.FindStringSubmatch(base)
 	if m == nil {
 		return "", 0, false
 	}
@@ -106,6 +116,27 @@ func ParseRecordingSegmentFilename(name string) (stamp string, segment int, ok b
 		segment, _ = strconv.Atoi(m[2])
 	}
 	return m[1], segment, true
+}
+
+// RecordingFilenameTime parses the recording timestamp embedded in name (any extension).
+func RecordingFilenameTime(name string) (t time.Time, segment int, ok bool) {
+	stamp, segment, ok := ParseRecordingFilenameStamp(name)
+	if !ok {
+		return time.Time{}, 0, false
+	}
+	parsed, err := time.ParseInLocation(RecordingNameStampLayout, stamp, time.Local)
+	if err != nil {
+		return time.Time{}, 0, false
+	}
+	return parsed, segment, true
+}
+
+// ParseRecordingSegmentFilename extracts the trailing timestamp and optional rotation segment from a media basename.
+func ParseRecordingSegmentFilename(name string) (stamp string, segment int, ok bool) {
+	if !IsRecordingMediaFilename(name) {
+		return "", 0, false
+	}
+	return ParseRecordingFilenameStamp(name)
 }
 
 // RoomRecordingDirs lists output subdirectories whose name ends with "-{roomID}".

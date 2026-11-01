@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"testing"
@@ -347,16 +348,18 @@ func TestLiveMessageClientRunAgainstFakeServer(t *testing.T) {
 	defer server.stop()
 
 	c := NewLiveMessageClient(777, 999, "buvid-test")
-	c.plainWS = true
 	danmakuFn, danmakuCh := collectHandler()
 	giftFn, giftCh := collectHandler()
 	c.HandleFunc("DANMU_MSG", danmakuFn)
 	c.HandleFunc("SEND_GIFT", giftFn)
 
+	host := server.host()
+	wsURL := fmt.Sprintf("ws://%s:%d/sub", host.Host, host.WssPort)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	runDone := make(chan error, 1)
 	go func() {
-		runDone <- c.Run(ctx, server.host(), "token123")
+		runDone <- c.runAt(ctx, wsURL, "token123")
 	}()
 
 	select {
@@ -425,12 +428,13 @@ func TestLiveMessageClientServerClose(t *testing.T) {
 	defer server.stop()
 
 	c := NewLiveMessageClient(777, 0, "")
-	c.plainWS = true
+	host := server.host()
+	wsURL := fmt.Sprintf("ws://%s:%d/sub", host.Host, host.WssPort)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := c.Run(ctx, server.host(), "")
+	err := c.runAt(ctx, wsURL, "")
 	if err == nil {
 		t.Fatal("Run should return an error when the server closes the connection")
 	}

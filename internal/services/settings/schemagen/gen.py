@@ -1,5 +1,6 @@
 # Generates internal/services/settings/schema.go (CONFIG-V2 managed-key metadata).
 # Run from repo root:  python3 internal/services/settings/schemagen/gen.py
+# Then format the generated file:  gofmt -w internal/services/settings/schema.go
 # meta.py holds the curated zh-CN/zh-TW/en labels/descriptions; edit it when keys
 # change, then regenerate and run the settings/schema tests.
 import re, json, os
@@ -180,7 +181,7 @@ def group_of(k):
              'SERVER_CRT','SERVER_KEY','PRODUCTION_MODE','DEBUG',
              'BILIBILI_LOGIN_MODE','TZ','USERNAME','VIEWER_USERNAME','WEBHOOK_URLS','WEBPUSH_SUBSCRIBER'):
         return 'server'
-    if p.startswith('LIVE_STREAM_WRITER_') or p.startswith('READ_STREAM_') or p in ('STREAM_WRITER_BUFFER_SIZE','UPLOAD_BUFFER_SIZE','DOWNLOAD_BUFFER_SIZE','MAX_CONCURRENT_RECORDINGS','MAX_RECORDING_HOURS','MAX_RECOVERY_ATTEMPTS','MAX_RETRY_SECONDS','RECORDING_RECOVERY_DURATION','STREAM_IDLE_TIMEOUT','DROP_FILE_PAGE_CACHE','SEQUENTIAL_WRITE','SKIP_SMALL_FLUSH','SKIP_SMALL_FLUSH_THRESHOLD','TITLE_POLL_SECS','MAX_CONCURRENT_RECORDING'):
+    if p.startswith('LIVE_STREAM_WRITER_') or p.startswith('READ_STREAM_') or p in ('STREAM_WRITER_BUFFER_SIZE','UPLOAD_BUFFER_SIZE','DOWNLOAD_BUFFER_SIZE','MAX_CONCURRENT_RECORDINGS','MAX_RECORDING_HOURS','MAX_RECOVERY_ATTEMPTS','MAX_RETRY_SECONDS','RECORDING_RECOVERY_DURATION','STREAM_IDLE_TIMEOUT','DROP_FILE_PAGE_CACHE','SEQUENTIAL_WRITE','SKIP_SMALL_FLUSH','SKIP_SMALL_FLUSH_THRESHOLD','TITLE_POLL_SECS','MAX_CONCURRENT_RECORDING','PREVIEW_MEDIA_MAX_QUEUED_BYTES'):
         return 'recording'
     if p in features: return 'features'
     return 'server'

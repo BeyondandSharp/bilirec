@@ -171,7 +171,10 @@ func TestValidate_DanmakuOverflowPolicy_Valid(t *testing.T) {
 }
 
 func TestDanmakuOverflowPolicy_Default(t *testing.T) {
-	g := NewGlobalReadOnlyForTest(false, 0)
+	g := &GlobalReadOnly{config: &Config{
+		dropFilePageCache:                      false,
+		liveStreamWriterColdCacheReleasePeriod: 0,
+	}}
 	if got := g.DanmakuOverflowPolicy(); got != "drop" {
 		t.Fatalf("DanmakuOverflowPolicy() = %q, want drop", got)
 	}

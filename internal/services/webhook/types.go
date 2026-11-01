@@ -26,6 +26,7 @@ type SegmentMeta struct {
 	AreaNameParent   string
 	AreaNameChild    string
 	RecordDanmaku    bool
+	RecordSubtitle   bool
 	DanmakuConnected bool
 	Recording        bool
 	Streaming        bool

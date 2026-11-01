@@ -13,6 +13,7 @@ type Stats struct {
 	BytesWritten        uint64       `json:"bytes_written"`
 	DanmakuBytesWritten uint64       `json:"danmaku_bytes_written"`
 	RecordDanmaku       bool         `json:"record_danmaku"`
+	RecordSubtitle      bool         `json:"record_subtitle"`
 	Status              RecordStatus `json:"status"`
 	StartTime           int64        `json:"start_time"`
 	ElapsedSeconds      int64        `json:"elapsed_seconds"`
@@ -86,6 +87,7 @@ func (r *Service) GetStats(roomId int) (*Stats, bool) {
 		BytesWritten:        info.bytesWritten.Load(),
 		DanmakuBytesWritten: danmakuBytes,
 		RecordDanmaku:       info.startOptions.recordDanmaku,
+		RecordSubtitle:      info.startOptions.recordSubtitle,
 		Status:              status,
 		StartTime:           info.startTime.Unix(),
 		ElapsedSeconds:      int64(time.Since(info.startTime).Seconds()),
@@ -105,7 +107,7 @@ func (r *Service) IsRecording(path string) bool {
 	if r.writingFiles.Contains(base) {
 		return true
 	}
-	if !isDanmakuSidecarExt(filepath.Ext(base)) {
+	if !isRecordingSidecarExt(filepath.Ext(base)) {
 		return false
 	}
 	queryStem := recordingFileStem(base)
@@ -120,9 +122,9 @@ func (r *Service) IsRecording(path string) bool {
 	return false
 }
 
-func isDanmakuSidecarExt(ext string) bool {
+func isRecordingSidecarExt(ext string) bool {
 	switch strings.ToLower(ext) {
-	case ".jsonl", ".xml":
+	case ".jsonl", ".xml", ".vtt":
 		return true
 	default:
 		return false

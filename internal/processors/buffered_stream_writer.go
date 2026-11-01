@@ -2,7 +2,10 @@ package processors
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"hash/fnv"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -42,6 +45,12 @@ const (
 	// createFileFailureLogInterval limits warning frequency when file creation keeps failing.
 	createFileFailureLogInterval = 5 * time.Second
 )
+
+// ErrPendingOverflow is returned when deferred file creation fails and pending
+// data exceeded maxPendingBytesBeforeDrop; the segment is abandoned for recovery.
+var ErrPendingOverflow = errors.New("待写数据超过上限且文件尚未创建，放弃本段")
+
+type writerFatalErr struct{ err error }
 
 type tryLocker interface {
 	sync.Locker
@@ -104,6 +113,8 @@ type BufferedStreamWriterProcessor struct {
 	periodicSignalCh      <-chan struct{}
 	periodicUnregister    func()
 	minPeriodicFlushBytes int
+
+	fatal atomic.Pointer[writerFatalErr]
 }
 
 // livePeriodicRoundRobin serializes periodic work across live writers when SEQUENTIAL_WRITE is on.
@@ -215,6 +226,9 @@ func (w *BufferedStreamWriterProcessor) periodicIOConfig() (periodicIOMode, time
 func (w *BufferedStreamWriterProcessor) Process(ctx context.Context, log logger.Logger, data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return data, nil
+	}
+	if err := w.fatalErr(); err != nil {
+		return data, err
 	}
 
 	cp := w.bytesPool.GetSized(len(data))
@@ -364,6 +378,10 @@ func (w *BufferedStreamWriterProcessor) deferredFileCreation() bool {
 }
 
 func (w *BufferedStreamWriterProcessor) handleDataChunk(data []byte) {
+	if w.fatalErr() != nil {
+		w.bytesPool.Put(data)
+		return
+	}
 	if w.deferredFileCreation() && w.file.Load() == nil {
 		threshold := w.skipSmallFlushThreshold
 		w.pendingChunks = append(w.pendingChunks, data)
@@ -401,6 +419,7 @@ func (w *BufferedStreamWriterProcessor) handleDataChunk(data []byte) {
 				err,
 			)
 			w.releasePendingChunks()
+			w.setFatal(ErrPendingOverflow)
 			return
 		}
 		// Reset throttling state after file creation recovers.
@@ -412,12 +431,7 @@ func (w *BufferedStreamWriterProcessor) handleDataChunk(data []byte) {
 
 	if w.writer != nil {
 		n, err := w.writer.Write(data)
-		if n != len(data) {
-			w.logger.Warnf("写入数据长度不完整：%d/%d", n, len(data))
-		}
-		if err != nil {
-			w.logger.Warnf("写入数据失败：%v", err)
-		}
+		w.noteWriteFailure(len(data), n, err)
 		w.addWrittenBytes(n)
 		w.syncBufferedBytes()
 		w.bytesPool.Put(data)
@@ -673,6 +687,36 @@ func WithBytesPool(bp pool.SizedBytesPool) BufferedStreamWriterOptions {
 	}
 }
 
+func (w *BufferedStreamWriterProcessor) setFatal(err error) {
+	if err == nil || w.fatal.Load() != nil {
+		return
+	}
+	w.fatal.Store(&writerFatalErr{err: err})
+}
+
+func (w *BufferedStreamWriterProcessor) fatalErr() error {
+	p := w.fatal.Load()
+	if p == nil {
+		return nil
+	}
+	return p.err
+}
+
+func (w *BufferedStreamWriterProcessor) noteWriteFailure(chunkLen, n int, err error) {
+	if w.fatalErr() != nil {
+		return
+	}
+	if err != nil {
+		w.logger.Warnf("写入数据失败：%v", err)
+		w.setFatal(fmt.Errorf("写入数据失败: %w", err))
+		return
+	}
+	if n != chunkLen {
+		w.logger.Warnf("写入数据长度不完整：%d/%d", n, chunkLen)
+		w.setFatal(fmt.Errorf("写入数据失败: %w", io.ErrShortWrite))
+	}
+}
+
 func (w *BufferedStreamWriterProcessor) releasePendingChunks() {
 	for _, chunk := range w.pendingChunks {
 		w.bytesPool.Put(chunk)
@@ -683,13 +727,12 @@ func (w *BufferedStreamWriterProcessor) releasePendingChunks() {
 
 func (w *BufferedStreamWriterProcessor) writePendingChunksToWriter() {
 	for _, chunk := range w.pendingChunks {
+		if w.fatalErr() != nil {
+			w.bytesPool.Put(chunk)
+			continue
+		}
 		n, err := w.writer.Write(chunk)
-		if n != len(chunk) {
-			w.logger.Warnf("写入待缓存数据长度不完整：%d/%d", n, len(chunk))
-		}
-		if err != nil {
-			w.logger.Warnf("写入待缓存数据失败：%v", err)
-		}
+		w.noteWriteFailure(len(chunk), n, err)
 		w.addWrittenBytes(n)
 		w.bytesPool.Put(chunk)
 	}

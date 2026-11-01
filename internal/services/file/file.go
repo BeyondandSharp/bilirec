@@ -29,11 +29,9 @@ type Service struct {
 
 	path *path.Service
 
-	serveCacheMu                sync.Mutex
-	serveCache                  map[string]*serveCacheSession
-	serveCacheStopped           bool
-	dropPageCacheFn             func(string) error
-	serveCacheIdleDelayOverride time.Duration
+	serveCacheMu      sync.Mutex
+	serveCache        map[string]*serveCacheSession
+	serveCacheStopped bool
 }
 
 type Tree struct {
@@ -54,8 +52,10 @@ type ListOptions struct {
 	Filter    func(fs.DirEntry) bool // nil = no filter
 	Search    string                 // empty = no search
 	OnlyMedia bool                   // keep directories; hide non-media files
-	Sort      string                 // name|mtime (default name)
-	Order     string                 // asc|desc (default asc)
+	Sort      string                 // name|mtime; empty = browse ordering (see ListTreeWithOptions)
+	Order     string                 // asc|desc; used together with Sort
+	Start     *time.Time             // nil = no lower bound (files only, by filename time, mtime fallback)
+	End       *time.Time             // nil = no upper bound (files only, by filename time, mtime fallback)
 	Offset    int
 	Limit     int // 0 = all
 }
@@ -203,7 +203,18 @@ func (s *Service) ListTreeWithOptions(path string, opts ListOptions) (*PagedTree
 		filtered = append(filtered, entry)
 	}
 
-	sortDirEntries(filtered, opts.Sort, opts.Order)
+	filtered = filterByRecordingTimeRange(filtered, opts.Start, opts.End)
+
+	// Sorting: an explicit sort/order from the caller keeps the fork's
+	// name/mtime ordering (directories first, then files/dirs by the requested
+	// field). With no explicit sort/order the upstream browse ordering is used:
+	// directories by mtime newest-first, files by filename timestamp
+	// newest-first.
+	if opts.Sort != "" || opts.Order != "" {
+		sortDirEntries(filtered, opts.Sort, opts.Order)
+	} else {
+		sortBrowseEntries(filtered)
+	}
 
 	total := len(filtered)
 

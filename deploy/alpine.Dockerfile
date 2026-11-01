@@ -97,6 +97,8 @@ ENV CONFIG_FILE=/app/config/config.json \
     PUID=10001 \
     PGID=10001
 
+# Defaults reproduce native v0.3.1 behavior (docs/INTERFACES.md §2.3); upstream v0.4.0
+# adds the per-preview-connection outbound queue cap.
 ENV PORT=8080 \
     DOWNLOADER=auto \
     DOWNLOADER_FALLBACK=native \
@@ -107,6 +109,7 @@ ENV PORT=8080 \
     FLV_REPAIR_MODE=best-effort \
     FLV_REPAIR_MAX_BUFFER_MB=64 \
     EXTERNAL_START_TIMEOUT_SECS=20 \
+    PREVIEW_MEDIA_MAX_QUEUED_BYTES=4194304 \
     OUTPUT_DIR=records \
     DATABASE_DIR=database \
     SECRET_DIR=secrets \

@@ -691,6 +691,57 @@ print("%d requires:ffmpeg fields, disabled=%s" % (checked, disabled))
 PY
 }
 
+# config_schema_key_ok <file> <key>
+# upstream v0.4.0: the preview queue cap must be a managed /config schema field.
+config_schema_key_ok() {
+  python3 - "$1" "$2" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+want = sys.argv[2]
+for group in ((d.get("schema") or {}).get("groups") or []):
+    for field in group.get("fields") or []:
+        if field.get("key") == want:
+            default = field.get("default")
+            if not isinstance(default, str) or not default:
+                sys.exit("%s schema field has no string default: %r" % (want, default))
+            print("%s in schema group %r default=%r" % (want, group.get("id"), default))
+            sys.exit(0)
+sys.exit("%s missing from /config schema" % want)
+PY
+}
+
+# browse_items_ok <response-file> <expect-include-json> <expect-exclude-json>
+# /files/browse items by name: directories are always listed, files are filtered.
+browse_items_ok() {
+  python3 - "$1" "$2" "$3" <<'PY'
+import json
+import sys
+
+d = json.load(open(sys.argv[1]))
+inc = json.loads(sys.argv[2])
+exc = json.loads(sys.argv[3])
+items = d.get("items")
+if not isinstance(items, list):
+    sys.exit("items is not a list")
+names = {i.get("name") for i in items if isinstance(i, dict)}
+errs = []
+for name in inc:
+    if name not in names:
+        errs.append("missing %r" % name)
+for name in exc:
+    if name in names:
+        errs.append("unexpected %r" % name)
+total = d.get("total")
+if not isinstance(total, int) or total < len(items):
+    errs.append("total=%r inconsistent with %d items" % (total, len(items)))
+if errs:
+    sys.exit("; ".join(errs))
+print("items=%s" % sorted(names))
+PY
+}
+
 # json_key_missing <file> <top-level-key>
 json_key_missing() {
   python3 - "$1" "$2" <<'PY'
@@ -1566,6 +1617,11 @@ if out=$(config_shape_ok "$API_BODY" "$BACKEND_CONFIG" "$BACKEND_SECRETS" 2>&1);
 else
   fail "GET /config shape/schema: $out"
 fi
+if out=$(config_schema_key_ok "$API_BODY" PREVIEW_MEDIA_MAX_QUEUED_BYTES 2>&1); then
+  pass "GET /config schema exposes upstream v0.4.0 key: $out"
+else
+  fail "/config schema missing PREVIEW_MEDIA_MAX_QUEUED_BYTES: $out"
+fi
 
 code=$(api GET /config/secrets)
 expect_status 200 "$code" "GET /config/secrets (auth disabled)"
@@ -1740,6 +1796,43 @@ if out=$(schema_ffmpeg_ok "$API_BODY" "$((1 - conv_expect))" 2>&1); then
 else
   fail "schema requires:ffmpeg disabled_reason: $out"
 fi
+
+
+# ---------------------------------------------------------------------------
+# 5c-2. upstream v0.4.0 offline check: /files/browse start/end time filter
+# ---------------------------------------------------------------------------
+say "upstream v0.4.0: /files/browse start/end time filter"
+BROWSE_DIR="$WORK/backend/records/e2e-range"
+mkdir -p "$BROWSE_DIR/20260303_120000_dir"
+: >"$BROWSE_DIR/e2e-20260101_120000.flv"
+: >"$BROWSE_DIR/e2e-20260202_120000.flv"
+
+AUTH="-"
+code=$(api GET "/files/browse/e2e-range")
+expect_status 200 "$code" "GET /files/browse/e2e-range (no filter)"
+if out=$(browse_items_ok "$API_BODY" \
+    '["e2e-20260101_120000.flv","e2e-20260202_120000.flv","20260303_120000_dir"]' '[]' 2>&1); then
+  pass "browse without start/end lists all files+dirs: $out"
+else
+  fail "browse without start/end: $out"
+fi
+
+code=$(api GET "/files/browse/e2e-range?start=20260115_000000&end=20260215_000000")
+expect_status 200 "$code" "GET /files/browse?start&end (in range)"
+if out=$(browse_items_ok "$API_BODY" \
+    '["e2e-20260202_120000.flv","20260303_120000_dir"]' \
+    '["e2e-20260101_120000.flv"]' 2>&1); then
+  pass "browse start/end filters files and keeps directories: $out"
+else
+  fail "browse start/end filter: $out"
+fi
+
+code=$(api GET "/files/browse/e2e-range?start=2026-01-01")
+expect_status 400 "$code" "GET /files/browse invalid start -> 400"
+code=$(api GET "/files/browse/e2e-range?end=not-a-stamp")
+expect_status 400 "$code" "GET /files/browse invalid end -> 400"
+code=$(api GET "/files/browse/e2e-range?start=20260303_000000&end=20260101_000000")
+expect_status 400 "$code" "GET /files/browse start>end -> 400"
 
 
 # ---------------------------------------------------------------------------
@@ -2332,6 +2425,26 @@ else
     code=$(login "$E2E_VIEWER_USER" "$E2E_VIEWER_PASS" "$VIEWER_JAR")
     expect_status 200 "$code" "POST /login viewer ($E2E_VIEWER_USER)"
     json_assert "$WORK/out/login.json" role '"viewer"' "viewer login returns role=viewer"
+
+    # upstream v0.4.0: recording preview is admin-only (401/403/409) and the
+    # subtitle sidecar endpoint is a 404 for a missing .vtt.
+    AUTH="-"
+    code=$(api GET "/preview/rooms/$SEED_ROOM_ID/media")
+    expect_status 401 "$code" "GET /preview/rooms/<id>/media without token"
+    code=$(api GET "/preview/rooms/$SEED_ROOM_ID/events")
+    expect_status 401 "$code" "GET /preview/rooms/<id>/events without token"
+    AUTH="$VIEWER_JAR"
+    code=$(api GET "/preview/rooms/$SEED_ROOM_ID/media")
+    expect_status 403 "$code" "GET /preview/rooms/<id>/media as viewer (admin-only)"
+    code=$(api GET "/preview/rooms/$SEED_ROOM_ID/events")
+    expect_status 403 "$code" "GET /preview/rooms/<id>/events as viewer (admin-only)"
+    AUTH="$ADMIN_JAR"
+    code=$(api GET "/preview/rooms/$SEED_ROOM_ID/media")
+    expect_status 409 "$code" "GET /preview/rooms/<id>/media as admin, no recording -> 409"
+    code=$(api GET "/preview/rooms/$SEED_ROOM_ID/events")
+    expect_status 409 "$code" "GET /preview/rooms/<id>/events as admin, no recording -> 409"
+    code=$(api GET "/files/subtitle/e2e-range/no-such-video.flv")
+    expect_status 404 "$code" "GET /files/subtitle/<missing .vtt> as admin -> 404"
 
     # Persistence across the restart (overrides written in phase 5b).
     AUTH="$ADMIN_JAR"

@@ -53,6 +53,20 @@ Feature keys: `SEGMENT_MODE`, `SEGMENT_MINUTES`, `SEGMENT_SIZE_MB`, `SEGMENT_BY_
 `FLV_DISABLE_SPLIT_ON_ANNEXB`, `BILI_LIVE_API_HOST`, `BILI_LIVE_API_FALLBACK_HOST`,
 `BILI_CDN`, `BILI_CDN_FALLBACK`, `BILI_FORCE_SOURCE`, `BILI_REPLACE_CN01`.
 
+upstream `v0.4.0` 合并新增一个受管非敏感键（schema 已随 `internal/modules/config/config.go`
+的 `os.Getenv` 重新生成登记）：
+
+| 键 | 类型 | 默认 | 生效 | schema group | 说明 |
+|---|---|---|---|---|---|
+| `PREVIEW_MEDIA_MAX_QUEUED_BYTES` | number（字节） | `4194304` | 重启 | `recording` | 每个预览 `/preview/.../media` 连接的出站队列上限；≤0 回退默认 |
+
+- 该键可写在 `config.json` 或环境变量（优先级不变），修改后进入 `/config`
+  `restart_required`，重启生效。
+- `SILENT_ACCESS_LOG` **不是本 fork 的受管键**：上游 `v0.4.0` 对该开关的 Skip 时机修复不恢复，
+  fork 已在 `63eaf4c` 移除该键，访问日志改由分来源日志承担（D018/D022）。
+- `record_subtitle` **不是**全局受管键：它是开录参数/房间配置（见 `FEATURES-V2.md` §3.5、
+  `INTERFACES.md` §8.4），不进入 `/config` schema。
+
 ## 3. Default filename template
 
 `FILENAME_TEMPLATE` default is now:

@@ -1,6 +1,7 @@
 package danmaku
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/bilirec/bilirec/internal/modules/config"
+	"go.uber.org/fx"
 	"github.com/bilirec/bilirec/pkg/benchreport"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bytedance/sonic"
@@ -23,7 +25,11 @@ func benchDanmakuSetup(b *testing.B) {
 	b.Helper()
 	logger.SetLevel(logger.ErrorLevel)
 	if config.ReadOnly == nil {
-		config.ReadOnly = config.NewGlobalReadOnlyForTest(false, 0)
+		app := fx.New(config.Module, fx.NopLogger, fx.Invoke(func(*config.Config) {}))
+		if err := app.Start(context.Background()); err != nil {
+			b.Fatal(err)
+		}
+		b.Cleanup(func() { _ = app.Stop(context.Background()) })
 	}
 }
 
@@ -149,9 +155,7 @@ func BenchmarkPipeline_HandleAndWrite(b *testing.B) {
 func benchmarkHandleAndWrite(b *testing.B, format string) {
 	b.Helper()
 	benchDanmakuSetup(b)
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest("block")
-	defer func() { config.ReadOnly = prev }()
+	useDanmakuOverflowPolicy(b, "block")
 
 	svc := newTestService()
 	svc.outputFormat = format
@@ -184,9 +188,7 @@ func benchmarkHandleAndWrite(b *testing.B, format string) {
 
 func BenchmarkEnqueue_DropWhenFull(b *testing.B) {
 	benchDanmakuSetup(b)
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest("drop")
-	defer func() { config.ReadOnly = prev }()
+	useDanmakuOverflowPolicy(b, "drop")
 
 	svc := newTestService()
 	sess, _ := newTestSession(svc, "jsonl")

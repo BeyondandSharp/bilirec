@@ -18,6 +18,7 @@ import (
 	"github.com/bilirec/bilirec/internal/services/path"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/pkg/logger"
+	"github.com/bilirec/bilirec/utils"
 	"github.com/gofiber/fiber/v3"
 )
 
@@ -51,6 +52,7 @@ func NewController(
 	files.Get("/browse/*", fc.listFiles)
 	files.Get("/playback/*", fc.playbackFile)
 	files.Get("/danmaku/*", fc.fetchDanmaku)
+	files.Get("/subtitle/*", fc.fetchSubtitle)
 	files.Get("/download/*", fc.downloadFile)
 	files.Get("/disk-space", fc.getDiskSpace)
 	files.Post("/presigned/*", fc.createPresignedURL)
@@ -156,6 +158,44 @@ func (c *Controller) fetchDanmaku(ctx fiber.Ctx) error {
 	return c.sendFileWithIdleCacheRelease(ctx, fullPath, fiber.SendFile{ByteRange: true})
 }
 
+// @Summary Fetch subtitle sidecar for a video
+// @Description Stream the WebVTT sidecar paired with a video segment (.vtt)
+// @Tags files
+// @Security BearerAuth
+// @Produce text/vtt
+// @Param path path string true "Video file path"
+// @Success 200 {file} binary "WebVTT subtitle"
+// @Failure 400 {string} string "Bad request"
+// @Failure 404 {string} string "Not found"
+// @Router /files/subtitle/{path} [get]
+func (c *Controller) fetchSubtitle(ctx fiber.Ctx) error {
+	raw := ctx.Params("*", "/")
+	videoPath, err := url.PathUnescape(raw)
+	if err != nil {
+		return fiber.ErrBadRequest
+	}
+	if c.recorderSvc.IsRecording(videoPath) {
+		return fiber.NewError(fiber.StatusBadRequest, "无法获取正在录制分段的字幕")
+	}
+
+	cand := utils.SidecarPathForVideo(videoPath, ".vtt")
+	fullPath, err := c.pathSvc.ValidatePath(cand)
+	if err != nil {
+		return fiber.ErrNotFound
+	}
+	st, err := os.Stat(fullPath)
+	if err != nil || st.IsDir() {
+		return fiber.NewError(fiber.StatusNotFound, "字幕文件不存在")
+	}
+
+	ctx.Set(fiber.HeaderContentType, "text/vtt; charset=utf-8")
+	ctx.Set(
+		fiber.HeaderContentDisposition,
+		"inline; filename=\""+filepath.Base(fullPath)+"\"",
+	)
+	return c.sendFileWithIdleCacheRelease(ctx, fullPath, fiber.SendFile{ByteRange: true})
+}
+
 func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string, cfg fiber.SendFile) error {
 	done := c.fileSvc.BeginServeCacheRelease(fullPath)
 	defer done()
@@ -163,7 +203,7 @@ func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string
 }
 
 // @Summary List files and directories
-// @Description List files and directories under a given path with optional pagination and search
+// @Description List files and directories under a given path. By default directories sort by last modified (newest first) and files by filename timestamp (newest first); when sort/order are supplied the fork's explicit name/mtime ordering is used instead. Optional start/end filter files by embedded recording time (20060102_150405).
 // @Tags files
 // @Security BearerAuth
 // @Accept json
@@ -173,8 +213,10 @@ func (c *Controller) sendFileWithIdleCacheRelease(ctx fiber.Ctx, fullPath string
 // @Param limit query int false "Limit (default 0 = all, max 200)"
 // @Param search query string false "Search by filename (case-insensitive)"
 // @Param only_media query bool false "When true, list only directories and media files (mp4, m4a, ts, fmp4, flv)"
-// @Param sort query string false "Sort field: name|mtime (default name)"
-// @Param order query string false "Sort order: asc|desc (default asc)"
+// @Param sort query string false "Sort field: name|mtime (optional; explicit sort/order switches to name/mtime ordering)"
+// @Param order query string false "Sort order: asc|desc (optional)"
+// @Param start query string false "Filter files: filename time lower bound (20060102_150405)"
+// @Param end query string false "Filter files: filename time upper bound (20060102_150405)"
 // @Success 200 {object} file.PagedTree "Paged list of files and directories"
 // @Failure 400 {string} string "Invalid path"
 // @Failure 403 {string} string "Forbidden"
@@ -197,19 +239,28 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 	}
 
 	onlyMedia, _ := strconv.ParseBool(ctx.Query("only_media", "false"))
-	sortField := strings.ToLower(strings.TrimSpace(ctx.Query("sort", "name")))
-	if sortField == "" {
-		sortField = "name"
-	}
-	if sortField != "name" && sortField != "mtime" {
+	// sort/order stay empty unless explicitly requested: the service then keeps
+	// the browse ordering (dirs by mtime, files by filename time) and only
+	// switches to the fork's name/mtime ordering when either is supplied.
+	sortField := strings.ToLower(strings.TrimSpace(ctx.Query("sort")))
+	if sortField != "" && sortField != "name" && sortField != "mtime" {
 		return fiber.NewError(fiber.StatusBadRequest, "sort 必须为 name 或 mtime")
 	}
-	order := strings.ToLower(strings.TrimSpace(ctx.Query("order", "asc")))
-	if order == "" {
-		order = "asc"
-	}
-	if order != "asc" && order != "desc" {
+	order := strings.ToLower(strings.TrimSpace(ctx.Query("order")))
+	if order != "" && order != "asc" && order != "desc" {
 		return fiber.NewError(fiber.StatusBadRequest, "order 必须为 asc 或 desc")
+	}
+
+	start, err := parseRecordingBrowseTimeQuery(ctx.Query("start"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "start 格式无效，应为 YYYYMMDD_HHMMSS")
+	}
+	end, err := parseRecordingBrowseTimeQuery(ctx.Query("end"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "end 格式无效，应为 YYYYMMDD_HHMMSS")
+	}
+	if start != nil && end != nil && start.After(*end) {
+		return fiber.NewError(fiber.StatusBadRequest, "start 不能晚于 end")
 	}
 
 	paged, err := c.fileSvc.ListTreeWithOptions(path, file.ListOptions{
@@ -220,6 +271,8 @@ func (c *Controller) listFiles(ctx fiber.Ctx) error {
 		OnlyMedia: onlyMedia,
 		Sort:      sortField,
 		Order:     order,
+		Start:     start,
+		End:       end,
 		Offset:    offset,
 		Limit:     limit,
 	})
@@ -434,6 +487,17 @@ func (c *Controller) withRecordingStatus(items []file.Tree) []file.Tree {
 		}
 	}
 	return out
+}
+
+func parseRecordingBrowseTimeQuery(raw string) (*time.Time, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	t, err := time.ParseInLocation(utils.RecordingNameStampLayout, raw, time.Local)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // mediaTokenFiberError maps media presigned token errors to HTTP responses.

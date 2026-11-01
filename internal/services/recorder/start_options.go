@@ -12,6 +12,7 @@ type RecordStartOptions struct {
 	duration              time.Duration
 	streamOptions         []bilibili.GetStreamURLsOption
 	recordDanmaku         bool
+	recordSubtitle        bool
 	deleteOldestOnLowDisk bool
 	hasDownloader         bool
 	downloaderKind        downloader.Kind
@@ -42,6 +43,14 @@ func WithStreamOptions(opts ...bilibili.GetStreamURLsOption) RecordStartOption {
 func WithRecordDanmaku(enabled bool) RecordStartOption {
 	return func(o *RecordStartOptions) {
 		o.recordDanmaku = enabled
+	}
+}
+
+// WithRecordSubtitle enables AI subtitle sidecar extraction for this start.
+// Default is false when the option is omitted.
+func WithRecordSubtitle(enabled bool) RecordStartOption {
+	return func(o *RecordStartOptions) {
+		o.recordSubtitle = enabled
 	}
 }
 

@@ -33,7 +33,6 @@ func BenchmarkFlvStrategy_PipelineWriterThroughput(b *testing.B) {
 	}
 	defer pipe.Close()
 
-	// Prime FLV session header once.
 	if _, err := pipe.Process(ctx, flv.FlvHeader); err != nil {
 		b.Fatalf("header process failed: %v", err)
 	}

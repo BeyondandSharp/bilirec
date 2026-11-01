@@ -272,3 +272,84 @@ internalStart
 - Upload, mobile, playback features, metrics dashboards.
 - Cross-platform builds beyond linux/amd64 (build tags must still compile on other OS where
   possible; no Android).
+
+## 8. upstream v0.4.0 增量（2026-11-02 合一，见 D022）
+
+以下接口/字段随 `v0.4.0`（`7d51ba9`）并入；除特别说明外沿用既有认证约定
+（启用认证后 GET 需 admin/viewer cookie，未登录 401、角色不足 403）。
+
+### 8.1 录制中实时预览（仅 admin）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/preview/rooms/{roomID}/media` | 录制中实时媒体流（单路 HTTP 字节流，非 Range 请求） |
+| GET | `/preview/rooms/{roomID}/events` | SSE 弹幕/互动事件流 |
+
+- `/media` 直接转发当前录制分段字节：`Content-Type` 按分段扩展名
+  （`.flv`→`video/x-flv`、`.ts`→`video/mp2t`、`.fmp4`→`video/mp4`，其他
+  `application/octet-stream`）；连接建立时先补发当前分段的文件头 + 首个音/视频关键帧
+  （fMP4 补 `ftyp` init），随后转发增量数据。
+- `/events` 为 SSE：`data:` 为 jsonl 互动行（时间戳按预览连接起点 rebase），连接建立时先
+  补发最近约 **60 秒** 的 jsonl 互动；心跳 25 秒；客户端断开即退订。
+- 两个响应都设置 `Cache-Control: no-store`、`Pragma: no-cache`、`Expires: 0` 和
+  `X-Accel-Buffering: no`；反代必须关闭缓冲/压缩，否则实时性失效。
+- 错误：未登录 401；viewer 403；房间当前没有录制 409；非法房间 ID 400。
+- 限制：不支持 Range/DVR，不做持久缓冲，不能回看更早内容；`/media` 每个连接有独立
+  出站字节上限 `PREVIEW_MEDIA_MAX_QUEUED_BYTES`（默认 `4194304`），超限即断开该连接并
+  记 warn（不影响录制），客户端重连即可。
+- 实现：`internal/controllers/preview` + `internal/services/preview`，由录像 pipeline 的
+  `preview-fanout` processor 扇出；不再是 HLS 跟随/文件 tail。
+
+### 8.2 AI 字幕 sidecar
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/files/subtitle/{path}` | 按视频分段路径取同名 `.vtt` 字幕（inline） |
+
+- `{path}` 是视频文件（如 `records/xxx/xxx.flv`）的相对路径；服务端按
+  `<同目录>/<同名>.vtt` 查找，不是任意路径。
+- 录制中的分段返回 400（`无法获取正在录制分段的字幕`）；`.vtt` 不存在或路径非法返回 404；
+  viewer 可读。
+- 生成规则（`record_subtitle`）：开录参数（query/body，默认 `false`，见 §8.4）或房间配置
+  `record_subtitle`；**只有**房间开播信息里 AI 字幕可用（`subtitle_cfg.status==1`）且该会话
+  打开时才启用。每分段在收尾时若有有效 cue 才写同名 `.vtt`（WebVTT，cue 起点相对该分段），
+  无 cue 不落盘；纯音频不提取；分段因过小/写盘失败被丢弃时同时删除 `.vtt`。
+- 已知限制：SEI 能否在外部下载器（ffmpeg/streamlink）与 FLV 修复路径中保留尚未实机验证，
+  字幕提取建议使用原生下载器（待验证，见 D022）。
+
+### 8.3 `/files/browse` 时间筛选
+
+`GET /files/browse/{path}` 新增 query：
+
+| 参数 | 格式 | 说明 |
+|---|---|---|
+| `start` | `YYYYMMDD_HHMMSS` | 文件名时间下界（含），空 = 不限 |
+| `end` | `YYYYMMDD_HHMMSS` | 文件名时间上界（含），空 = 不限 |
+
+- 只过滤**文件**，目录始终保留；`start>end` 返回 400，格式非法返回 400（`start 格式无效…`）。
+- 文件名解析不出时间时回退用文件 mtime 参与筛选（fork 决策）；与既有 `sort`
+  （`name|mtime`）/`order`（`asc|desc`）共存：显式给出时用 fork 排序，未给出时用上游默认
+  浏览顺序（目录新→旧，文件按文件名时间新→旧）。
+
+### 8.4 `record_subtitle`（开录参数与房间配置）
+
+- `POST /record/{roomID}/start`：query `record_subtitle=true|false`（默认 false）或 JSON body
+  字段 `record_subtitle`（请求带 body 时以 body 为准，query 被忽略）；`GET /record/{roomID}/stats` 返回
+  `record_subtitle` 表示本次会话是否请求字幕提取。
+- `GET/PUT /room/{roomID}/config`：`record_subtitle` 是否随自动录制开启字幕提取，默认
+  `false`；subcheck 自动开录读取该房间配置。
+- webhook：`SegmentMeta.RecordSubtitle`（转码任务持久化用）；录制 stats 的
+  `record_subtitle` 是会话实际值。
+- 说明：这是**按次/按房间**的开关，不是全局 `/config` 键；见 `docs/FEATURES-V2.md`。
+
+### 8.5 配置键
+
+| 键 | 默认 | 生效 | 说明 |
+|---|---|---|---|
+| `PREVIEW_MEDIA_MAX_QUEUED_BYTES` | `4194304` | 重启 | 每个 `/preview/.../media` 连接的出站队列上限（字节）；≤0 时回退默认值 |
+
+- 该键在 `config.json`/环境变量中设置，`restart_required` 生效，并登记到 `/config` schema
+  （`internal/services/settings/schemagen` 生成）。
+- 上游 `v0.4.0` 的 `SILENT_ACCESS_LOG`（fiber logger `Skip` 只在响应后跳过 <400 的访问日志）
+  **未恢复**：fork 在 `63eaf4c` 移除了该键，访问日志由分来源日志承担（D018/D022）。
+  `deploy/upstream.Dockerfile` 仅作为上游归档保留（含该 ENV），不参与构建。

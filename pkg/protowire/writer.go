@@ -2,7 +2,7 @@ package protowire
 
 import "encoding/binary"
 
-// Writer encodes protobuf wire fields. Intended for tests and fixtures.
+// Writer encodes protobuf wire fields for hand-built protobuf payloads.
 type Writer struct {
 	buf []byte
 }

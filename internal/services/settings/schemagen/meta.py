@@ -42,6 +42,7 @@ META = {
 "READ_STREAM_CHAN_BUFFER_SIZE": ("读取通道缓冲", "读取流通道的缓冲条目数。", "讀取通道緩衝", "讀取串流通道的緩衝條目數。", "Read stream channel buffer", "Number of buffered entries in the read stream channel."),
 "READ_STREAM_CHAN_BUFFER_SIZE_HIGH": ("读取通道缓冲上限", "读取流通道的最大缓冲条目数。", "讀取通道緩衝上限", "讀取串流通道的最大緩衝條目數。", "Read stream channel buffer (high)", "Maximum buffered entries in the read stream channel."),
 "RECORDING_RECOVERY_DURATION": ("恢复时长策略", "preserve 保留已录时长，reset 重新计时。", "恢復時長策略", "preserve 保留已錄時長，reset 重新計時。", "Recovery duration policy", "preserve keeps the recorded duration, reset restarts the timer."),
+"PREVIEW_MEDIA_MAX_QUEUED_BYTES": ("预览出站队列上限", "每个预览 HTTP 观众连接允许缓冲的最大字节数，超出即断开该连接；默认 4 MiB。", "預覽出站佇列上限", "每個預覽 HTTP 觀眾連線允許緩衝的最大位元組數，超出即中斷該連線；預設 4 MiB。", "Preview outbound queue limit", "Maximum bytes buffered per preview HTTP viewer connection before that connection is dropped; default 4 MiB."),
 "SEQUENTIAL_WRITE": ("顺序写入", "按顺序写入数据块以减少磁盘寻道。", "順序寫入", "依序寫入資料塊以減少磁碟尋道。", "Sequential write", "Write chunks sequentially to reduce disk seeks."),
 "SKIP_SMALL_FLUSH": ("跳过小块刷新", "小数据块写入时不立即刷新。", "跳過小塊刷新", "小資料塊寫入時不立即刷新。", "Skip small flush", "Do not flush immediately for small chunks."),
 "SKIP_SMALL_FLUSH_THRESHOLD": ("小块刷新阈值", "低于该字节数的写入不立即刷新。", "小塊刷新閾值", "低於該位元組數的寫入不立即刷新。", "Skip small flush threshold", "Writes smaller than this many bytes are not flushed immediately."),

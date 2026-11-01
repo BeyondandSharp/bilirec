@@ -87,7 +87,7 @@ func (r *Service) internalStart(p internalStartParams) error {
 	}
 
 	startTimeStreamURLs := time.Now()
-	streams, err := r.bilic.GetStreamURLsV2(p.roomId, appendStreamOptions(p.opts.streamOptions, fetchOptions)...)
+	streams, playExtra, err := r.bilic.GetStreamURLsV2WithExtra(p.roomId, appendStreamOptions(p.opts.streamOptions, fetchOptions)...)
 	durationStreamURLs := time.Since(startTimeStreamURLs)
 	l.Debugf("duration: function=GetStreamURLsV2 spent=%v", durationStreamURLs)
 
@@ -159,6 +159,9 @@ func (r *Service) internalStart(p internalStartParams) error {
 		if err != nil {
 			discardStreamCh(ch, chunkPool)
 			return err
+		}
+		if playExtra != nil {
+			info.liveSubtitleEnabled.Store(playExtra.SubtitleEnabled)
 		}
 		info.chunkPool = chunkPool
 		info.SetStream(streamInfo.Qn, streamInfo.IsAudioOnly, actualFormat)
@@ -280,9 +283,9 @@ func (r *Service) connectStream(
 	streamInfo bilibili.StreamURLInfo,
 	urlPreview string,
 	idx, total int,
-) (<-chan []byte, rs.StreamRecordStrategy, *pool.BucketedBytesPool, string, downloader.Kind, bool, error) {
+) (<-chan []byte, rs.RecordStrategy, *pool.BucketedBytesPool, string, downloader.Kind, bool, error) {
 	var ch <-chan []byte
-	var strategy rs.StreamRecordStrategy
+	var strategy rs.RecordStrategy
 	actualFormat := streamInfo.Format
 	// usedDownloader starts as native: it is upgraded only when the external
 	// downloader actually starts (fallback still records as native).
@@ -413,8 +416,8 @@ func (r *Service) connectStream(
 		ch = hlsCh
 		strategy = utils.TernaryFunc(
 			streamInfo.Format == "ts",
-			func() rs.StreamRecordStrategy { return rs.NewHlsTsStrategy(streamInfo.Qn) },
-			func() rs.StreamRecordStrategy { return rs.NewHlsFmp4Strategy(streamInfo.Qn) },
+			func() rs.RecordStrategy { return rs.NewHlsTsStrategy(streamInfo.Qn) },
+			func() rs.RecordStrategy { return rs.NewHlsFmp4Strategy(streamInfo.Qn) },
 		)
 		connected = true
 	case "flv":
@@ -563,7 +566,7 @@ func (r *Service) connectExternalStream(
 	chunkPool *pool.BucketedBytesPool,
 	releasePool func(),
 	flvSplitOptions rs.FlvSplitOptions,
-) (<-chan []byte, rs.StreamRecordStrategy, bool) {
+) (<-chan []byte, rs.RecordStrategy, bool) {
 	d := r.downloaderFor(kind)
 	if d == nil {
 		l.Warnf("未找到外部下载器：downloader=%s", kind)

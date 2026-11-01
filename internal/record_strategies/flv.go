@@ -17,8 +17,6 @@ const (
 	flvStateAudioHdr = "audioHdr"
 )
 
-// FlvStrategy handles HTTP-FLV byte streams.
-// It is a zero-invasion extraction of the logic previously inlined in rotate().
 type FlvStrategy struct {
 	sharedFixer            *flv.RealtimeFixer
 	writerPool             *pool.BucketedBytesPool
@@ -146,9 +144,6 @@ func (s *FlvStrategy) HandleErr(err error) ErrHandleResult {
 
 	var headerChanged *flv.FlvHeaderChangedError
 	if errors.As(err, &headerChanged) {
-		// Reset per-stream fixer state on rotation:
-		// - timestamps should restart from 0 in the new segment
-		// - dedup cache should not suppress fresh leading tags across segment boundary
 		s.sharedFixer.ResetTimestampStore()
 		s.sharedFixer.ResetDedupCache()
 		state := &RotationState{

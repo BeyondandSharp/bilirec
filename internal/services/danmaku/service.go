@@ -9,8 +9,10 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/modules/metrics"
+	"github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/pkg/logger"
 	"github.com/bilirec/bilirec/pkg/pool"
+	"github.com/bilirec/bilirec/utils"
 	"github.com/puzpuzpuz/xsync/v4"
 	"go.uber.org/fx"
 )
@@ -27,6 +29,7 @@ var log = logger.Named("danmaku")
 // loops, goroutines and the buffer pool only exist while a session runs.
 type Service struct {
 	bilic    *bilibili.Client
+	preview  *preview.Service
 	sessions *xsync.Map[int, *session]
 	metrics  *metrics.Exporter
 
@@ -42,10 +45,12 @@ func NewService(
 	cfg *config.Config,
 	bilic *bilibili.Client,
 	m *metrics.Exporter,
+	previewSvc *preview.Service,
 ) *Service {
 	s := &Service{
 		outputFormat: cfg.DanmakuOutputFormat,
 		bilic:        bilic,
+		preview:      previewSvc,
 		sessions:     xsync.NewMap[int, *session](),
 		metrics:      m,
 	}
@@ -91,7 +96,7 @@ func (s *Service) StartSession(roomID int, recCtx context.Context, videoPath str
 		sess.writeLoop(videoPath, segmentStart)
 	})
 
-	log.Infof("房间 %d 弹幕录制已开始：%s", roomID, PathForVideo(videoPath, enc.Ext()))
+	log.Infof("房间 %d 弹幕录制已开始：%s", roomID, utils.SidecarPathForVideo(videoPath, enc.Ext()))
 }
 
 // IsSessionActive reports whether a room has a live danmaku recording session.
@@ -195,7 +200,7 @@ func (s *Service) removeSidecarFile(videoPath string) {
 		log.Errorf("弹幕输出格式无效，无法删除 sidecar：%v", err)
 		return
 	}
-	p := PathForVideo(videoPath, enc.Ext())
+	p := utils.SidecarPathForVideo(videoPath, enc.Ext())
 	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 		log.Warnf("删除弹幕文件失败：%s err=%v", p, err)
 	}

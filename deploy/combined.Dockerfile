@@ -138,6 +138,7 @@ ENV CONFIG_FILE=/app/config/config.json \
 
 # Same defaults as the backend-only image; the frontend is served on :80 and
 # nginx proxies everything that is not a static file to 127.0.0.1:8080.
+# upstream v0.4.0 adds the per-preview-connection outbound queue cap.
 ENV PORT=8080 \
     DOWNLOADER=auto \
     DOWNLOADER_FALLBACK=native \
@@ -148,6 +149,7 @@ ENV PORT=8080 \
     FLV_REPAIR_MODE=best-effort \
     FLV_REPAIR_MAX_BUFFER_MB=64 \
     EXTERNAL_START_TIMEOUT_SECS=20 \
+    PREVIEW_MEDIA_MAX_QUEUED_BYTES=4194304 \
     OUTPUT_DIR=records \
     DATABASE_DIR=database \
     SECRET_DIR=secrets \

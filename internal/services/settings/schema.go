@@ -241,6 +241,8 @@ var fieldSpecs = []Field{
 
 	{Key: "PORT", Group: "server", Kind: "number", Default: "8080", SizeUnit: "", Min: ptrInt(1), Max: ptrInt(65535), Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "监听端口", ZhTW: "監聽連接埠", En: "Listen port"}, Description: LangText{ZhCN: "HTTP 服务监听端口，默认 8080。", ZhTW: "HTTP 服務監聽連接埠，預設 8080。", En: "HTTP listen port, default 8080."}},
 
+	{Key: "PREVIEW_MEDIA_MAX_QUEUED_BYTES", Group: "recording", Kind: "number", Default: "4194304", SizeUnit: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "预览出站队列上限", ZhTW: "預覽出站佇列上限", En: "Preview outbound queue limit"}, Description: LangText{ZhCN: "每个预览 HTTP 观众连接允许缓冲的最大字节数，超出即断开该连接；默认 4 MiB。", ZhTW: "每個預覽 HTTP 觀眾連線允許緩衝的最大位元組數，超出即中斷該連線；預設 4 MiB。", En: "Maximum bytes buffered per preview HTTP viewer connection before that connection is dropped; default 4 MiB."}},
+
 	{Key: "PRODUCTION_MODE", Group: "server", Kind: "bool", Default: "false", SizeUnit: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "生产模式", ZhTW: "生產模式", En: "Production mode"}, Description: LangText{ZhCN: "启用面向生产环境的发布行为。", ZhTW: "啟用面向生產環境的發布行為。", En: "Enable production-oriented release behavior."}},
 
 	{Key: "PUBLIC_BASE_URL", Group: "server", Kind: "string", Default: "", SizeUnit: "", Min: nil, Max: nil, Enum: nil, RestartRequired: true, Sensitive: false, Requires: "", Label: LangText{ZhCN: "公开访问地址", ZhTW: "公開存取位址", En: "Public base URL"}, Description: LangText{ZhCN: "对外访问地址，用于生成外部链接。", ZhTW: "對外存取位址，用於產生外部連結。", En: "Externally visible base URL used in generated links."}},

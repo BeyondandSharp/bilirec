@@ -121,6 +121,26 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 - 恢复仍受 `MAX_RECOVERY_ATTEMPTS` 限制；设置页/环境变量修改需重启；
 - 旧版 `MAX_RETRY_MINUTES` 仍兼容，但不再显示在设置页。
 
+## 录制中实时预览（管理员）
+
+- 录制进行中可在 Web 端实时观看当前画面与弹幕/互动；**仅管理员**可用（未登录 401、viewer 403、
+  该房间当前无录制 409）。
+- 走同源 API：`GET /preview/rooms/{id}/media`（当前分段的 HTTP 字节流）与
+  `GET /preview/rooms/{id}/events`（SSE 弹幕/互动）。不支持回看/DVR，服务端只补发最近约 60 秒互动。
+- 反向代理不要缓冲 SSE/媒体流（后端已发 `X-Accel-Buffering: no` 与 `no-store`）；每个预览连接的
+  出站队列上限由 `PREVIEW_MEDIA_MAX_QUEUED_BYTES`（默认 `4194304`，重启生效）控制，超限只断开该
+  预览连接，不影响录像。
+- 配置与排障详见 [docs/OPERATIONS-V2.md](docs/OPERATIONS-V2.md) §4d。
+
+## AI 字幕录制
+
+- 打开 `record_subtitle`（手动开录参数或房间配置，默认关）且该房间提供 B 站直播 AI 字幕时，每个
+  录制分段会生成同名 `.vtt`；播放器可开关字幕。
+- 纯音频不提取；录制中的分段不能取字幕（400）；分段因过小/写盘失败被丢弃时 `.vtt` 一并删除。
+- 已知限制：外部下载器（ffmpeg/streamlink）与 FLV 修复路径下 SEI 是否保留**尚未实机验证**，
+  字幕提取建议使用原生下载器。详见 [docs/FEATURES-V2.md](docs/FEATURES-V2.md) §3.5、
+  [docs/INTERFACES.md](docs/INTERFACES.md) §8.2。
+
 ## PUID / PGID（后端与前后端合一镜像）
 
 - `PUID`/`PGID` 默认 `10001`；入口允许与镜像内已有用户/组重复 ID（LinuxServer.io 风格 `groupmod -o` / `usermod -o`），因此 `PGID=100`（`users` 组）也可用。
@@ -232,8 +252,11 @@ compose 默认把四个卷挂到上述路径；直接 `docker run` 时同样建�
 
 - [docs/OPERATIONS-V2.md](docs/OPERATIONS-V2.md)：部署、配置/密钥、PUID/PGID、升级备份、排障
 - [docs/CONFIG-V2.md](docs/CONFIG-V2.md)：统一配置中心契约（文件/优先级/API/默认文件名）
-- [docs/FEATURES-V2.md](docs/FEATURES-V2.md)：分段、路径模板、过滤、封面、弹幕、FLV、B05 高级拉流
+- [docs/FEATURES-V2.md](docs/FEATURES-V2.md)：分段、路径模板、过滤、封面、弹幕、FLV、B05 高级拉流、AI 字幕
+- [docs/INTERFACES.md](docs/INTERFACES.md)：接口契约（含预览 API、字幕 sidecar、文件浏览时间筛选）
 - [docs/LOGS-VIEW.md](docs/LOGS-VIEW.md)：本地日志查看/下载契约（`LOCAL_LOGS_*`、`/logs` API）
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)：构建/测试/架构/验证
+- [UPSTREAM.md](UPSTREAM.md)：上游版本 pin 与同步方式
 
 ## 许可证
 

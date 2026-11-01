@@ -29,12 +29,14 @@ import (
 	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/notify"
 	"github.com/bilirec/bilirec/internal/services/path"
+	"github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/internal/services/recorder"
 	"github.com/bilirec/bilirec/internal/services/repair"
 	"github.com/bilirec/bilirec/internal/services/room"
 	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/stream"
 	"github.com/bilirec/bilirec/internal/services/subscribe"
+	"github.com/bilirec/bilirec/internal/services/subtitle"
 	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/process"
@@ -67,6 +69,7 @@ type Session struct {
 	Recorder *recorder.Service
 	Room     *room.Service
 	Danmaku  *danmaku.Service
+	Preview  *preview.Service
 	Metrics  *metrics.Exporter
 	Monitor  *Monitor
 }
@@ -79,6 +82,7 @@ func NewSession(t *testing.T) *Session {
 	var recorderService *recorder.Service
 	var roomService *room.Service
 	var danmakuService *danmaku.Service
+	var previewService *preview.Service
 	var metricsExporter *metrics.Exporter
 
 	app := fxtest.New(t,
@@ -91,14 +95,16 @@ func NewSession(t *testing.T) *Session {
 		fx.Provide(webhook.NewService),
 		fx.Provide(convert.NewService),
 		fx.Provide(notify.NewService),
+		fx.Provide(preview.NewService),
 		fx.Provide(danmaku.NewService),
 		fx.Provide(cover.NewService),
 		fx.Provide(repair.NewService),
 		fx.Provide(subscribe.NewService),
 		fx.Provide(func() *configfile.Store { return nil }),
 		fx.Provide(settings.NewService),
+		fx.Provide(subtitle.NewService),
 		fx.Provide(recorder.NewService),
-		fx.Populate(&biliClient, &recorderService, &roomService, &danmakuService, &metricsExporter),
+		fx.Populate(&biliClient, &recorderService, &roomService, &danmakuService, &previewService, &metricsExporter),
 	)
 	app.RequireStart()
 
@@ -108,6 +114,7 @@ func NewSession(t *testing.T) *Session {
 		Recorder: recorderService,
 		Room:     roomService,
 		Danmaku:  danmakuService,
+		Preview:  previewService,
 		Metrics:  metricsExporter,
 		Monitor:  monitor,
 	}

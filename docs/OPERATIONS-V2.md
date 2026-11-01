@@ -69,6 +69,8 @@ FEATURES-V2 的房间覆盖始终高于以上全局链（见 §5）。`GET /conf
 - **其余环境类配置**（端口、目录、并发、日志路径/格式/轮转、下载器/修复二进制、FRP、转码等）：
   写入后需要重启进程；`PUT /config` 返回的 `restart_required` 会列出待重启键，重启后清空。API 也以 `restart_required` 字段
   暴露该列表。
+- `PREVIEW_MEDIA_MAX_QUEUED_BYTES`（预览出站队列）同属重启生效配置：写入后出现在
+  `restart_required`，重启后生效。
 - `GET /settings` 的 `values` 是"全局默认值 + 全局覆盖"合并结果；房间覆盖在解析会话快照时再叠加。
 - 默认文件名模板（CONFIG-V2 §3）：`{roomid}-{uname}/{date}_{time}_{title}`，相对 `OUTPUT_DIR`，`/` 建子目录；
   显式设置为空字符串则保留旧版命名 `<uname>-<roomid>/<title>-YYYYMMDD_HHMMSS.ext`。
@@ -191,6 +193,62 @@ curl -fsS -b cookies.txt -X PUT -H 'Content-Type: application/json' \
 - 修改端口/TLS/认证/域名后旧页面地址可能失效，需要手动使用新地址。
 
 
+## 4d. 录制中实时预览（仅管理员）
+
+upstream `v0.4.0` 起，预览不再是 HLS 跟随/文件 tail，而是由录像 pipeline 扇出直接推流：
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/preview/rooms/{roomID}/media` | 当前录制分段的单路 HTTP 字节流（flv/ts/fmp4） |
+| GET | `/preview/rooms/{roomID}/events` | SSE 弹幕/互动事件流 |
+
+- 权限：仅 **admin**。未登录 401、viewer 403、房间当前没有可预览的录制 409、非法房间 ID 400。
+- 限制：不支持 Range/DVR，不做持久缓冲；`/events` 只在连接建立时补发最近约 60 秒的 jsonl
+  互动（更早内容不回放）。Web 端“回看缓冲”只是播放器本地缓冲，不是服务端 DVR。
+- `PREVIEW_MEDIA_MAX_QUEUED_BYTES`（默认 `4194304`，重启生效）：每个 `/media` 连接的出站
+  队列上限，可在 `config.json` 或环境变量设置。超过上限时服务端断开**该预览连接**并记
+  warn（`出站队列已满（overflow）`），录像与其它连接不受影响；刷新/重连即可。弱网或反代
+  缓冲会更快触发，适当调大或修复反代。
+- **反向代理要求（重要）**：SSE 与媒体流都必须关闭代理缓冲，否则画面/弹幕延迟或卡死。
+  后端已对这两个响应发送 `Cache-Control: no-store` 与 `X-Accel-Buffering: no`（nginx 会
+  尊重该响应头），但双保险建议仍显式配置，例如 nginx：
+
+```nginx
+location /preview/ {
+    proxy_pass http://bilirec:8080;
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+    gzip off;
+}
+```
+
+  Caddy/Traefik 等默认不缓冲，`flush_interval -1`（Caddy）或保持流式转发即可；若前置
+  Cloudflare 等 CDN，需要确认其不缓冲 SSE/长连接，否则预览不可用。
+
+## 4e. AI 字幕 sidecar（`record_subtitle`）
+
+- 开关是**按次/按房间**的，不是全局键，默认 **关**：
+  - 手动开录：`POST /record/{roomID}/start` 的 query 或 JSON body 传 `record_subtitle=true`；
+  - 自动开录（subcheck）：房间配置 `record_subtitle=true`（`PUT /room/{roomID}/config`）。
+- 只有房间开播信息里 **AI 字幕可用**（`subtitle_cfg.status==1`）且本次开关打开时才提取；
+  纯音频不提取；不支持的字幕源不会报错，只是不生成文件。
+- 命名与存放：与视频分段**同目录同名**，扩展名 `.vtt`（如 `records/xxx/xxx.flv` →
+  `records/xxx/xxx.vtt`）。`.vtt` 是隐藏 sidecar：`only_media` 文件列表不单独列出，播放器
+  默认关闭字幕轨、可手动开关；前端通过 `GET /files/subtitle/{path}` 加载（只接受视频路径，
+  服务端自行推导 `.vtt`，不开放任意路径）。
+- 分段因过小/写盘失败被丢弃时，同名 `.vtt` 一并删除；录制中的分段请求字幕返回 **400**
+  （`无法获取正在录制分段的字幕`），`.vtt` 不存在/路径非法返回 **404**。
+- 已知限制：外部下载器（ffmpeg/streamlink）与 FLV 修复路径下 SEI 是否保留**尚未实机验证**；
+  需要稳定提取时建议用原生下载器（`DOWNLOADER=native`），并在升级后实机确认。
+- 手工验证：
+  `GET /room/{id}/config` 看 `record_subtitle`；开录后等分段收尾再
+  `curl -fsS -b cookies.txt "http://127.0.0.1:8080/files/subtitle/<相对路径>.flv"`；
+  无字幕时先确认该房间直播是否开启 AI 字幕、会话是否以 `record_subtitle=true` 启动。
+
+
+
 ## 5. FEATURES-V2 设置与房间覆盖
 
 解析顺序（低 → 高）：**内置默认 < env < `config.json` 全局覆盖 < 房间覆盖**（房间 `null` = 继承）。
@@ -304,6 +362,11 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
   `LOCAL_LOGS_MAX_SIZE_MB`、`LOCAL_LOGS_MAX_AGE_DAYS`、`LOCAL_LOGS_MAX_BACKUPS`、`LOCAL_LOGS_COMPRESS`、
   `LOCAL_LOGS_GROUPS`、`LOCAL_LOGS_FLUSH_INTERVAL`、`LOCAL_LOGS_BATCH_BYTES`、`LOCAL_LOGS_BUFFER_SIZE`、`LOCAL_LOGS_OVERFLOW`
   （见 §4b；schema 中 group=`logging`，均需重启生效）。
+- 预览相关键：`PREVIEW_MEDIA_MAX_QUEUED_BYTES`（默认 `4194304` 字节，每个预览 `/media`
+  连接的出站队列上限；重启生效，见 §4d）。
+- 访问日志没有 `SILENT_ACCESS_LOG` 开关：上游 `v0.4.0` 的 Skip 时机修复未恢复（fork 在
+  `63eaf4c` 移除该键），访问日志按来源拆分写入（见 §4b、D018/D022）。
+- 字幕相关：`record_subtitle` 不是环境变量/全局键，按次或按房间配置（见 §4e）。
 - 无效 env 值：启动时告警一次并回退内置默认（FEATURES-V2 键同规则）。
 
 ## 10. 排障
@@ -333,11 +396,23 @@ docker inspect --format '{{.State.Health.Status}}' bilirec
 | viewer 看不到“日志”或请求 403 | 日志查看仅管理员；viewer 只读权限不能访问 `/logs`、`/logs/download`。 |
 | `/logs?lines=` 返回 400 | 值必须是整数且在 1–2000；默认 500。 |
 | `/logs` 看不到最新一行 | 每次最多读取/展示尾部 2 MiB，或请求行数小于文件行数（`truncated=true`）；下载接口返回当前文件完整内容。 |
+| 预览 401/403 | 预览仅管理员：未登录 401、viewer 403；用 admin 会话 cookie 重试。 |
+| 预览 409 | 该房间当前没有正在录制的会话；先开始录制，预览只对录制中的分段有效。 |
+| 预览画面/弹幕卡顿、延迟越来越大 | 反代缓冲了 SSE/媒体流（见 §4d 的 `proxy_buffering off`/`gzip off`）；或客户端太慢导致出站队列溢出，日志有 `出站队列已满（overflow）`，可调大 `PREVIEW_MEDIA_MAX_QUEUED_BYTES` 后重启。 |
+| 预览只看到最近约 60 秒弹幕 | SSE 只在连接建立时补发约 60 秒 jsonl；更早内容不支持（无 DVR/Range）。 |
+| `/files/subtitle/...` 返回 400 | 请求的是正在录制的分段；等分段收尾后再取。 |
+| `/files/subtitle/...` 返回 404 | 同目录同名 `.vtt` 不存在：确认房间开启 AI 字幕、本次以 `record_subtitle=true` 启动，或该分段没有有效字幕 cue（无 cue 不落盘）。 |
+| 字幕不生成 | 默认关闭；手动开录需带 `record_subtitle=true`，自动开录需房间配置 `record_subtitle=true`；纯音频不提取。外部下载器/FLV 修复路径的 SEI 保留尚未实机验证，建议原生下载器（见 §4e）。 |
+| 成功请求仍写入 access 日志 | fork 没有 `SILENT_ACCESS_LOG`（上游 Skip 修复未恢复，见 D022）；访问日志按来源写到 `access/current.log`，可用 `LOCAL_LOGS_GROUPS` 控制类别（见 §4b）。 |
 
 ## 11. 验证与已知限制
 
 - 离线 E2E：`make e2e`（构建 → 回放源 → 下载器 → flvrepair → 后端 API → FEATURES-V2/CONFIG-V2
-  配置/鉴权/来源优先级/默认文件名/转码能力）。`python3 scripts/origin.py --selftest` 验证回放源。
+  配置/鉴权/来源优先级/默认文件名/转码能力 → 预览 401/403/409、字幕 404、浏览 `start`/`end`
+  过滤与非法 400、`/config` schema 含预览队列键）。`python3 scripts/origin.py --selftest` 验证回放源。
 - 真实直播录制为可选：设置 `E2E_LIVE_ROOM_ID` 后运行（需要外网与正在直播的房间）；离线不会伪造开录。
 - 已知限制：B05 依赖 B 站 API 可用性（失败回退）；CloudConvert 需要密钥；前端 nginx-only 镜像不涉及
   PUID/PGID；Docker 推送/发布流程见 [RELEASE-CI.md](RELEASE-CI.md)。
+- 预览限制：仅管理员、无 Range/DVR、仅补发约 60 秒互动，反代必须关闭缓冲（见 §4d）。
+- AI 字幕限制：需要房间开启 AI 字幕；外部下载器/FLV 修复路径下 SEI 是否保留尚未实机验证，
+  提取建议使用原生下载器（见 §4e）。

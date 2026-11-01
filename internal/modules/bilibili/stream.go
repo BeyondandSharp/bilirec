@@ -48,7 +48,16 @@ type (
 		TTL     int    `json:"ttl"`
 		Data    struct {
 			PlayurlInfo *PlayurlInfo `json:"playurl_info"`
+			SubtitleCfg *SubtitleCfg `json:"subtitle_cfg"`
 		} `json:"data"`
+	}
+
+	SubtitleCfg struct {
+		Status int `json:"status"`
+	}
+
+	RoomPlayExtra struct {
+		SubtitleEnabled bool
 	}
 
 	RoomPlayInfo struct {
@@ -150,6 +159,28 @@ func (c *Client) GetStreamURLs(roomID int) ([]string, error) {
 }
 
 func (c *Client) GetStreamURLsV2(roomID int, opts ...GetStreamURLsOption) ([]StreamURLInfo, error) {
+	urls, _, err := c.GetStreamURLsV2WithExtra(roomID, opts...)
+	return urls, err
+}
+
+// RoomSubtitleEnabled reports whether getRoomPlayInfo indicates AI subtitles for the room.
+func (c *Client) RoomSubtitleEnabled(roomID int) (bool, error) {
+	_, extra, err := c.GetStreamURLsV2WithExtra(roomID)
+	if err != nil {
+		return false, err
+	}
+	if extra == nil {
+		return false, nil
+	}
+	return extra.SubtitleEnabled, nil
+}
+
+// GetStreamURLsV2WithExtra resolves stream URLs and the room-play metadata
+// (currently AI subtitle availability) from the same getRoomPlayInfo response.
+// The fork's advanced fetch path (API host fallback, CDN iteration, cn-gotcha01
+// host replacement) may issue several requests; subtitle metadata is aggregated
+// from every successful response (see fetchStreamURLs).
+func (c *Client) GetStreamURLsV2WithExtra(roomID int, opts ...GetStreamURLsOption) ([]StreamURLInfo, *RoomPlayExtra, error) {
 	options := defaultGetStreamURLsOptions()
 	for _, opt := range opts {
 		if opt != nil {
@@ -159,18 +190,18 @@ func (c *Client) GetStreamURLsV2(roomID int, opts ...GetStreamURLsOption) ([]Str
 
 	for _, profile := range options.profiles {
 		if !profile.IsValid() {
-			return nil, ErrInvalidStreamProfile
+			return nil, nil, ErrInvalidStreamProfile
 		}
 	}
 
 	for _, codec := range options.codecs {
 		if !codec.IsValid() {
-			return nil, ErrInvalidStreamCodec
+			return nil, nil, ErrInvalidStreamCodec
 		}
 	}
 
 	if !options.qn.IsValid() {
-		return nil, ErrInvalidStreamQuality
+		return nil, nil, ErrInvalidStreamQuality
 	}
 
 	protocolRaw, formatRaw := profileQueryParams(options.profiles)
@@ -206,15 +237,15 @@ func (c *Client) GetStreamURLsV2(roomID int, opts ...GetStreamURLsOption) ([]Str
 		).Debug("使用 B 站高级拉流配置")
 	}
 
-	streamInfos, err := c.fetchStreamURLs(roomID, params, options, fetchConfig)
+	streamInfos, extra, err := c.fetchStreamURLs(roomID, params, options, fetchConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	sortStreams(streamInfos, int(options.qn))
 	streamInfos = applyForceSourcePreference(streamInfos, options, fetchConfig)
 	streamInfos = c.applyCN01HostReplacement(roomID, streamInfos, fetchConfig)
-	return streamInfos, nil
+	return streamInfos, extra, nil
 }
 
 func containFormat(profiles []StreamProfile, format string) bool {

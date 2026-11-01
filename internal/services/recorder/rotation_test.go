@@ -15,11 +15,11 @@ import (
 	"github.com/bilirec/bilirec/internal/modules/metrics"
 	rs "github.com/bilirec/bilirec/internal/record_strategies"
 	"github.com/bilirec/bilirec/internal/services/cover"
-	"github.com/bilirec/bilirec/internal/services/danmaku"
 	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/pkg/ds"
 	"github.com/bilirec/bilirec/pkg/flv"
 	"github.com/bilirec/bilirec/pkg/pipeline"
+	"github.com/bilirec/bilirec/utils"
 	"github.com/puzpuzpuz/xsync/v4"
 )
 
@@ -349,7 +349,7 @@ func TestRotateFilePathPathTemplateSubdirs(t *testing.T) {
 	if got, wantCover := cover.PathFor(path), filepath.Join(filepath.Dir(path), "标题-cover.jpg"); got != wantCover {
 		t.Fatalf("cover path = %q, want %q", got, wantCover)
 	}
-	if got, wantDm := danmaku.PathForVideo(path, ".jsonl"), filepath.Join(filepath.Dir(path), "标题.jsonl"); got != wantDm {
+	if got, wantDm := utils.SidecarPathForVideo(path, ".jsonl"), filepath.Join(filepath.Dir(path), "标题.jsonl"); got != wantDm {
 		t.Fatalf("danmaku path = %q, want %q", got, wantDm)
 	}
 

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/pkg/logger"
+	"github.com/bilirec/bilirec/utils"
 )
 
 // Danmaku recording performance tests. These are the regression metrics for
@@ -62,13 +62,6 @@ func quietDanmakuLogs(t testing.TB) {
 	prev := logger.Level()
 	logger.SetLevel(logger.ErrorLevel)
 	t.Cleanup(func() { logger.SetLevel(prev) })
-}
-
-func useDanmakuOverflowPolicy(t testing.TB, policy string) {
-	t.Helper()
-	prev := config.ReadOnly
-	config.ReadOnly = config.NewGlobalReadOnlyWithDanmakuOverflowForTest(policy)
-	t.Cleanup(func() { config.ReadOnly = prev })
 }
 
 func snapshotHeap(runGC bool) (allocMB, sysMB float64, goroutines int) {
@@ -260,7 +253,7 @@ func runHighRateWriteLeak(t *testing.T, format string, n int) {
 	sess, _ := newTestSession(svc, format)
 	dir := t.TempDir()
 	videoPath := filepath.Join(dir, "rec.flv")
-	outPath := PathForVideo(videoPath, sess.encoder.Ext())
+	outPath := utils.SidecarPathForVideo(videoPath, sess.encoder.Ext())
 
 	baselineAlloc, _, baselineG := snapshotHeap(true)
 	startWriteLoop(t, sess, videoPath)

@@ -39,6 +39,7 @@ func roomConfigResponse(roomID int, cfg *subscribe.RoomConfig) RoomConfigRespons
 	resp.Qn = cfg.Qn
 	resp.OnlyAudio = cfg.OnlyAudio
 	resp.RecordDanmaku = cfg.RecordDanmaku
+	resp.RecordSubtitle = cfg.RecordSubtitle
 	resp.StreamProfiles = slices.Clone(cfg.StreamProfiles)
 	resp.DeleteOldestOnLowDisk = cfg.DeleteOldestOnLowDisk
 
@@ -74,6 +75,7 @@ func roomConfigFromUpdate(req UpdateRoomConfigRequest, streamProfiles []string) 
 		Qn:                    req.Qn,
 		OnlyAudio:             req.OnlyAudio,
 		RecordDanmaku:         req.RecordDanmaku,
+		RecordSubtitle:        req.RecordSubtitle,
 		StreamProfiles:        slices.Clone(streamProfiles),
 		DeleteOldestOnLowDisk: req.DeleteOldestOnLowDisk,
 

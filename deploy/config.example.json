@@ -6,5 +6,6 @@
   "DATABASE_DIR": "database",
   "SECRET_DIR": "secrets",
   "DOWNLOADER": "auto",
-  "FLV_REPAIR": "auto"
+  "FLV_REPAIR": "auto",
+  "PREVIEW_MEDIA_MAX_QUEUED_BYTES": "4194304"
 }

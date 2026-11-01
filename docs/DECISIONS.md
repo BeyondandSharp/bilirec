@@ -258,3 +258,66 @@ combined 镜像中 nginx 不重启，只重启 bilirec 子进程；Android/嵌�
 
 上游 `develop` 的 preview、文件浏览时间过滤等未发布提交没有合并：它们不属于 `v0.3.2`，
 且与 fork 的播放、列表与测试结构有交叉。以后需要时单独评估。
+
+## D022 (2026-11-02, Lead) — 用 Git merge 同步 upstream v0.4.0 + web 6ad96b0
+
+后端用 `git merge --no-ff v0.4.0`（tag `v0.4.0` = commit `7d51ba9`，`v0.3.2` 之后共 14 个
+上游提交）合并进 `dev`，保留上游作者与提交信息；不 cherry-pick、不 squash、不 rebase。
+前端 `web/` 无 Git 历史，用临时仓库三方合并（pinned `ab62df3` → 本地树 → merge
+`6ad96b0`）后回拷，25 个上游提交以一次树替换体现。
+
+### 范围
+
+- 后端：录制中实时预览（`GET /preview/rooms/{id}/media` 单路 HTTP 字节流、
+  `GET /preview/rooms/{id}/events` SSE，管理员权限；pipeline fanout 替代 HLS/文件跟随）、
+  AI 字幕（`record_subtitle`、`internal/services/subtitle`、SEI 解析 `pkg/sei`、同名 `.vtt`
+  sidecar）、文件浏览 `start`/`end` 时间筛选、HLS fMP4 init/MAP 抖动与 tkhd/tfdt、per-track
+  timescale 修复、写盘失败/队列溢出时放弃分段并重连、`pkg/ds/chunk_queue` 出站队列。
+- 前端：预览/回放重写（FLV/TS/fMP4、DVR 回看、缓冲可调）、Document PiP、VOD VTT 字幕轨
+  与可拖动缩放浮层、文件页日期范围筛选、删除视频可选删弹幕 sidecar、卡片徽章布局、
+  emote/弹幕轨道修复；新增依赖 `flv.js`、`mpegts.js`，`react-day-picker` 升 v10。
+
+### 冲突解决原则
+
+- **recorder/preview/subtitle 集成**：保留 fork 的下载器/修复/弹幕/分段/命名能力，在上游
+  pipeline 上追加 preview fanout 与 subtitle processor；顺序为写盘 → 预览 → 字幕，字幕解析
+  失败或变慢不阻断当前 chunk 的录像与预览。
+- **browse 排序兼容**：显式 `sort`/`order` 继续使用 fork 的排序规则；未显式指定时采用上游
+  `sortBrowseEntries` 默认浏览顺序。`start`/`end` 只过滤文件，目录始终保留；文件名时间解析
+  失败时回退到文件 mtime（**fork 决策**，上游实现对解析失败的文件直接跳过）。
+- **test constructors 迁移**：上游把只为测试存在的 `GlobalReadOnly` 构造器移出生产代码
+  （`3629643`、`61b16ed`）；fork 把测试用构造函数迁移到 fork 自有文件
+  `internal/modules/config/test_constructors.go`（该文件**不是** `_test.go`，会参与生产构建，
+  但生产代码不调用，仅供测试跨包构造 `GlobalReadOnly`）。
+- **`.github` 保持删除**：`.github/workflows/test.yaml` 在 merge 中保持删除状态，CI 继续用
+  `.forgejo/`；根 `Dockerfile` 不恢复，`deploy/upstream.Dockerfile` 采用上游 `v0.4.0` 原样
+  （含新增的 `SILENT_ACCESS_LOG`、`PREVIEW_MEDIA_MAX_QUEUED_BYTES` ENV），仅作上游归档、
+  不参与 fork 构建。
+- **`SILENT_ACCESS_LOG` 不恢复**：上游 `v0.4.0` 对该开关的 fiber logger `Skip` 时机修复不恢复
+  ——fork 已在 `63eaf4c` 移除该键，成功访问日志由分来源日志（`access/current.log`，见 D018）
+  承担，而不是丢弃。
+- **README 保留 fork**：根 `README.md` 维持部署型（compose/配置/卷/排障）结构，不合并上游
+  README 内容，只在特性段落补充“AI 字幕录制”“录制中实时预览”两条并链接 docs。
+
+### 新增配置与接口
+
+- `PREVIEW_MEDIA_MAX_QUEUED_BYTES`（默认 `4194304`，按预览连接计的出站队列上限，重启生效；
+  `config.json` 与环境变量均可设置）；不新增 `SILENT_ACCESS_LOG`（见冲突解决原则）。
+- `record_subtitle`：开录参数（`POST /record/{room}/start` 的 query/body）与房间配置字段，
+  默认关；仅在房间有 AI 字幕且开启时生成 sidecar。
+- `GET /files/browse` 新增 `start`/`end`（`YYYYMMDD_HHMMSS`）；`GET /files/subtitle/{path}`
+  新增；stats/webhook 的 `record_subtitle` 字段。`/config` schema 已通过
+  `internal/services/settings/schemagen` 重新生成并登记预览队列键（离线 e2e 断言覆盖）。
+
+### 已知限制
+
+- AI 字幕来自 B 站直播 AI 字幕 SEI，仅房间开启 AI 字幕且 `record_subtitle=on` 时生成同名
+  `.vtt`；纯音频不提取；录制中获取该分段字幕返回 400。**外部下载器（ffmpeg/streamlink）与
+  FLV 修复路径下 SEI 是否保留尚未实机验证**，字幕提取建议使用原生下载器（待验证）。
+- 预览仅管理员可用（未登录 401、viewer 403、该房间无录制 409）；服务端只补发最近约 60 秒
+  jsonl 互动，不支持 Range/DVR，不做持久化缓冲；HTTP 响应带 `X-Accel-Buffering: no` 与
+  `no-store`，反代不得缓冲 SSE/媒体流。
+
+### 发布建议
+
+本次只合并到 `dev` 分支；建议发布版本 **0.6.0**（不 tag、不 push，发布动作由 Lead 决定）。

@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestSidecarPathForVideo(t *testing.T) {
+	t.Parallel()
+	got := SidecarPathForVideo(`/records/user-1/title-20260101.flv`, ".jsonl")
+	want := `/records/user-1/title-20260101.jsonl`
+	if filepath.FromSlash(got) != filepath.FromSlash(want) {
+		t.Errorf("got %q want %q", got, want)
+	}
+	if SidecarPathForVideo("a.flv", "xml") != "a.xml" {
+		t.Errorf("ext without dot: %q", SidecarPathForVideo("a.flv", "xml"))
+	}
+}
+
 func TestStagingPath(t *testing.T) {
 	t.Parallel()
 	if got, want := StagingPath("/rec/a.mp4"), "/rec/a.mp4.tmp"; got != want {
@@ -70,6 +82,17 @@ func TestParseRecordingSegmentFilenameOrdersByNameOnly(t *testing.T) {
 	}
 	if _, _, sidecar := ParseRecordingSegmentFilename("t-20260101_000000.jsonl"); sidecar {
 		t.Fatal("expected danmaku sidecar without media ext to be rejected")
+	}
+}
+
+func TestParseRecordingFilenameStampAnyExtension(t *testing.T) {
+	stamp, seg, ok := ParseRecordingFilenameStamp("t-20260101_000000.jsonl")
+	if !ok || stamp != "20260101_000000" || seg != 0 {
+		t.Fatalf("jsonl stamp=%q seg=%d ok=%v", stamp, seg, ok)
+	}
+	_, seg2, ok2 := ParseRecordingFilenameStamp("t-20260101_000000-3.xml")
+	if !ok2 || seg2 != 3 {
+		t.Fatalf("xml seg=%d ok=%v", seg2, ok2)
 	}
 }
 

@@ -28,6 +28,7 @@ const (
 	defaultDanmakuChanBufferSize                         = 256
 	defaultDanmakuBytesPoolSize                          = 4 * 1024 // 4KB per danmaku fragment buffer
 	defaultDanmakuOverflowPolicy                         = "drop"
+	defaultPreviewMediaMaxQueuedBytes                    = 4 * 1024 * 1024 // per preview HTTP viewer outbound queue
 )
 
 // for global readonly access
@@ -262,6 +263,21 @@ func (g *GlobalReadOnly) FFmpegAllowDuringRecordingMaxActiveRecordings() int {
 	return g.config.FFmpegAllowDuringRecordingMaxActiveRecordings
 }
 
+func (g *GlobalReadOnly) PreviewMediaMaxQueuedBytes() int {
+	if g.config.PreviewMediaMaxQueuedBytes <= 0 {
+		return defaultPreviewMediaMaxQueuedBytes
+	}
+	return g.config.PreviewMediaMaxQueuedBytes
+}
+
+// PreviewMediaMaxQueuedBytesFrom resolves the per-preview-connection outbound byte cap.
+func PreviewMediaMaxQueuedBytesFrom(cfg *Config) int {
+	if cfg == nil || cfg.PreviewMediaMaxQueuedBytes <= 0 {
+		return defaultPreviewMediaMaxQueuedBytes
+	}
+	return cfg.PreviewMediaMaxQueuedBytes
+}
+
 func (g *GlobalReadOnly) Validate() error {
 	switch g.config.BilibiliLoginMode {
 	case "startup", "controller", "anonymous":
@@ -357,6 +373,9 @@ func (g *GlobalReadOnly) Validate() error {
 	if g.config.danmakuBytesPoolSize <= 0 {
 		log.Warnf("DANMAKU_BYTES_POOL_SIZE 无效（%d），使用默认值 %d 字节", g.config.danmakuBytesPoolSize, defaultDanmakuBytesPoolSize)
 	}
+	if g.config.PreviewMediaMaxQueuedBytes <= 0 {
+		log.Warnf("PREVIEW_MEDIA_MAX_QUEUED_BYTES 无效（%d），使用默认值 %d 字节", g.config.PreviewMediaMaxQueuedBytes, defaultPreviewMediaMaxQueuedBytes)
+	}
 	// Reject protocol-mismatch configs between FRP backend mode and Fiber listener mode.
 	if g.config.ServerCrt != "" && g.config.ServerKey != "" && g.config.FRPEnabled && !g.config.FRPHttps {
 		return fmt.Errorf("配置无效：SERVER_CRT 和 SERVER_KEY 启用仅 HTTPS 服务器，但 FRP_ENABLED=true 且 FRP_HTTPS=false 会将 FRP 后端配置为 HTTP；协议不匹配会导致 FRP 失败。请设置 FRP_HTTPS=true，或禁用 HTTPS 证书（SERVER_CRT/SERVER_KEY），或禁用 FRP")
@@ -365,30 +384,4 @@ func (g *GlobalReadOnly) Validate() error {
 		return fmt.Errorf("配置无效：当 FRP_ENABLED=true 且 FRP_HTTPS=true 时，必须同时设置 SERVER_CRT 和 SERVER_KEY 以启用 Fiber HTTPS；否则 FRP HTTPS 后端协议不匹配会导致 FRP 失败。请设置 SERVER_CRT 和 SERVER_KEY，或将 FRP_HTTPS=false，或禁用 FRP")
 	}
 	return nil
-}
-
-// NewGlobalReadOnlyForTest builds read-only config for unit tests in other packages.
-func NewGlobalReadOnlyForTest(dropFilePageCache bool, liveStreamWriterColdCacheReleaseSecs int) *GlobalReadOnly {
-	return &GlobalReadOnly{config: &Config{
-		dropFilePageCache:                      dropFilePageCache,
-		liveStreamWriterColdCacheReleasePeriod: liveStreamWriterColdCacheReleaseSecs,
-	}}
-}
-
-// NewGlobalReadOnlyWithAuthForTest builds read-only config with REST auth and
-// viewer RBAC enabled for unit tests (hashes must be bcrypt strings).
-func NewGlobalReadOnlyWithAuthForTest(username, passwordHash, viewerUsername, viewerPasswordHash, jwtSecret string) *GlobalReadOnly {
-	return &GlobalReadOnly{config: &Config{
-		Username:           username,
-		PasswordHash:       passwordHash,
-		ViewerUsername:     viewerUsername,
-		ViewerPasswordHash: viewerPasswordHash,
-		JwtSecret:          jwtSecret,
-	}}
-}
-
-// NewGlobalReadOnlyWithDanmakuOverflowForTest builds read-only config with a
-// specific DANMAKU_OVERFLOW_POLICY for unit tests.
-func NewGlobalReadOnlyWithDanmakuOverflowForTest(policy string) *GlobalReadOnly {
-	return &GlobalReadOnly{config: &Config{DanmakuOverflowPolicy: policy}}
 }

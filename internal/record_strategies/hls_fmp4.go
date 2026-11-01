@@ -13,17 +13,6 @@ import (
 
 const fmp4StatePendingInit = "pendingInit"
 
-// HlsFmp4Strategy handles HLS fragmented MP4 byte streams.
-// Each []byte received from ReadHlsStream is a complete fMP4 segment:
-//   - First segment: ftyp+moov (init segment, box type at bytes[4:8] == "ftyp")
-//   - Subsequent segments: moof+mdat (media fragments)
-//
-// Appending all segments in order produces a valid fragmented MP4 source file
-// (.fmp4), which can then be remuxed to seek-friendly .mp4 in finalize flow.
-//
-// MapURI / init churn is settled upstream in the HLS reader (byte compare +
-// short hold-and-settle). A changed ftyp that still reaches this pipeline
-// triggers an immediate file rotation with that init prepended.
 type HlsFmp4Strategy struct {
 	bases             map[uint32]uint64
 	lastInit          []byte
@@ -44,10 +33,10 @@ func (s *HlsFmp4Strategy) FileExtension() string { return ".fmp4" }
 
 func (s *HlsFmp4Strategy) BuildPipeline(ctx context.Context, outputPath string, state *RotationState, hooks PipelineHooks) (*pipeline.Pipe[[]byte], error) {
 	pendingInit := state.Data[fmp4StatePendingInit]
-	pipe := pipeline.New(
+	return pipeline.New(
 		processors.NewSegmentDedup(),
 		processors.NewFmp4BoxGuard(&s.bases, &s.lastInit),
-		processors.NewFmp4TimestampNormalizer(&s.bases),
+		processors.NewFmp4TimestampNormalizer(&s.bases, nil),
 		processors.NewFmp4InitWriter(pendingInit),
 		processors.NewBufferedStreamWriter(
 			outputPath,
@@ -65,8 +54,7 @@ func (s *HlsFmp4Strategy) BuildPipeline(ctx context.Context, outputPath string, 
 			processors.WithOnSync(hooks.OnSync),
 			processors.WithOnEnqueueWait(hooks.OnEnqueueWait),
 		),
-	)
-	return pipe, nil
+	), nil
 }
 
 func (s *HlsFmp4Strategy) HandleErr(err error) ErrHandleResult {

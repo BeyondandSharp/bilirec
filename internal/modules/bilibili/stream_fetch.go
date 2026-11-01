@@ -221,7 +221,12 @@ func isFallbackEligible(err error) bool {
 // fetchStreamURLs fetches stream URLs honoring the advanced fetch config:
 // host fallback, `cdn` iteration and CDN collection. The returned list is
 // unsorted; callers apply sortStreams/ForceSource ordering.
-func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options getStreamURLsOptions, cfg *StreamFetchConfig) ([]StreamURLInfo, error) {
+//
+// RoomPlayExtra (subtitle metadata) is aggregated from every successful API
+// response: the advanced path may issue several requests (host fallback, CDN
+// iteration) and subtitle availability is sticky, so any response claiming it
+// wins.
+func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options getStreamURLsOptions, cfg *StreamFetchConfig) ([]StreamURLInfo, *RoomPlayExtra, error) {
 	hosts := streamAPIHostCandidates(cfg)
 
 	cdns := []string{""}
@@ -231,6 +236,7 @@ func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options g
 	collectAll := cfg != nil && cfg.CDNFallback
 
 	var collected []StreamURLInfo
+	var extra *RoomPlayExtra
 	var lastErr error
 
 	for _, cdn := range cdns {
@@ -238,10 +244,10 @@ func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options g
 		cdnSucceeded := false
 
 		for hostIdx, host := range hosts {
-			infos, reason, err := c.fetchStreamURLsFromHost(host, cdn, params, options)
+			infos, attemptExtra, reason, err := c.fetchStreamURLsFromHost(host, cdn, params, options)
 			if err != nil {
 				if !isFallbackEligible(err) {
-					return nil, err
+					return nil, nil, err
 				}
 				lastErr = err
 				lastFailureReason = reason
@@ -256,6 +262,10 @@ func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options g
 				}
 				continue
 			}
+
+			// A successful response is authoritative for subtitle metadata even
+			// when it carries no playable URLs.
+			extra = mergeRoomPlayExtra(extra, attemptExtra)
 
 			if len(infos) == 0 {
 				lastFailureReason = fallbackReasonEmpty
@@ -280,7 +290,7 @@ func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options g
 			}
 
 			if !collectAll {
-				return infos, nil
+				return infos, extra, nil
 			}
 			collected = appendUniqueStreamURLInfos(collected, infos)
 			cdnSucceeded = true
@@ -291,17 +301,31 @@ func (c *Client) fetchStreamURLs(roomID int, params map[string]string, options g
 	}
 
 	if len(collected) > 0 {
-		return collected, nil
+		return collected, extra, nil
 	}
 	if lastErr != nil {
-		return nil, lastErr
+		return nil, nil, lastErr
 	}
-	return []StreamURLInfo{}, nil
+	return []StreamURLInfo{}, extra, nil
+}
+
+// mergeRoomPlayExtra folds one successful response's room-play metadata into
+// the aggregate. Subtitle support is sticky: if any response reports it, the
+// aggregate reports it.
+func mergeRoomPlayExtra(dst, src *RoomPlayExtra) *RoomPlayExtra {
+	if src == nil {
+		return dst
+	}
+	if dst == nil {
+		return &RoomPlayExtra{SubtitleEnabled: src.SubtitleEnabled}
+	}
+	dst.SubtitleEnabled = dst.SubtitleEnabled || src.SubtitleEnabled
+	return dst
 }
 
 // fetchStreamURLsFromHost performs a single signed API request against one
 // host, optionally with a `cdn` query parameter.
-func (c *Client) fetchStreamURLsFromHost(host string, cdn string, params map[string]string, options getStreamURLsOptions) ([]StreamURLInfo, fetchFallbackReason, error) {
+func (c *Client) fetchStreamURLsFromHost(host string, cdn string, params map[string]string, options getStreamURLsOptions) ([]StreamURLInfo, *RoomPlayExtra, fetchFallbackReason, error) {
 	request := c.liveClient.R()
 
 	queryParams := make(map[string]string, len(params)+1)
@@ -315,31 +339,36 @@ func (c *Client) fetchStreamURLsFromHost(host string, cdn string, params map[str
 	request.SetQueryParams(queryParams)
 	signedQuery, err := c.wbi.SignQuery(request.QueryParam, time.Now())
 	if err != nil {
-		return nil, fallbackReasonSign, &streamSignError{err: err}
+		return nil, nil, fallbackReasonSign, &streamSignError{err: err}
 	}
 	request.QueryParam = signedQuery
 
 	resp, err := request.Get(streamAPIURL(host))
 	if err != nil {
-		return nil, fallbackReasonNetwork, err
+		return nil, nil, fallbackReasonNetwork, err
 	}
 	if resp.StatusCode() != 200 {
-		return nil, fallbackReasonStatus, fmt.Errorf("状态码：%d", resp.StatusCode())
+		return nil, nil, fallbackReasonStatus, fmt.Errorf("状态码：%d", resp.StatusCode())
 	}
 
 	var sr StreamResponseV2
 	if err := json.Unmarshal(resp.Body(), &sr); err != nil {
-		return nil, fallbackReasonDecode, err
+		return nil, nil, fallbackReasonDecode, err
 	}
 	if sr.Code != 0 {
 		apiErr := mapStreamAPIError(sr.Code, sr.Message)
 		if errors.Is(apiErr, ErrStreamGeoRestricted) {
-			return nil, fallbackReasonGeo, apiErr
+			return nil, nil, fallbackReasonGeo, apiErr
 		}
-		return nil, fallbackReasonAPI, apiErr
+		return nil, nil, fallbackReasonAPI, apiErr
 	}
 
-	return buildStreamURLInfos(sr, options), "", nil
+	// Room-play metadata (AI subtitle availability) comes from the same
+	// response that yields the play URLs.
+	extra := &RoomPlayExtra{
+		SubtitleEnabled: sr.Data.SubtitleCfg != nil && sr.Data.SubtitleCfg.Status == 1,
+	}
+	return buildStreamURLInfos(sr, options), extra, "", nil
 }
 
 // buildStreamURLInfos flattens the playurl response into StreamURLInfo entries

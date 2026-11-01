@@ -177,6 +177,21 @@ returning a **relative path under OUTPUT_DIR**:
   all errors warn only. Uses bilibili live headers (`StreamRequestHeaders`).
 - Respect `SaveStreamCover`; no retry loop.
 
+### 3.5 AI 字幕 sidecar（upstream v0.4.0，`record_subtitle`）
+
+- 这是一个**按次/按房间**的开关（不是 FEATURES-V2 全局特性键，也不进 `/settings` 或 `/config`），
+  默认 **关**：
+  - 手动开录：`POST /record/{roomID}/start` query/body `record_subtitle=true`；
+  - 自动开录：房间配置 `record_subtitle=true`（`GET/PUT /room/{roomID}/config`，subcheck 自动开录时
+    追加 `recorder.WithRecordSubtitle(true)`）。
+- 生效条件：房间开播信息 `subtitle_cfg.status==1`（该房间有 AI 字幕）且会话开关打开；纯音频不提取。
+- 每个分段的管线在写盘与预览之后追加 `subtitle-writer` processor（`internal/services/subtitle`），
+  异步扫描 FLV/TS/fMP4 视频 SEI（`pkg/sei`），按 `sub_id` 合并 cue，在分段收尾时若有有效 cue 才写
+  同目录同名 `.vtt`（WebVTT，时间相对该分段）；无 cue 不落盘。
+- 分段因过小/写盘失败被丢弃时，同名 `.vtt` 一并删除；录制中 `GET /files/subtitle/{path}` 返回 400。
+- 已知限制：外部下载器（ffmpeg/streamlink）与 FLV 修复路径下 SEI 是否保留**尚未实机验证**；
+  字幕提取建议使用原生下载器（待验证，见 D022）。接口契约见 `INTERFACES.md` §8.2/§8.4。
+
 ## 4. Danmaku (R06/R08)
 
 - `danmaku.SessionOptions{Types DanmakuTypes, Transport string}` passed by recorder.

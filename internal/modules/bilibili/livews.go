@@ -150,6 +150,10 @@ func (c *LiveMessageClient) Close() {
 // blocks dispatching messages until the connection fails or ctx is canceled.
 func (c *LiveMessageClient) Run(ctx context.Context, host DanmuInfoHost, token string) error {
 	url := c.dialURL(host)
+	return c.runAt(ctx, url, token)
+}
+
+func (c *LiveMessageClient) runAt(ctx context.Context, url string, token string) error {
 	dialer := ws.Dialer{
 		Timeout: liveWSDialTimeout,
 		Header: ws.HandshakeHeaderHTTP(http.Header{

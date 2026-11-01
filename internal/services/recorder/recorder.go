@@ -21,9 +21,11 @@ import (
 	"github.com/bilirec/bilirec/internal/services/downloader"
 	"github.com/bilirec/bilirec/internal/services/naming"
 	"github.com/bilirec/bilirec/internal/services/notify"
+	"github.com/bilirec/bilirec/internal/services/preview"
 	"github.com/bilirec/bilirec/internal/services/repair"
 	"github.com/bilirec/bilirec/internal/services/settings"
 	"github.com/bilirec/bilirec/internal/services/stream"
+	"github.com/bilirec/bilirec/internal/services/subtitle"
 	"github.com/bilirec/bilirec/internal/services/webhook"
 	"github.com/bilirec/bilirec/pkg/ds"
 	"github.com/bilirec/bilirec/pkg/logger"
@@ -74,6 +76,8 @@ type Service struct {
 	downloaders  *downloader.Registry
 	repair       *repair.Service
 	settings     *settings.Service
+	subtitles    *subtitle.Service
+	preview      *preview.Service
 	bilic        *bilibili.Client
 	m            *metrics.Exporter
 	recording    *xsync.Map[int, *Info]
@@ -95,6 +99,8 @@ func NewService(
 	coverSvc *cover.Service,
 	repairSvc *repair.Service,
 	settingsSvc *settings.Service,
+	subtitles *subtitle.Service,
+	previewSvc *preview.Service,
 	bilic *bilibili.Client,
 	cfg *config.Config,
 	m *metrics.Exporter,
@@ -115,6 +121,8 @@ func NewService(
 		nt:           nt,
 		dm:           dm,
 		cover:        coverSvc,
+		subtitles:    subtitles,
+		preview:      previewSvc,
 		bilic:        bilic,
 		downloaders:  downloaders,
 		repair:       repairSvc,
@@ -151,6 +159,7 @@ func NewService(
 	lc.Append(fx.StopHook(func() {
 		cancel()
 		r.wg.Wait()
+		r.subtitles.WaitIdle()
 	}))
 	return r
 }
@@ -215,7 +224,7 @@ func (r *Service) Stop(roomId int) bool {
 	return hasRecording
 }
 
-func (r *Service) prepare(roomId int, ch <-chan []byte, strategy rs.StreamRecordStrategy, ctx context.Context, info *Info, scheduleDurationCheck bool) error {
+func (r *Service) prepare(roomId int, ch <-chan []byte, strategy rs.RecordStrategy, ctx context.Context, info *Info, scheduleDurationCheck bool) error {
 	r.wg.Go(func() {
 		defer r.recover(roomId)
 		err := r.rotate(roomId, ch, strategy, info, ctx, scheduleDurationCheck)
@@ -279,7 +288,7 @@ func (r *Service) pollTitle(ctx context.Context, roomId int, info *Info, interva
 
 const rotationSplitBufferLimit = 8 << 20
 
-func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordStrategy, info *Info, ctx context.Context, userStart bool) error {
+func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.RecordStrategy, info *Info, ctx context.Context, userStart bool) error {
 	l := log.With("room", roomId)
 	defer strategy.Close()
 
@@ -315,6 +324,11 @@ func (r *Service) rotate(roomId int, ch <-chan []byte, strategy rs.StreamRecordS
 		if err != nil {
 			r.m.RecordingPipelineError(roomId, metrics.ReasonOpen)
 			return fmt.Errorf("无法构建管道：%v", err)
+		}
+		pipe.AddProcessors(r.preview.Tap(roomId, outputPath, strategy.FileExtension(), info.isAudioOnly.Load()))
+		// 字幕在写盘和预览之后：解析失败或变慢不能挡住当前 chunk 的录像与预览。
+		if info.startOptions.recordSubtitle && !info.isAudioOnly.Load() && info.liveSubtitleEnabled.Load() {
+			pipe.AddProcessors(r.subtitles.NewPipelineProcessor(outputPath))
 		}
 
 		startCtx, startCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -670,6 +684,9 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 		return
 	}
 
+	if info.startOptions.recordSubtitle {
+		r.subtitles.Wait(outputPath)
+	}
 	defer r.writingFiles.Remove(filepath.Base(outputPath))
 
 	fileInfo, err := os.Stat(outputPath)
@@ -677,6 +694,9 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 		log.Debugf("文件因为过小被而没有写入，跳过收尾：%s", outputPath)
 		if info.startOptions.recordDanmaku {
 			r.dm.Discard(roomId, outputPath)
+		}
+		if info.startOptions.recordSubtitle {
+			_ = utils.RemoveIfExists(utils.SidecarPathForVideo(outputPath, ".vtt"))
 		}
 		r.m.RecordingSegmentDiscarded(roomId, metrics.ReasonSkippedSmall)
 		return
@@ -693,6 +713,9 @@ func (r *Service) finalize(roomId int, info *Info, outputPath string, audioOnly 
 			log.Infof("录制文件小于 MIN_FILE_SIZE_MB（%d MB），已删除：%s", minMB, outputPath)
 			if info.startOptions.recordDanmaku {
 				r.dm.Discard(roomId, outputPath)
+			}
+			if info.startOptions.recordSubtitle {
+				_ = utils.RemoveIfExists(utils.SidecarPathForVideo(outputPath, ".vtt"))
 			}
 			if removeErr := os.Remove(outputPath); removeErr != nil {
 				log.Warnf("删除过小录制文件失败：%v", removeErr)

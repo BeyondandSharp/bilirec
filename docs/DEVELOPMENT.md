@@ -26,6 +26,22 @@
 
 上游 `Dockerfile` 存档在 `deploy/upstream.Dockerfile`；实际部署用 `deploy/` 下的多阶段镜像。
 
+合并 upstream `v0.4.0`（见 D022）后新增的 Go 结构：
+
+- `internal/services/preview` + `internal/controllers/preview`：录制中预览（pipeline fanout 的
+  `/preview/rooms/{id}/media` 字节流与 `/events` SSE）；
+- `internal/services/subtitle`：AI 字幕 SEI 扫描与同名 `.vtt` sidecar（`record_subtitle`）；
+- `pkg/sei`：H.264/H.265 SEI（AVCC/Annex-B、RBSP）解析；
+- `pkg/ds/chunk_queue.go`：按字节计量的有界 FIFO（预览出站队列、字幕扫描队列）；
+- `pkg/hls/fmp4_init_*`、`pkg/hls/fmp4_fragment*`：HLS fMP4 init/MP4 抖动、分片时间线与
+  per-track timescale 修复；
+- `internal/modules/config/test_constructors.go`：fork 自有的测试用配置构造函数（该文件不是
+  `_test.go`、会参与生产构建，但生产代码不调用，仅供测试跨包构造 `GlobalReadOnly`；上游把
+  测试专用构造函数移出生产代码后的 fork 落点）。
+
+前端 `web/` 随 `6ad96b0` 新增依赖 `flv.js`、`mpegts.js`，`react-day-picker` 升 v10；
+`web/` 仍无上游 Git 历史，同步方式见 `UPSTREAM.md`。
+
 ## 工具链
 
 - Go 1.27+（`/usr/local/go`），`GOPROXY=https://goproxy.cn,direct`、`GOSUMDB=off`（环境已设置）
@@ -70,22 +86,27 @@ cargo build --manifest-path rust/Cargo.toml --workspace --release
 
 ```
 internalStart
-  -> bilibili.GetLiveRoomInfo / GetStreamURLsV2（B05 高级拉流配置）
+  -> bilibili.GetLiveRoomInfo / GetStreamURLsV2（B05 高级拉流配置 + 房间 AI 字幕能力）
   -> connectStream
        native: resty body / HLS session -> <-chan []byte
        external: ffmpeg/streamlink downloader.Open -> stream.ReadExternalStream
   -> repair.WrapStream（FLV only，flvrepair sidecar，失败降级不阻断录制）
   -> commitSession + prepare -> rotate（分段/命名/过滤/封面）-> pipeline（processors/writer）
+       pipeline 末尾追加：preview-fanout（录制中预览）-> subtitle-writer（AI 字幕，按需异步扫描）
 ```
 
 - 配置：`internal/modules/configfile` 在 `logger.Init` 之前加载 `config.json`/`secrets.json`/`.env`，
   记录来源（`env|file|secret-file|dotenv|default`），只写进程环境中缺失的键。
 - 设置：`internal/services/settings` 提供 FEATURES-V2 元数据/校验/Effective 快照；全局特性覆盖存
-  `config.json`，房间覆盖存 `database/subscribes.db`。
-- API：`/settings`（特性）、`/config` + `/config/secrets`（统一配置中心）、`/room/{id}/config`、
-  `/convert/providers`（转码能力探测）。
-- 前端：`web/` 是上游 bilirec-web 的 vendored 副本，已加入下载器选择/录制流水线徽章、FEATURES-V2
-  设置页、统一设置 UI（系统配置/敏感配置）、三语言与标题、转码能力隐藏、仓库链接。
+  `config.json`，房间覆盖存 `database/subscribes.db`。`/config` schema 由
+  `internal/services/settings/schemagen/gen.py` 从 `internal/modules/config/config.go` 的
+  `os.Getenv` 生成（新增 env 键后需重新生成并跑 schema 测试）。
+- API：`/settings`（特性）、`/config` + `/config/secrets`（统一配置中心）、`/room/{id}/config`（含
+  `record_subtitle`）、`/convert/providers`（转码能力探测）、`/preview/rooms/{id}/media|events`
+  （管理员预览）、`/files/subtitle/{path}`（VTT sidecar）。
+- 前端：`web/` 是上游 bilirec-web 的 vendored 副本（当前 pin `6ad96b0`），已加入下载器选择/录制
+  流水线徽章、FEATURES-V2 设置页、统一设置 UI（系统配置/敏感配置）、三语言与标题、转码能力隐藏、
+  仓库链接；合并进来的上游能力见 `UPSTREAM.md`。
 
 ## Fixtures 与本地回放源
 
@@ -108,7 +129,10 @@ scripts/gen_hls_fixtures.sh --check
 离线端到端：构建 → 本地回放源 → ffmpeg/streamlink 下载器命令行 → `/flv` 故障注入 →
 `flvrepair stream/file/analyze` → 后端启动（临时 `OUTPUT_DIR`/`DATABASE_DIR`/`SECRET_DIR`、
 随机端口）→ FEATURES-V2 `/settings`/房间配置/鉴权矩阵/持久化 → CONFIG-V2 `/config`+
-`/config/secrets`/来源优先级/默认文件名/转码能力 → 可选真实直播录制。
+`/config/secrets`/来源优先级/默认文件名/转码能力 → 预览鉴权（未登录 401 / viewer 403 /
+admin 无录制 409）→ `GET /files/subtitle/{不存在路径}` 404 → `/files/browse` 的
+`start`/`end` 过滤（含目录不受影响、非法格式与 `start>end` 400）→ `/config` schema 含
+`PREVIEW_MEDIA_MAX_QUEUED_BYTES` → 可选真实直播录制。
 
 | 变量 | 说明 |
 |---|---|
@@ -182,6 +206,11 @@ docker build -f deploy/alpine-web.Dockerfile -t local-frontend-alpine .
 - Docker：Debian/Alpine、combined/backend 构建通过；PUID/PGID 与 config/secrets 卷行为有容器级验证。
 - 真实直播冒烟：默认设置与各新设置（分段/模板/过滤/封面/弹幕/FLV/B05）录制验证通过；
   设置跨容器重启持久化验证通过。
+
+> 以上是 upstream `v0.4.0` 合并**之前**的最近一次状态。本次合并（D022）的最终验证以 Lead 运行
+> `make fmt lint test` 与 `make e2e` 的结果为准；离线 E2E 已补预览鉴权、字幕 404、浏览时间筛选与
+> `/config` schema 断言。录制中预览的真实播放与 AI 字幕提取（尤其外部下载器/FLV 修复路径）仍属
+> **待实机验证**，不作为已验收能力。
 
 ## 许可证
 

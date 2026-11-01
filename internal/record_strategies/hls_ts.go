@@ -11,9 +11,6 @@ import (
 	"github.com/bilirec/bilirec/pkg/pool"
 )
 
-// HlsTsStrategy handles HLS MPEG-TS byte streams.
-// Each []byte received from ReadHlsStream is a complete .ts segment.
-// Conversion to .mp4 is handled by the recorder's finalize() like FLV.
 type HlsTsStrategy struct {
 	writerPool        *pool.BucketedBytesPool
 	releaseWriterPool func()
@@ -30,7 +27,7 @@ func NewHlsTsStrategy(qn int) *HlsTsStrategy {
 func (s *HlsTsStrategy) FileExtension() string { return ".ts" }
 
 func (s *HlsTsStrategy) BuildPipeline(ctx context.Context, outputPath string, state *RotationState, hooks PipelineHooks) (*pipeline.Pipe[[]byte], error) {
-	pipe := pipeline.New(
+	return pipeline.New(
 		processors.NewSegmentDedup(),
 		processors.NewTsContinuityFixer(),
 		processors.NewBufferedStreamWriter(
@@ -49,8 +46,7 @@ func (s *HlsTsStrategy) BuildPipeline(ctx context.Context, outputPath string, st
 			processors.WithOnSync(hooks.OnSync),
 			processors.WithOnEnqueueWait(hooks.OnEnqueueWait),
 		),
-	)
-	return pipe, nil
+	), nil
 }
 
 func (s *HlsTsStrategy) HandleErr(err error) ErrHandleResult {
