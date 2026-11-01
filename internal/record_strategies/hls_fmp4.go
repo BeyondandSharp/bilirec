@@ -36,7 +36,7 @@ func (s *HlsFmp4Strategy) BuildPipeline(ctx context.Context, outputPath string, 
 	return pipeline.New(
 		processors.NewSegmentDedup(),
 		processors.NewFmp4BoxGuard(&s.bases, &s.lastInit),
-		processors.NewFmp4TimestampNormalizer(&s.bases),
+		processors.NewFmp4TimestampNormalizer(&s.bases, nil),
 		processors.NewFmp4InitWriter(pendingInit),
 		processors.NewBufferedStreamWriter(
 			outputPath,
