@@ -331,7 +331,7 @@ function App() {
                   <FilesView />
                 ) : activeTab === "converts" ? (
                   <ConvertsView />
-                ) : activeTab === "repair" ? (
+                ) : activeTab === "repair" && canRepair ? (
                   <RepairView />
                 ) : activeTab === "settings" ? (
                   <SettingsView />
