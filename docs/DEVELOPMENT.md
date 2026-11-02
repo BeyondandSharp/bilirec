@@ -191,10 +191,12 @@ docker build -f deploy/alpine-web.Dockerfile -t local-frontend-alpine .
 
 ## 发布（Forgejo Actions）
 
-推送 semver tag（如 `v0.5.0`）触发 `.forgejo/workflows/docker-publish.yml`，按
-`.forgejo/variants.txt` 构建 8 个变体并发布到 Docker Hub 与 ghcr.io：
-`alpine`/`trixie` × `combined`/`headless` × `slim`/`full`。`alpine` 为默认变体（拥有 `latest`）。
-平台默认 `linux/amd64`。一次性配置、tag 列表与变体语法详见 [RELEASE-CI.md](RELEASE-CI.md)。
+推送 semver tag（如 `v0.5.0`）会同时触发两个 workflow：`.forgejo/workflows/docker-publish.yml` 按仓库变量
+`DOCKER_VARIANTS` 构建各变体并发布到 Docker Hub 与 ghcr.io（当前 8 个变体：`alpine`/`trixie` ×
+`combined`/`headless` × `slim`/`full`，`alpine` 为默认变体、拥有 `latest`；平台默认 `linux/amd64`）；
+`.forgejo/workflows/release.yml` 在 Forgejo 与 GitHub 创建同一 tag 的 Release。两个入口都只是指向模板仓库
+`BeyondandSharp/action-template` 的冻结薄壳；本仓库自己维护 `.forgejo/release/preflight.sh`。
+一次性配置、tag 列表、Release 行为与 hook 详见 [RELEASE-CI.md](RELEASE-CI.md)。
 
 ## 验证状态（最近一次）
 

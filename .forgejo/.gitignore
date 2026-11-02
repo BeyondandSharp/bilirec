@@ -1,0 +1,5 @@
+# The Action programs are installed at job start by the reusable workflow
+# (`Install action programs`); they are a generated artifact and must never be
+# committed into the target repository. `.forgejo/release/` (the target's own
+# preflight/prepare hooks) is NOT ignored and stays under version control.
+/scripts/
