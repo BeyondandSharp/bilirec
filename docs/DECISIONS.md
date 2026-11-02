@@ -321,3 +321,21 @@ combined 镜像中 nginx 不重启，只重启 bilirec 子进程；Android/嵌�
 ### 发布建议
 
 本次只合并到 `dev` 分支；建议发布版本 **0.6.0**（不 tag、不 push，发布动作由 Lead 决定）。
+
+## D023 (2026-11-03, Lead) — fork 自有 FLV 重封装修复（与录播姬移植代码分离）
+
+旧版切分 bug（`d7c2408` 之前的 `rev()`）在 `RotationPending` 时直接丢弃当前读流块，
+导致每次切分段都在输出文件里留下一个“乱码区 + 后续 tag 重新同步”的断点。BLR 语义的
+`flvrepair` 需要合法 tag 框架，遇到第一个非法 tag type（例如 `99`）就会失败，因此新增
+**fork 自有**的 `flvreframe`：
+
+- 位置：`internal/flvreframe` + `cmd/flvreframe`，只依赖 Go 标准库；
+- 与移植代码分离：不引用 `pkg/flv`、不调用 `rust/crates/flv-repair`，算法独立实现
+  （信任 tag 自身 size、双 tag 重新同步、重算 previous-tag-size、时间戳重基准）；
+- 可选 `--trim-broken-video-gops`：丢弃断点后到下一关键帧的视频帧（音频保留），得到
+  无花屏但短冻结的版本；
+- 典型两步修复：`flvreframe` → `flvrepair file`（后者继续负责 metadata/duration/R1–R8）；
+- 限制：只能重组已存在的字节，不能恢复旧版已经丢弃的数据块。`test.flv` 的 118 处断点
+  （丢弃 2.5 MB 不可解析字节）和 `test_3.flv` 的 6 处断点均已用该工具验证；
+- 文档：`docs/FLV-REFRAME.md`；构建：`make build` 同时产出 `dist/flvreframe`；
+  测试：`go test ./internal/flvreframe`。

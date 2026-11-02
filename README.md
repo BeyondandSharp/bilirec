@@ -255,6 +255,7 @@ compose 默认把四个卷挂到上述路径；直接 `docker run` 时同样建�
 - [docs/FEATURES-V2.md](docs/FEATURES-V2.md)：分段、路径模板、过滤、封面、弹幕、FLV、B05 高级拉流、AI 字幕
 - [docs/INTERFACES.md](docs/INTERFACES.md)：接口契约（含预览 API、字幕 sidecar、文件浏览时间筛选）
 - [docs/LOGS-VIEW.md](docs/LOGS-VIEW.md)：本地日志查看/下载契约（`LOCAL_LOGS_*`、`/logs` API）
+- [docs/FLV-REFRAME.md](docs/FLV-REFRAME.md)：旧版切分 bug 损坏 FLV 的重封装修复工具（fork 自有，与录播姬移植代码分离）
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)：构建/测试/架构/验证
 - [UPSTREAM.md](UPSTREAM.md)：上游版本 pin 与同步方式
 

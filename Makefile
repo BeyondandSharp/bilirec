@@ -45,6 +45,7 @@ UPDATE_CHECK_LDFLAGS := -X 'github.com/bilirec/bilirec/pkg/updatecheck.currentVe
 build-go:
 	mkdir -p dist
 	CGO_ENABLED=0 go build -ldflags "$(UPDATE_CHECK_LDFLAGS)" -o dist/bilirec ./cmd/backend
+	CGO_ENABLED=0 go build -o dist/flvreframe ./cmd/flvreframe
 
 build-rust:
 	cargo build --manifest-path rust/Cargo.toml --workspace --release
