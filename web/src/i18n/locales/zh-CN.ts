@@ -163,7 +163,18 @@ export const common = {
     "loadedCount": "已加载 {{loaded}} / {{total}}",
     "addToRepair": "添加到修复列表（{{count}}）",
     "addToRepairSuccess": "已添加到修复列表",
-    "addToRepairFailed": "添加到修复列表失败"
+    "addToRepairFailed": "添加到修复列表失败",
+    "multiSelect": "多选",
+    "exitMultiSelect": "退出多选",
+    "selectAll": "全选",
+    "clearSelection": "取消全选",
+    "invertSelection": "反选",
+    "deleteSelected": "删除（{{count}}）",
+    "selectedCount": "已选择 {{count}} 项",
+    "confirmDeleteTitle": "确认删除",
+    "confirmDeleteSelected": "确定删除已选择的 {{count}} 个文件？此操作不可恢复。",
+    "deleteSuccess": "已删除所选文件",
+    "deleteFailed": "删除失败"
   },
   "repairView": {
     "title": "视频修复",
@@ -186,7 +197,17 @@ export const common = {
     "statusQueued": "排队中",
     "statusRunning": "修复中",
     "statusDone": "已完成",
-    "statusFailed": "失败"
+    "statusFailed": "失败",
+    "invertSelection": "反选",
+    "deleteCompleted": "删除已完成",
+    "deleteCompletedSuccess": "已删除已完成任务",
+    "currentTask": "当前任务",
+    "overallProgress": "总进度",
+    "progressDetail": "已完成 {{done}} / {{total}}",
+    "idle": "空闲",
+    "play": "播放",
+    "flvUnsupported": "当前浏览器无法播放 FLV 文件",
+    "playFailed": "播放失败"
   },
   "fileCard": {
     "unnamed": "未命名",
@@ -196,6 +217,7 @@ export const common = {
     "deleteDanmakuFailed": "同名弹幕文件删除失败",
     "deleteFailed": "删除失败",
     "inRecordingDownloadBlocked": "文件正在录制中，无法下载",
+    "selectItem": "选择该项",
     "downloading": "正在下载...",
     "downloadCanceled": "下载已取消",
     "downloadFailed": "下载失败",

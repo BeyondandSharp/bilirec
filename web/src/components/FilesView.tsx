@@ -9,10 +9,18 @@ import { FileListRow } from './list/FileListRow'
 import { EmptyState } from './EmptyState'
 import { PlaybackPlayerDialog } from '@/components/playback/PlaybackPlayerDialog'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CaretLeftIcon, WrenchIcon } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, CaretLeftIcon, CheckSquareIcon, TrashSimpleIcon, WrenchIcon } from '@phosphor-icons/react'
 import { RecordingBrowseTimeRange } from '@/components/files/RecordingBrowseTimeRange'
 import { SearchBar } from './SearchBar'
 import { apiClient } from '@/lib/api'
@@ -21,6 +29,7 @@ import { toast } from 'sonner'
 import type { RecordFile, RecordFileListResponse } from '@/lib/types'
 import { useTranslation } from 'react-i18next'
 import { loadOnlyMediaFiles, saveOnlyMediaFiles } from '@/lib/files-view-settings'
+import { isFLVFile } from '@/lib/utils'
 import { useRole } from '@/lib/role-context'
 import {
   isRecordingBrowseRangeInvalid,
@@ -168,7 +177,10 @@ export function FilesView() {
   const [sortField, setSortField] = usePersistedState<'name' | 'mtime'>('files-sort', 'mtime')
   const [sortDirection, setSortDirection] = usePersistedState<SortDirection>('files-sort-dir', 'desc')
   const [playbackFile, setPlaybackFile] = useState<PlaybackFile | null>(null)
-  const [repairSelection, setRepairSelection] = useState<Set<string>>(() => new Set())
+  const [selection, setSelection] = useState<Set<string>>(() => new Set())
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false)
   const { isReadOnly } = useRole()
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const loadMoreTriggerRef = useRef<HTMLDivElement | null>(null)
@@ -336,7 +348,7 @@ export function FilesView() {
       setDisplayFiles([])
       setDisplayTotal(0)
       setIsSearchTransition(false)
-      setRepairSelection(new Set())
+      setSelection(new Set())
       clearRangeFilter()
     } else if (isListFilterChange && displayFiles.length > 0) {
       // Search or media filter changed under same path: keep old items until new result arrives.
@@ -427,8 +439,8 @@ export function FilesView() {
     setPlaybackFile({ path, name })
   }, [])
 
-  const toggleRepairSelection = useCallback((path: string) => {
-    setRepairSelection((current) => {
+  const toggleSelection = useCallback((path: string) => {
+    setSelection((current) => {
       const next = new Set(current)
       if (next.has(path)) next.delete(path)
       else next.add(path)
@@ -437,13 +449,64 @@ export function FilesView() {
   }, [])
 
   const addSelectedToRepair = async () => {
-    if (repairSelection.size === 0) return
+    if (selectedFlvPaths.length === 0) return
     try {
-      await apiClient.addRepairTasks([...repairSelection])
+      await apiClient.addRepairTasks(selectedFlvPaths)
       toast.success(t('filesView.addToRepairSuccess'))
-      setRepairSelection(new Set())
+      setSelection(new Set())
     } catch (error: any) {
       toast.error(t('filesView.addToRepairFailed') + (error?.response?.data ? `: ${error.response.data}` : ''))
+    }
+  }
+
+  const pathOfFile = (file: RecordFile) =>
+    typeof file.path === 'string' && file.path.trim()
+      ? file.path.replace(/\\/g, '/')
+      : currentPath
+        ? `${currentPath}/${file.name}`
+        : file.name
+
+  const selectableFiles = displayFiles.filter((file) => !file.is_dir && !file.is_recording)
+  const selectedFiles = displayFiles.filter((file) => selection.has(pathOfFile(file)))
+  const selectedFlvPaths = selectedFiles.filter((file) => isFLVFile(file.name)).map(pathOfFile)
+  const allSelected =
+    selectableFiles.length > 0 && selectableFiles.every((file) => selection.has(pathOfFile(file)))
+
+  const toggleSelectionMode = () => {
+    setSelection(new Set())
+    setSelectionMode((current) => !current)
+  }
+
+  const toggleSelectAll = () => {
+    setSelection(
+      allSelected ? new Set() : new Set(selectableFiles.map(pathOfFile)),
+    )
+  }
+
+  const invertSelection = () => {
+    setSelection(
+      new Set(
+        selectableFiles
+          .map(pathOfFile)
+          .filter((path) => !selection.has(path)),
+      ),
+    )
+  }
+
+  const confirmBatchDelete = async () => {
+    if (selectedFiles.length === 0 || isBatchDeleting) return
+    setIsBatchDeleting(true)
+    try {
+      const paths = selectedFiles.map(pathOfFile)
+      await apiClient.deleteFiles(paths)
+      handleFileDeleted({ paths })
+      setSelection(new Set())
+      setDeleteDialogOpen(false)
+      toast.success(t('filesView.deleteSuccess'))
+    } catch (error: any) {
+      toast.error(t('filesView.deleteFailed') + (error?.response?.data ? `: ${error.response.data}` : ''))
+    } finally {
+      setIsBatchDeleting(false)
     }
   }
 
@@ -496,11 +559,55 @@ export function FilesView() {
             <h2 className="text-xl font-bold">{t('filesView.title')}</h2>
           </div>
 
-          {!isReadOnly && repairSelection.size > 0 && (
-            <Button size="sm" onClick={() => void addSelectedToRepair()}>
-              <WrenchIcon size={16} />
-              {t('filesView.addToRepair', { count: repairSelection.size })}
+          {!isReadOnly && (
+            <Button
+              variant={selectionMode ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={toggleSelectionMode}
+            >
+              <CheckSquareIcon size={16} />
+              {selectionMode ? t('filesView.exitMultiSelect') : t('filesView.multiSelect')}
             </Button>
+          )}
+
+          {selectionMode && !isReadOnly && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectableFiles.length === 0}
+                onClick={toggleSelectAll}
+              >
+                {allSelected ? t('filesView.clearSelection') : t('filesView.selectAll')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectableFiles.length === 0}
+                onClick={invertSelection}
+              >
+                <ArrowCounterClockwiseIcon size={16} />
+                {t('filesView.invertSelection')}
+              </Button>
+              {selectedFlvPaths.length > 0 && (
+                <Button size="sm" onClick={() => void addSelectedToRepair()}>
+                  <WrenchIcon size={16} />
+                  {t('filesView.addToRepair', { count: selectedFlvPaths.length })}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectedFiles.length === 0 || isBatchDeleting}
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <TrashSimpleIcon size={16} />
+                {t('filesView.deleteSelected', { count: selectedFiles.length })}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t('filesView.selectedCount', { count: selectedFiles.length })}
+              </span>
+            </>
           )}
 
           <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
@@ -611,8 +718,9 @@ export function FilesView() {
                     onNavigate={handleNavigate}
                     onPlayback={handlePlayback}
                     currentPath={currentPath}
-                    repairSelected={repairSelection.has(file.path)}
-                    onToggleRepairSelection={!isReadOnly ? toggleRepairSelection : undefined}
+                    selectionMode={selectionMode}
+                            selected={selection.has(file.path)}
+                            onToggleSelected={!isReadOnly ? toggleSelection : undefined}
                   />
                 ))}
               </div>
@@ -648,8 +756,9 @@ export function FilesView() {
                             onPlayback={handlePlayback}
                             currentPath={currentPath}
                             siblingFileNames={siblingFileNames}
-                            repairSelected={repairSelection.has(file.path)}
-                            onToggleRepairSelection={!isReadOnly ? toggleRepairSelection : undefined}
+                                    selectionMode={selectionMode}
+                            selected={selection.has(file.path)}
+                            onToggleSelected={!isReadOnly ? toggleSelection : undefined}
                           />
                         )
                       })}
@@ -677,6 +786,30 @@ export function FilesView() {
           </div>
         </div>
       </div>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('filesView.confirmDeleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('filesView.confirmDeleteSelected', { count: selectedFiles.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)}>
+              {t('fileCard.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isBatchDeleting}
+              onClick={() => void confirmBatchDelete()}
+            >
+              {isBatchDeleting
+                ? t('fileCard.deleting')
+                : t('filesView.deleteSelected', { count: selectedFiles.length })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {playbackFile ? (
         <PlaybackPlayerDialog
           open

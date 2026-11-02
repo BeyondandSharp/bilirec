@@ -95,9 +95,9 @@ func TestOpenForPlaybackUnsupportedMedia(t *testing.T) {
 	tempDir := t.TempDir()
 	os.Setenv("OUTPUT_DIR", tempDir)
 
-	filePath := filepath.Join(tempDir, "test.flv")
+	filePath := filepath.Join(tempDir, "test.mkv")
 	if err := os.WriteFile(filePath, []byte("123"), 0644); err != nil {
-		t.Fatalf("failed to create flv test file: %v", err)
+		t.Fatalf("failed to create mkv test file: %v", err)
 	}
 
 	var svc *file.Service
@@ -110,7 +110,7 @@ func TestOpenForPlaybackUnsupportedMedia(t *testing.T) {
 	app.RequireStart()
 	defer app.RequireStop()
 
-	_, _, err := svc.OpenForPlayback("test.flv")
+	_, _, err := svc.OpenForPlayback("test.mkv")
 	if !errors.Is(err, file.ErrUnsupportedPlaybackMedia) {
 		t.Fatalf("expected ErrUnsupportedPlaybackMedia, got %v", err)
 	}

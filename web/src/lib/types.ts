@@ -174,6 +174,10 @@ export interface RepairTask {
   status: RepairTaskStatus
   error?: string
   added_at: number
+  /** Stable insertion order tie-break (backend AddedAt has second resolution). */
+  seq?: number
+  /** Running-task progress (0..0.99); 1 when done. */
+  progress?: number
   started_at?: number
   finished_at?: number
 }

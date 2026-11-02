@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +14,6 @@ import {
   findDanmakuSidecarAmongPeerNames,
   isConvertibleVideoFile,
   isDanmakuSidecarFile,
-  isFLVFile,
   isRecordingMediaFilename,
 } from '@/lib/utils'
 import type { RecordFile } from '@/lib/types'
@@ -34,9 +33,10 @@ interface FileCardProps {
   currentPath?: string
   /** Basenames in the current browse directory (from listing). */
   siblingFileNames?: ReadonlySet<string>
-  /** Selected for the batch video-repair list. */
-  repairSelected?: boolean
-  onToggleRepairSelection?: (path: string) => void
+  /** Multi-select mode: show the selection checkbox and toggle on card click. */
+  selectionMode?: boolean
+  selected?: boolean
+  onToggleSelected?: (path: string) => void
 }
 
 export function FileCard({
@@ -46,8 +46,9 @@ export function FileCard({
   onPlayback,
   currentPath = '',
   siblingFileNames,
-  repairSelected = false,
-  onToggleRepairSelection,
+  selectionMode = false,
+  selected = false,
+  onToggleSelected,
 }: FileCardProps) {
   const { t } = useTranslation()
   const { isReadOnly } = useRole()
@@ -70,7 +71,7 @@ export function FileCard({
   const canConvertFile = isConvertibleVideoFile(name)
 
   const isRecording = 'is_recording' in file ? !!(file as any).is_recording : false
-  const canRepairFile = isFLVFile(name) && !isRecording && !isReadOnly && Boolean(onToggleRepairSelection)
+  const selectable = Boolean(selectionMode && onToggleSelected && !isDir && !isRecording)
 
   const fileApiPath =
     typeof file.path === 'string' && file.path.trim()
@@ -148,7 +149,7 @@ export function FileCard({
   }
 
   const handleDownload = async () => {
-    if (isDir) {
+  if (isDir) {
       const path = currentPath ? `${currentPath}/${name}` : name
       onNavigate?.(path)
       return
@@ -262,6 +263,14 @@ export function FileCard({
   }
 
   
+  const handleCardClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (!selectable) return
+    const target = event.target as HTMLElement | null
+    // Buttons/links/checkbox inside the card keep their own behavior.
+    if (target?.closest('button, a, input, label, [role="checkbox"]')) return
+    onToggleSelected?.(fileApiPath)
+  }
+
   if (isDir) {
     const path = currentPath ? `${currentPath}/${name}` : name
 
@@ -348,7 +357,14 @@ export function FileCard({
   }
 
   return (
-    <Card className="h-full p-4 file-card transition-all hover:shadow-lg">
+    <Card
+      onClick={handleCardClick}
+      className={cn(
+        'h-full p-4 file-card transition-all hover:shadow-lg',
+        selectable && 'cursor-pointer',
+        selected && 'border-primary/60 bg-primary/5',
+      )}
+    >
       <div className="flex h-full gap-3">
         <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center shrink-0 text-secondary-foreground">
           {isM4a ? (
@@ -371,12 +387,12 @@ export function FileCard({
               </p>
             </div>
             <div className="flex shrink-0 items-start gap-2">
-              {canRepairFile && (
+              {selectable && (
                 <Checkbox
-                  checked={repairSelected}
-                  onCheckedChange={() => onToggleRepairSelection?.(fileApiPath)}
-                  aria-label={t('fileCard.selectRepair')}
-                  title={t('fileCard.selectRepair')}
+                  checked={selected}
+                  onCheckedChange={() => onToggleSelected?.(fileApiPath)}
+                  aria-label={t('fileCard.selectItem')}
+                  title={t('fileCard.selectItem')}
                 />
               )}
               <div className="flex flex-col items-end gap-1">

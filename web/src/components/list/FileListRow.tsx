@@ -13,11 +13,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { apiClient } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import {
   formatFileSize,
   isConvertibleVideoFile,
   isDanmakuSidecarFile,
-  isFLVFile,
   isRecordingMediaFilename,
 } from '@/lib/utils'
 import type { RecordFile } from '@/lib/types'
@@ -27,8 +27,9 @@ interface FileListRowProps {
   currentPath?: string
   onNavigate?: (path: string) => void
   onPlayback: (path: string, name: string) => void
-  repairSelected?: boolean
-  onToggleRepairSelection?: (path: string) => void
+  selectionMode?: boolean
+  selected?: boolean
+  onToggleSelected?: (path: string) => void
 }
 
 export function FileListRow({
@@ -36,8 +37,9 @@ export function FileListRow({
   currentPath = '',
   onNavigate,
   onPlayback,
-  repairSelected = false,
-  onToggleRepairSelection,
+  selectionMode = false,
+  selected = false,
+  onToggleSelected,
 }: FileListRowProps) {
   const { t } = useTranslation()
   const [isDownloading, setIsDownloading] = useState(false)
@@ -47,7 +49,7 @@ export function FileListRow({
   const isVideo = isConvertibleVideoFile(file.name)
   const extension = file.name.split('.').pop()?.toUpperCase() ?? ''
   const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name
-  const canRepairFile = !isDir && !file.is_recording && isFLVFile(file.name) && Boolean(onToggleRepairSelection)
+  const selectable = Boolean(selectionMode && onToggleSelected && !isDir && !file.is_recording)
 
   const download = async () => {
     if (isDir) {
@@ -68,16 +70,27 @@ export function FileListRow({
 
   return (
     <div
-      className="flex min-h-[42px] cursor-pointer items-center gap-2.5 border-b border-border/60 px-3 py-1.5 last:border-b-0 hover:bg-muted/30"
-      onClick={() => (isDir ? onNavigate?.(fullPath) : isVideo ? onPlayback(fullPath, file.name) : undefined)}
+      className={cn(
+        'flex min-h-[42px] cursor-pointer items-center gap-2.5 border-b border-border/60 px-3 py-1.5 last:border-b-0 hover:bg-muted/30',
+        selected && 'bg-primary/5',
+      )}
+      onClick={() =>
+        selectable
+          ? onToggleSelected?.(fullPath)
+          : isDir
+            ? onNavigate?.(fullPath)
+            : isVideo
+              ? onPlayback(fullPath, file.name)
+              : undefined
+      }
     >
-      {canRepairFile && (
+      {selectable && (
         <span onClick={(event) => event.stopPropagation()} className="flex shrink-0 items-center">
           <Checkbox
-            checked={repairSelected}
-            onCheckedChange={() => onToggleRepairSelection?.(fullPath)}
-            aria-label={t('fileCard.selectRepair')}
-            title={t('fileCard.selectRepair')}
+            checked={selected}
+            onCheckedChange={() => onToggleSelected?.(fullPath)}
+            aria-label={t('fileCard.selectItem')}
+            title={t('fileCard.selectItem')}
           />
         </span>
       )}

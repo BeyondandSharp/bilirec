@@ -165,7 +165,18 @@ export const common = {
     loadedCount: "Loaded {{loaded}} / {{total}}",
     addToRepair: "Add to repair list ({{count}})",
     addToRepairSuccess: "Added to repair list",
-    addToRepairFailed: "Failed to add to repair list"
+    addToRepairFailed: "Failed to add to repair list",
+    multiSelect: "Multi-select",
+    exitMultiSelect: "Exit multi-select",
+    selectAll: "Select all",
+    clearSelection: "Clear selection",
+    invertSelection: "Invert selection",
+    deleteSelected: "Delete ({{count}})",
+    selectedCount: "{{count}} selected",
+    confirmDeleteTitle: "Confirm deletion",
+    confirmDeleteSelected: "Delete {{count}} selected file(s)? This cannot be undone.",
+    deleteSuccess: "Selected files deleted",
+    deleteFailed: "Delete failed"
   },
   repairView: {
     title: "Video repair",
@@ -188,7 +199,17 @@ export const common = {
     statusQueued: "Queued",
     statusRunning: "Repairing",
     statusDone: "Done",
-    statusFailed: "Failed"
+    statusFailed: "Failed",
+    invertSelection: "Invert selection",
+    deleteCompleted: "Remove completed",
+    deleteCompletedSuccess: "Completed tasks removed",
+    currentTask: "Current task",
+    overallProgress: "Overall progress",
+    progressDetail: "{{done}} / {{total}} finished",
+    idle: "Idle",
+    play: "Play",
+    flvUnsupported: "This browser cannot play FLV files",
+    playFailed: "Failed to play the file"
   },
   fileCard: {
     unnamed: "Unnamed",
@@ -198,6 +219,7 @@ export const common = {
     deleteDanmakuFailed: "Failed to delete the danmaku file with the same name",
     deleteFailed: "Delete failed",
     inRecordingDownloadBlocked: "This file is being recorded and cannot be downloaded",
+    selectItem: "Select item",
     downloading: "Downloading...",
     downloadCanceled: "Download canceled",
     downloadFailed: "Download failed",

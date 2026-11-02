@@ -106,3 +106,80 @@ func TestAddRejectsUnavailableAndNonFLV(t *testing.T) {
 		t.Fatalf("non-flv add err = %v", err)
 	}
 }
+
+func TestListOrderIsStableWithinSameSecond(t *testing.T) {
+	svc, cfg := newTestQueue(t, &fakeRepairer{enabled: true})
+	paths := []string{"c.flv", "a.flv", "b.flv"}
+	for _, name := range paths {
+		if err := os.WriteFile(filepath.Join(cfg.OutputDir, name), []byte("source"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.Add(paths); err != nil {
+		t.Fatal(err)
+	}
+
+	want := append([]string(nil), paths...)
+	for i := 0; i < 5; i++ {
+		items := svc.List()
+		got := make([]string, len(items))
+		for index, item := range items {
+			got[index] = item.Path
+		}
+		if len(got) != len(want) {
+			t.Fatalf("items = %v, want %v", got, want)
+		}
+		for index := range want {
+			if got[index] != want[index] {
+				t.Fatalf("poll %d order = %v, want %v", i, got, want)
+			}
+		}
+	}
+
+	// A restarted service loading the persisted queue keeps the same order.
+	lc := fxtest.NewLifecycle(t)
+	restarted := newService(lc, cfg, path.NewService(cfg), &fakeRepairer{enabled: true})
+	lc.RequireStart()
+	t.Cleanup(lc.RequireStop)
+	items := restarted.List()
+	got := make([]string, len(items))
+	for index, item := range items {
+		got[index] = item.Path
+	}
+	for index := range want {
+		if got[index] != want[index] {
+			t.Fatalf("restarted order = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestListProgressForRunningAndDoneEntries(t *testing.T) {
+	svc, cfg := newTestQueue(t, &fakeRepairer{enabled: true})
+	if err := os.WriteFile(filepath.Join(cfg.OutputDir, "a.flv"), []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Add([]string{"a.flv"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.OutputDir, "a_fix.flv"), []byte("01234"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	svc.entries["a.flv"].Status = StatusRunning
+	svc.mu.Unlock()
+
+	items := svc.List()
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Progress < 0.49 || items[0].Progress > 0.51 {
+		t.Fatalf("running progress = %v, want 0.5", items[0].Progress)
+	}
+
+	svc.mu.Lock()
+	svc.entries["a.flv"].Status = StatusDone
+	svc.mu.Unlock()
+	if got := svc.List()[0].Progress; got != 1 {
+		t.Fatalf("done progress = %v, want 1", got)
+	}
+}

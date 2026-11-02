@@ -53,8 +53,16 @@ type Entry struct {
 	Status     Status `json:"status"`
 	Error      string `json:"error,omitempty"`
 	AddedAt    int64  `json:"added_at"`
-	StartedAt  int64  `json:"started_at,omitempty"`
-	FinishedAt int64  `json:"finished_at,omitempty"`
+	// Seq is a monotonically increasing insertion sequence. AddedAt only has
+	// one-second resolution, so Seq breaks ties and keeps list order stable
+	// across 3s polling and restarts (the map it is stored in has no order).
+	Seq int64 `json:"seq,omitempty"`
+	// Progress is filled by List for the running entry: bytes of the
+	// partially written output over the input size, capped below 1.0 until the
+	// worker marks the entry done. Not persisted.
+	Progress   float64 `json:"progress,omitempty"`
+	StartedAt  int64   `json:"started_at,omitempty"`
+	FinishedAt int64   `json:"finished_at,omitempty"`
 }
 
 type fileRepairer interface {
@@ -75,6 +83,9 @@ type Service struct {
 	mu      sync.Mutex
 	entries map[string]*Entry
 	file    string
+	// nextSeq is the last insertion sequence handed out. Persisted in Entry.Seq
+	// so order survives restarts.
+	nextSeq int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -126,19 +137,53 @@ func (s *Service) Enabled() bool {
 	return s != nil && s.repairer != nil && s.repairer.Enabled()
 }
 
-// List returns a copy of the list in insertion order.
+// List returns a copy of the list in stable insertion order (AddedAt, then the
+// persisted sequence, then path). Progress is computed for running entries and
+// set to 1 for done entries.
 func (s *Service) List() []Entry {
 	if s == nil {
 		return nil
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	out := make([]Entry, 0, len(s.entries))
 	for _, entry := range s.entries {
 		out = append(out, *entry)
 	}
+	s.mu.Unlock()
 	sortEntries(out)
+	for i := range out {
+		s.fillProgress(&out[i])
+	}
 	return out
+}
+
+// fillProgress fills Entry.Progress for running/done entries. The repair output
+// is written incrementally (flvrepair's file sink writes and flushes while
+// parsing), so output size over input size is a usable progress signal.
+func (s *Service) fillProgress(entry *Entry) {
+	switch entry.Status {
+	case StatusDone:
+		entry.Progress = 1
+	case StatusRunning:
+		if entry.Size <= 0 || s.pathSvc == nil {
+			return
+		}
+		full, err := s.pathSvc.ValidatePath(entry.OutputPath)
+		if err != nil {
+			return
+		}
+		info, err := os.Stat(full)
+		if err != nil || info.IsDir() {
+			return
+		}
+		progress := float64(info.Size()) / float64(entry.Size)
+		if progress < 0 {
+			progress = 0
+		} else if progress > 0.99 {
+			progress = 0.99
+		}
+		entry.Progress = progress
+	}
 }
 
 // Add validates FLV paths and appends them to the list. Existing paths are
@@ -178,12 +223,14 @@ func (s *Service) Add(paths []string) ([]Entry, error) {
 		if err != nil {
 			return nil, err
 		}
+		s.nextSeq++
 		entry := &Entry{
 			Path:       rel,
 			OutputPath: filepath.ToSlash(outputRel),
 			Size:       info.Size(),
 			Status:     StatusPending,
 			AddedAt:    time.Now().Unix(),
+			Seq:        s.nextSeq,
 		}
 		s.entries[rel] = entry
 		added = append(added, *entry)
@@ -279,7 +326,7 @@ func (s *Service) nextQueued() *Entry {
 		if entry.Status != StatusQueued {
 			continue
 		}
-		if selected == nil || entry.AddedAt < selected.AddedAt {
+		if selected == nil || entryLess(entry, selected) {
 			selected = entry
 		}
 	}
@@ -430,6 +477,27 @@ func (s *Service) load() {
 			entry.StartedAt = 0
 		}
 		s.entries[entry.Path] = entry
+		if entry.Seq > s.nextSeq {
+			s.nextSeq = entry.Seq
+		}
+	}
+	// Legacy queue files predate Seq: assign insertion-order sequences
+	// deterministically (AddedAt, then path) so the list stops reshuffling.
+	var legacy []*Entry
+	for _, entry := range s.entries {
+		if entry.Seq == 0 {
+			legacy = append(legacy, entry)
+		}
+	}
+	sort.Slice(legacy, func(i, j int) bool {
+		if legacy[i].AddedAt != legacy[j].AddedAt {
+			return legacy[i].AddedAt < legacy[j].AddedAt
+		}
+		return legacy[i].Path < legacy[j].Path
+	})
+	for _, entry := range legacy {
+		s.nextSeq++
+		entry.Seq = s.nextSeq
 	}
 }
 
@@ -469,10 +537,24 @@ func (s *Service) saveLocked() {
 	}
 }
 
+// entryLess orders entries by insertion time, then by the persisted insertion
+// sequence, then by path. The map that backs the list has no order, so without
+// the Seq tie-break entries added in the same second (e.g. a multi-file add)
+// would swap positions on every poll.
+func entryLess(a, b *Entry) bool {
+	if a.AddedAt != b.AddedAt {
+		return a.AddedAt < b.AddedAt
+	}
+	if a.Seq != b.Seq {
+		return a.Seq < b.Seq
+	}
+	return a.Path < b.Path
+}
+
 func sortEntries(entries []Entry) {
-	sort.Slice(entries, func(i, j int) bool { return entries[i].AddedAt < entries[j].AddedAt })
+	sort.Slice(entries, func(i, j int) bool { return entryLess(&entries[i], &entries[j]) })
 }
 
 func sortEntriesPtr(entries []*Entry) {
-	sort.Slice(entries, func(i, j int) bool { return entries[i].AddedAt < entries[j].AddedAt })
+	sort.Slice(entries, func(i, j int) bool { return entryLess(entries[i], entries[j]) })
 }

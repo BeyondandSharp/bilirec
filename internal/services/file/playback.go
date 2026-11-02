@@ -1,4 +1,4 @@
-﻿package file
+package file
 
 import (
 	"errors"
@@ -46,6 +46,10 @@ func inferPlaybackMIME(path string) (string, error) {
 		return "video/mp4", nil
 	case ".m4a":
 		return "audio/mp4", nil
+	case ".flv":
+		// Recorded files are FLV; the web player feeds this range-enabled stream
+		// through flv.js (MSE) because browsers cannot play FLV natively.
+		return "video/x-flv", nil
 	default:
 		return "", ErrUnsupportedPlaybackMedia
 	}
