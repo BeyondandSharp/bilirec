@@ -559,17 +559,6 @@ export function FilesView() {
             <h2 className="text-xl font-bold">{t('filesView.title')}</h2>
           </div>
 
-          {!isReadOnly && (
-            <Button
-              variant={selectionMode ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={toggleSelectionMode}
-            >
-              <CheckSquareIcon size={16} />
-              {selectionMode ? t('filesView.exitMultiSelect') : t('filesView.multiSelect')}
-            </Button>
-          )}
-
           {selectionMode && !isReadOnly && (
             <>
               <Button
@@ -596,7 +585,7 @@ export function FilesView() {
                 </Button>
               )}
               <Button
-                variant="outline"
+                variant="destructive"
                 size="sm"
                 disabled={selectedFiles.length === 0 || isBatchDeleting}
                 onClick={() => setDeleteDialogOpen(true)}
@@ -611,6 +600,17 @@ export function FilesView() {
           )}
 
           <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
+            {!isReadOnly && (
+              <Button
+                variant={selectionMode ? 'secondary' : 'outline'}
+                size="default"
+                className="h-9 shrink-0"
+                onClick={toggleSelectionMode}
+              >
+                <CheckSquareIcon size={16} />
+                {selectionMode ? t('filesView.exitMultiSelect') : t('filesView.multiSelect')}
+              </Button>
+            )}
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
             <SortControl
               id="files-sort"
