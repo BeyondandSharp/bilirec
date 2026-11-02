@@ -69,12 +69,13 @@ the section references (§8.x) to locate behavior.
 | `Amf/ScriptTagBodyExtensions.cs` | `amf.rs` (`Metadata`, `parse_metadata`, `metadata_duration`) | `get_metadata_value()` semantics |
 | `Writer/FlvTagFileWriter.cs` | `writer.rs` (`FlvWriter`, sinks) | single-output FLV preamble (flags reflect tracks), tag serialization, in-place metadata duration rewrite; no keyframes index, no file rotation |
 | `Pipeline/FlvProcessingContextWriter.cs` | `writer.rs` | action→bytes state machine: buffered pre-roll until both tracks' sequence headers are known (or the hold limit is hit), deferred/at-front header write, preamble order, terminal-END buffering |
-| `Writer/KeyframesScriptDataValue.cs` | **not ported** (optional) | `keyframes` index; not required by INTERFACES, see §7.5 |
+| `Writer/KeyframesScriptDataValue.cs` | **not ported to Rust**; Go writer implements the equivalent | fork-owned `internal/flvmeta` + `processors` write `keyframes`/`filepositions`; see §7.5 |
 | `Writer/FlvTagListWriter.cs` | test-only | in-memory writer used by tests |
 | (CLI / process contract, not in C# reference) | `cli.rs`, `log.rs` | INTERFACES §1.1/§1.2: args, exit codes, stderr JSON lines |
 
 Not ported: `UpdateTimestampOffsetRule` (upstream-disabled default; §8.2/§10.14),
-`KeyframesScriptDataValue` (optional; §7.5), `Xml/*`, `DefaultMemoryStreamProvider.cs`,
+`KeyframesScriptDataValue` in the Rust sidecar (the Go writer has a fork-owned equivalent; §7.5),
+`Xml/*`, `DefaultMemoryStreamProvider.cs`,
 `StreamExtensions.cs`, `LinqExtensions.cs`/`LinqFunctions.cs` (iterate natively),
 `DependencyInjectionExtensions.cs`, `FileClosedEventArgs.cs`, `IFlvProcessingContextWriter.cs`
 (interface only). Recording-only machinery (`StatsRule`, `SplitRule`, file rotation) is not
@@ -488,6 +489,11 @@ Reference: `FlvProcessingContextWriter` sets `value["duration"] = last_data_tag.
 after writing each data group, and `FlvTagFileWriter::OverwriteMetadata` re-serializes the
 script body; it patches in place only if the serialized length is unchanged.
 
+Fork Go writer: when `FLV_WRITE_METADATA=true`, the Go recording writer now implements the same
+semantics for FLV output, plus keyframes/filepositions: it writes a fixed-size onMetaData tag and
+rewrites it in place while recording (see docs/FEATURES-V2.md §5.1 and D024). The Rust sidecar
+behavior below is unchanged and still applies to sidecar-produced/metadata-repaired files.
+
 Sidecar:
 
 - `file` mode: after finishing, locate the output script tag, set `duration` = actual media
@@ -502,11 +508,16 @@ Sidecar:
   `duration`, when present, must not contradict the media duration by more than the stated
   tolerance.
 
-### 7.5 `keyframes` metadata (optional, not required)
+### 7.5 `keyframes` metadata (implemented in Go writer; not in Rust sidecar)
 
 C# optionally adds a `keyframes` object (`times`, `filepositions`, `spacer`; `MaxDataCount =
-6300`, `MinInterval = 1900` ms; spacer = NaN array padded to 2*6300 entries). INTERFACES does
-not require it. Do not implement in v1 unless free; document if added.
+6300`, `MinInterval = 1900` ms; spacer = NaN array padded to 2*6300 entries). The fork's Go
+recording writer implements this for FLV output when `FLV_WRITE_METADATA=true`
+(`internal/flvmeta`, `internal/processors/flv_metadata.go`): source onMetaData fields are
+preserved, duration is refreshed during recording, and the fixed-size tag is rewritten in place.
+The Rust sidecar (`rust/crates/flv-repair`) intentionally still does not generate the keyframes
+index; sidecar output is repaired/sidecar-written content, not the live Go recording writer.
+INTERFACES does not require keyframes; this is a fork-owned recording feature.
 
 ---
 

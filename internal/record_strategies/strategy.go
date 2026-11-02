@@ -23,6 +23,13 @@ type PipelineHooks struct {
 	OnSync          func(processors.SyncEvent)
 	OnEnqueueWait   func(processors.EnqueueWaitEvent)
 	OnTimestampJump flv.TimestampJumpReporter
+
+	// WriteMetadata enables the fork's complete FLV onMetaData writing
+	// (duration + keyframes/filepositions, rewritten while recording). It is
+	// resolved from FLV_WRITE_METADATA at session start. Zero value keeps the
+	// legacy behavior (no generated metadata) for tests/callers that build a
+	// pipeline directly.
+	WriteMetadata bool
 }
 
 // RotationState carries format-specific state across segment rotations.

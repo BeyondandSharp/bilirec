@@ -16,6 +16,7 @@ const (
 func (r *Service) pipelineHooks(roomID int, info *Info) rs.PipelineHooks {
 	if !r.m.Enabled() {
 		return rs.PipelineHooks{
+			WriteMetadata: info.effective.FlvWriteMetadata,
 			OnBytesWritten: func(n int) {
 				info.bytesWritten.Add(uint64(n))
 			},
@@ -25,6 +26,7 @@ func (r *Service) pipelineHooks(roomID int, info *Info) rs.PipelineHooks {
 	var sess = r.m.StreamSession(roomID)
 
 	return rs.PipelineHooks{
+		WriteMetadata: info.effective.FlvWriteMetadata,
 		OnBytesWritten: func(n int) {
 			info.bytesWritten.Add(uint64(n))
 			sess.AddBytesWritten(n)

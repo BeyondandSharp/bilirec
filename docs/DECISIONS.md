@@ -339,3 +339,27 @@ combined 镜像中 nginx 不重启，只重启 bilirec 子进程；Android/嵌�
   （丢弃 2.5 MB 不可解析字节）和 `test_3.flv` 的 6 处断点均已用该工具验证；
 - 文档：`docs/FLV-REFRAME.md`；构建：`make build` 同时产出 `dist/flvreframe`；
   测试：`go test ./internal/flvreframe`。
+
+## D024 (2026-11-03, Lead) — Go 录制器写入完整 onMetaData（duration/keyframes/filepositions，持续回写）
+
+`FLV_WRITE_METADATA=true`（默认）现在不仅影响修复侧车，还让 **Go 录制器**为 FLV 输出生成
+与录播姬等价的完整元数据：
+
+- 输出布局：FLV 文件头 → 唯一的 `onMetaData` script tag → 序列头 → 媒体 tag；
+- 元数据字段：保留源流 onMetaData 的字段（编码器/日期/宽高等）；`duration` 取最后一个
+  数据 tag 的时间戳；`keyframes` 写 `times`（秒）、`filepositions`（绝对字节偏移）、
+  `spacer`（NaN 填充），`MaxDataCount=6300`、`MinInterval=1900`（与录播姬一致）；
+- 长度固定（约 114 KiB），录制过程中通过 `WriteAt` 原地回写；写入后立即 flush 一次，之后
+  的 patch 不会与缓冲写冲突；关键帧/每 5 秒/close 时刷新；
+- 源 onMetaData 由 `FlvMetadataExtractor` 在 header writer 之前解析并移除，避免重复；若源
+  tag 在首个媒体 tag 之后才出现，则作为已知限制被丢弃（元数据基于已有字段生成）；
+- 按分段独立：每次旋转/新文件重新计数 keyframes/filepositions；
+- `FLV_WRITE_METADATA=false`：不生成元数据；源 script tag 的处理仍由修复侧车 keep/drop 决定；
+- 仅 FLV 输出；TS/fMP4 不受影响。
+
+实现位置：`internal/flvmeta`（fork 自有 AMF0 编解码 + builder，不复制 C# 代码）、
+`internal/processors/flv_metadata.go`（extractor/tracker/patch）、`internal/processors/
+buffered_stream_writer.go`（注入与 flush 时机）；`internal/record_strategies.PipelineHooks.
+WriteMetadata` 由 `pipelineHooks` 从 effective 设置传入。测试覆盖 AMF 往返、固定长度、
+keyframe 间隔/上限、源字段保留、writer 注入/最终元数据/录制中回写；`FLV_WRITE_METADATA=
+false` 保持旧行为。

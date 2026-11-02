@@ -115,6 +115,11 @@ type BufferedStreamWriterProcessor struct {
 	minPeriodicFlushBytes int
 
 	fatal atomic.Pointer[writerFatalErr]
+
+	// flvMetadata is non-nil when BililiveRecorder-compatible onMetaData
+	// duration/keyframes rewriting is enabled for this segment.
+	flvMetadata           *flvMetadataState
+	metadataPatchInterval time.Duration
 }
 
 // livePeriodicRoundRobin serializes periodic work across live writers when SEQUENTIAL_WRITE is on.
@@ -292,11 +297,17 @@ func (w *BufferedStreamWriterProcessor) Close() error {
 	}
 
 	if w.writer != nil {
+		if w.flvMetadata != nil && !w.flvMetadata.initialized && len(w.flvMetadata.preBuf) > 0 {
+			w.flvMetadata.initialize(w)
+		}
 		flushStart := time.Now()
 		if err := w.writer.Flush(); err != nil {
 			w.logger.Warnf("刷新写入器失败：%v", err)
 		} else {
 			w.syncBufferedBytes()
+			if w.flvMetadata != nil {
+				w.flvMetadata.finalize(w)
+			}
 			w.emitFlush(time.Since(flushStart), "close")
 			if file := w.file.Load(); file != nil {
 				syncStart := time.Now()
@@ -429,13 +440,7 @@ func (w *BufferedStreamWriterProcessor) handleDataChunk(data []byte) {
 		return
 	}
 
-	if w.writer != nil {
-		n, err := w.writer.Write(data)
-		w.noteWriteFailure(len(data), n, err)
-		w.addWrittenBytes(n)
-		w.syncBufferedBytes()
-		w.bytesPool.Put(data)
-	}
+	w.writeOutput(data)
 }
 
 func (w *BufferedStreamWriterProcessor) addWrittenBytes(n int) {
@@ -483,6 +488,9 @@ func (w *BufferedStreamWriterProcessor) doPeriodicFlush() {
 		return
 	}
 	w.syncBufferedBytes()
+	if w.flvMetadata != nil {
+		w.flvMetadata.maybePatch(w, time.Now(), false)
+	}
 	flushCost := time.Since(flushStart)
 	w.emitFlush(flushCost, "periodic")
 	if flushCost > defaultSlowFlushWarnThreshold {
@@ -731,10 +739,7 @@ func (w *BufferedStreamWriterProcessor) writePendingChunksToWriter() {
 			w.bytesPool.Put(chunk)
 			continue
 		}
-		n, err := w.writer.Write(chunk)
-		w.noteWriteFailure(len(chunk), n, err)
-		w.addWrittenBytes(n)
-		w.bytesPool.Put(chunk)
+		w.writeOutput(chunk)
 	}
 	w.pendingChunks = w.pendingChunks[:0]
 	w.pendingBytes = 0

@@ -204,11 +204,31 @@ returning a **relative path under OUTPUT_DIR**:
 
 ## 5. FLV handling + Toolbox
 
-### 5.1 Sidecar flag
+### 5.1 FLV metadata（Go writer，完整 onMetaData）
+
+`FLV_WRITE_METADATA=true`（默认）时，**FLV 输出**由 Go recorder 在每段文件头后写入一个
+完整的 `onMetaData` 脚本 tag（fork 自有实现，`internal/flvmeta` + writer）：
+
+- 保留源流 onMetaData 的字段（编码器、日期、宽高等）；源 tag 被提取器移除，输出只有一份
+  元数据，不会重复；
+- `duration`：以最后一个数据 tag 的时间戳（毫秒）/1000 写入秒数，**录制过程中原地回写**
+  （关键帧/至少每 5 秒刷新一次，close 时写最终值）；
+- `keyframes`：`times`（秒）、`filepositions`（绝对字节偏移）、`spacer`（NaN 填充）；
+  `MaxDataCount=6300`、`MinInterval=1900ms`，与录播姬的 wire 格式一致；
+- script tag 序列化长度固定（约 114 KiB），因此可用 `WriteAt` 原地更新；
+- 元数据按分段独立生成，旋转/分段后从新文件重新计数；
+- 只影响 FLV 输出（原生 FLV、ffmpeg/streamlink 的 FLV 输出）；TS/fMP4 输出不变。
+- 已知限制：若源 onMetaData 出现在**首个媒体 tag 之后**，其字段不会被并入（仍生成
+  duration/keyframes）；`keyframes` 索引间隔严格大于 1900ms（与录播姬一致）。
+
+`FLV_WRITE_METADATA=false`：不生成上述元数据；源 onMetaData 是否保留仍由修复侧车决定
+（见下）。FLV 修复侧车的 `--write-metadata` 语义不变：
+
 - `flvrepair stream|file` add `--write-metadata <keep|drop>` (default keep). drop = do not emit
   script/onMetaData tags in output (duration patch ignored).
 - Go `repair.WrapStream(ctx, ch, pool, repair.SessionOptions{Mode, MaxBufferMB, WriteMetadata bool})`;
-  recorder passes effective value. Default keep => byte-identical to current behavior.
+  recorder passes effective value. Default keep => source script tags survive the sidecar and are
+  then consumed by the Go writer when `FLV_WRITE_METADATA=true`; with `false` they pass through.
 
 ### 5.2 Script-tag / Annex-B split
 - `pkg/flv`: `ScriptTagSplitDetector` — after the first media data tag, presence of a Script tag

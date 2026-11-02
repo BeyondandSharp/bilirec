@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/flvmeta"
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/processors"
 	"github.com/bilirec/bilirec/pkg/flv"
@@ -97,26 +98,38 @@ func (s *FlvStrategy) BuildPipeline(ctx context.Context, outputPath string, stat
 	if s.splitOptions.SplitOnAnnexB {
 		procList = append(procList, processors.NewFlvAnnexBSplitDetector())
 	}
-	pipe := pipeline.New(append(procList,
+	var metadataBuilder *flvmeta.Builder
+	if hooks.WriteMetadata {
+		// The extractor must run before the header writer: it strips the source
+		// onMetaData tag and collects its fields, then the writer inserts a
+		// complete fixed-size onMetaData tag right after the FLV file header.
+		metadataBuilder = flvmeta.NewBuilder()
+		procList = append(procList, processors.NewFlvMetadataExtractor(metadataBuilder))
+	}
+
+	writerOptions := []processors.BufferedStreamWriterOptions{
+		processors.WithBufferSize(config.ReadOnly.LiveStreamWriterBufferSize()),
+		processors.WithSkipSmallFlushThreshold(config.ReadOnly.SkipSmallFlushThreshold()),
+		processors.WithSyncPeriod(time.Duration(config.ReadOnly.LiveStreamWriterSyncPeriodSecs()) * time.Second),
+		processors.WithColdCacheReleasePeriod(time.Duration(config.ReadOnly.LiveStreamWriterColdCacheReleaseSecs()) * time.Second),
+		processors.WithFlushPeriod(time.Duration(config.ReadOnly.LiveStreamWriterFlushPeriodSecs()) * time.Second),
+		processors.WithChanBufferSize(config.ReadOnly.LiveStreamWriterChanBufferSize()),
+		processors.WithBytesPool(s.writerPool),
+		processors.WithDropFilePageCache(config.ReadOnly.DropFilePageCache()),
+		processors.WithSequentialWrite(config.ReadOnly.SequentialWrite()),
+		processors.WithOnBytesWritten(hooks.OnBytesWritten),
+		processors.WithOnFlush(hooks.OnFlush),
+		processors.WithOnSync(hooks.OnSync),
+		processors.WithOnEnqueueWait(hooks.OnEnqueueWait),
+	}
+	if metadataBuilder != nil {
+		writerOptions = append(writerOptions, processors.WithFlvMetadata(metadataBuilder))
+	}
+	procList = append(procList,
 		processors.NewFlvHeaderWriter(videoHdr, audioHdr),
-		processors.NewBufferedStreamWriter(
-			outputPath,
-			processors.WithBufferSize(config.ReadOnly.LiveStreamWriterBufferSize()),
-			processors.WithSkipSmallFlushThreshold(config.ReadOnly.SkipSmallFlushThreshold()),
-			processors.WithSyncPeriod(time.Duration(config.ReadOnly.LiveStreamWriterSyncPeriodSecs())*time.Second),
-			processors.WithColdCacheReleasePeriod(time.Duration(config.ReadOnly.LiveStreamWriterColdCacheReleaseSecs())*time.Second),
-			processors.WithFlushPeriod(time.Duration(config.ReadOnly.LiveStreamWriterFlushPeriodSecs())*time.Second),
-			processors.WithChanBufferSize(config.ReadOnly.LiveStreamWriterChanBufferSize()),
-			processors.WithBytesPool(s.writerPool),
-			processors.WithDropFilePageCache(config.ReadOnly.DropFilePageCache()),
-			processors.WithSequentialWrite(config.ReadOnly.SequentialWrite()),
-			processors.WithOnBytesWritten(hooks.OnBytesWritten),
-			processors.WithOnFlush(hooks.OnFlush),
-			processors.WithOnSync(hooks.OnSync),
-			processors.WithOnEnqueueWait(hooks.OnEnqueueWait),
-		),
-	)...)
-	return pipe, nil
+		processors.NewBufferedStreamWriter(outputPath, writerOptions...),
+	)
+	return pipeline.New(procList...), nil
 }
 
 // observeHeaders records the current sequence-header tags (called from the
