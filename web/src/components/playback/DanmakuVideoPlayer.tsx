@@ -154,6 +154,7 @@ import {
 } from "@/lib/document-pip"
 import { cn } from "@/lib/utils"
 import { probeFlvDurationMs } from "@/lib/flv-duration"
+import { injectFlvKeyframeIndex } from "@/lib/flv-index"
 import { toast } from "sonner"
 import type { DanmakuListItem } from "n-danmaku"
 import { getCurrentLanguage } from "@/i18n"
@@ -1536,8 +1537,21 @@ export function DanmakuVideoPlayer({
           toast.error(t('playbackPlayer.flvUnsupported'))
           return
         }
-        const durationMs = await probeFlvDurationMs(activeSrc, videoPath)
+        let keyframeIndex: Awaited<ReturnType<typeof apiClient.getFlvKeyframeIndex>> = null
+        const indexPromise = apiClient.getFlvKeyframeIndex(videoPath).then((index) => {
+          if (cancelled) return
+          keyframeIndex = index
+          if (player && index && injectFlvKeyframeIndex(player, index)) {
+            const element = videoRef.current
+            if (element?.seeking) {
+              const target = element.currentTime
+              element.currentTime = target + 0.001
+            }
+          }
+        })
+        const probedDurationMs = await probeFlvDurationMs(activeSrc, videoPath)
         if (cancelled || !videoRef.current) return
+        const durationMs = probedDurationMs
         player = flvjs.createPlayer(
           {
             type: 'flv',
@@ -1551,6 +1565,15 @@ export function DanmakuVideoPlayer({
           },
           { enableStashBuffer: false, stashInitialSize: 128 * 1024 }
         )
+        player.on(flvjs.Events.MEDIA_INFO, () => {
+          if (keyframeIndex && injectFlvKeyframeIndex(player, keyframeIndex)) {
+            const element = videoRef.current
+            if (element?.seeking) {
+              const target = element.currentTime
+              element.currentTime = target + 0.001
+            }
+          }
+        })
         player.on(flvjs.Events.ERROR, (...args: unknown[]) => {
           if (cancelled) return
           console.warn('FLV playback error', ...args)
@@ -1563,6 +1586,7 @@ export function DanmakuVideoPlayer({
         })
         const mediaElement = videoRef.current
         if (cancelled || !mediaElement) return
+        void indexPromise
         player.attachMediaElement(mediaElement)
         player.load()
 

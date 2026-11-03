@@ -55,6 +55,7 @@ func NewController(
 	files.Get("/subtitle/*", fc.fetchSubtitle)
 	files.Get("/download/*", fc.downloadFile)
 	files.Get("/disk-space", fc.getDiskSpace)
+	files.Get("/flv-index/*", fc.getFLVIndex)
 	files.Post("/presigned/*", fc.createPresignedURL)
 
 	files.Delete("/batch", rest.AdminOnly, fc.deleteFiles)
@@ -104,6 +105,21 @@ func (c *Controller) playbackFile(ctx fiber.Ctx) error {
 	)
 
 	return c.sendFileWithIdleCacheRelease(ctx, fullPath, fiber.SendFile{ByteRange: true})
+}
+
+// getFLVIndex returns a keyframe index for seeking old FLV files without
+// onMetaData.keyframes. The response is consumed by the web player.
+func (c *Controller) getFLVIndex(ctx fiber.Ctx) error {
+	raw := ctx.Params("*", "/")
+	path, err := url.PathUnescape(raw)
+	if err != nil {
+		return fiber.ErrBadRequest
+	}
+	index, err := c.fileSvc.FLVIndex(path)
+	if err != nil {
+		return c.parseFiberError(err)
+	}
+	return ctx.JSON(index)
 }
 
 // @Summary Fetch danmaku for a video
@@ -471,8 +487,10 @@ func (c *Controller) parseFiberError(err error) error {
 		return fiber.NewError(fiber.StatusBadRequest, "无效文件路径")
 	case err == file.ErrIsDirectory:
 		return fiber.NewError(fiber.StatusBadRequest, "该路径是文件夹")
-	case err == file.ErrUnsupportedPlaybackMedia:
+	case errors.Is(err, file.ErrUnsupportedPlaybackMedia):
 		return fiber.NewError(fiber.StatusUnsupportedMediaType, "该文件格式不支持在线播放")
+	case errors.Is(err, file.ErrFLVIndexUnsupported):
+		return fiber.NewError(fiber.StatusUnsupportedMediaType, "无法生成该文件的 FLV 关键帧索引")
 	default:
 		return fiber.ErrInternalServerError
 	}

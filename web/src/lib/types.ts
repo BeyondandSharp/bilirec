@@ -137,6 +137,13 @@ export interface ShareFileInfo {
 }
 
 /** Presigned media URL minted by POST /files/presigned. */
+/** Keyframe index returned by /files/flv-index for legacy FLV files. */
+export interface FlvKeyframeIndex {
+  duration_ms: number
+  times_ms: number[]
+  filepositions: number[]
+}
+
 export interface PresignedMediaUrl {
   /** Fully-resolvable URL (relative paths are prefixed with the API origin). */
   url: string

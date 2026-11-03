@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, isAxiosError } from "axios";
 import type {
   LoginRequest,
+  FlvKeyframeIndex,
   PresignedMediaUrl,
   RecordTask,
   StartRecordRequest,
@@ -558,6 +559,18 @@ class ApiClient {
    * Mint a presigned playback URL for <video src>; null means the backend
    * does not support presigned playback and getPlaybackUrl should be used.
    */
+  /** Keyframe index for FLV files whose onMetaData has no keyframes table. */
+  async getFlvKeyframeIndex(path: string): Promise<FlvKeyframeIndex | null> {
+    try {
+      const response = await this.client.get<FlvKeyframeIndex>(
+        `/files/flv-index/${encodeFilePath(path)}`,
+      )
+      return response.data
+    } catch {
+      return null
+    }
+  }
+
   async mintPlaybackUrl(path: string, ttl: number = 86400): Promise<PresignedMediaUrl | null> {
     return this.mintPresignedMediaUrl(path, "playback", ttl);
   }

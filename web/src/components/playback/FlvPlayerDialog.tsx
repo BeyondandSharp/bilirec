@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { apiClient } from '@/lib/api'
 import { probeFlvDurationMs } from '@/lib/flv-duration'
+import { injectFlvKeyframeIndex } from '@/lib/flv-index'
 
 interface FlvPlayerDialogProps {
   open: boolean
@@ -36,6 +37,7 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
     let cancelled = false
     let dispose: (() => void) | undefined
     let alignTimer: number | undefined
+    let player: any = null
 
     void (async () => {
       try {
@@ -56,9 +58,22 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
           // Keep the cookie URL.
         }
         if (cancelled || !videoRef.current) return
-        const durationMs = await probeFlvDurationMs(url, path)
+        let keyframeIndex: Awaited<ReturnType<typeof apiClient.getFlvKeyframeIndex>> = null
+        const indexPromise = apiClient.getFlvKeyframeIndex(path).then((index) => {
+          if (cancelled) return
+          keyframeIndex = index
+          if (player && index && injectFlvKeyframeIndex(player, index)) {
+            const element = videoRef.current
+            if (element?.seeking) {
+              const target = element.currentTime
+              element.currentTime = target + 0.001
+            }
+          }
+        })
+        const probedDurationMs = await probeFlvDurationMs(url, path)
         if (cancelled || !videoRef.current) return
-        const player = flvjs.createPlayer(
+        const durationMs = probedDurationMs
+        player = flvjs.createPlayer(
           {
             type: 'flv',
             url,
@@ -71,9 +86,19 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
           },
           { enableStashBuffer: false, stashInitialSize: 128 * 1024 },
         )
+        player.on(flvjs.Events.MEDIA_INFO, () => {
+          if (keyframeIndex && injectFlvKeyframeIndex(player, keyframeIndex)) {
+            const element = videoRef.current
+            if (element?.seeking) {
+              const target = element.currentTime
+              element.currentTime = target + 0.001
+            }
+          }
+        })
         player.on(flvjs.Events.ERROR, () => {
           toast.error(t('repairView.playFailed'))
         })
+        void indexPromise
         player.attachMediaElement(videoRef.current)
         player.load()
 
