@@ -274,6 +274,8 @@ export const common = {
     "confirmConvert": "確定轉換 {{format}}"
   },
   "playbackPlayer": {
+    flvUnsupported: "目前瀏覽器無法播放 FLV 檔案（需要 MSE 與 H.264/AAC 解碼）",
+    flvPlayFailed: "FLV 播放失敗",
     "danmakuLoading": "正在載入彈幕…",
     "danmakuParsing": "正在解析彈幕… {{percent}}%",
     "danmakuInjecting": "正在裝填彈幕… {{percent}}%",

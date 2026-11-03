@@ -276,6 +276,8 @@ export const common = {
     confirmConvert: "Convert to {{format}}"
   },
   playbackPlayer: {
+    flvUnsupported: "This browser cannot play FLV files (MSE with H.264/AAC required)",
+    flvPlayFailed: "FLV playback failed",
     danmakuLoading: "Loading danmaku…",
     danmakuParsing: "Parsing danmaku… {{percent}}%",
     danmakuInjecting: "Injecting danmaku… {{percent}}%",

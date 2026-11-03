@@ -396,7 +396,8 @@ export function DanmakuVideoPlayer({
 
   const showAudioOnlyPlayback =
     audioOnlyFileByName || previewAudioOnly || audioOnlyPlayback
-  const hoverPreviewEnabled = !preview && !showAudioOnlyPlayback && videoMetadataReady
+  const isFlvPlayback = /\.flv$/i.test(videoPath)
+  const hoverPreviewEnabled = !preview && !showAudioOnlyPlayback && !isFlvPlayback && videoMetadataReady
   const { loading: hoverPreviewLoading, hasFrame: hoverPreviewHasFrame } = usePlaybackHoverPreview({
     hostRef: controlsHostRef,
     canvasRef: hoverCanvasRef,
@@ -1503,6 +1504,81 @@ export function DanmakuVideoPlayer({
     }
   }, [renewPlaybackUrl])
 
+  // Browsers cannot demux FLV natively (Firefox: "no decoder for
+  // video/x-flv"). Feed the range-enabled playback URL through flv.js/MSE
+  // instead of assigning it to <video src>. Presigned URL renewal recreates
+  // the player; the shared loadeddata handler restores position/play state.
+  useEffect(() => {
+    if (preview || !isFlvPlayback) return
+    const video = videoRef.current
+    if (!video) return
+    let cancelled = false
+    let player: any = null
+
+    const start = async () => {
+      try {
+        const { default: flvjs } = await import('flv.js')
+        if (cancelled || !videoRef.current) return
+        if (!flvjs.isSupported()) {
+          toast.error(t('playbackPlayer.flvUnsupported'))
+          return
+        }
+        player = flvjs.createPlayer(
+          {
+            type: 'flv',
+            url: activeSrc,
+            isLive: false,
+            hasAudio: true,
+            hasVideo: !showAudioOnlyPlayback,
+            cors: true,
+            withCredentials: true,
+          },
+          { enableStashBuffer: false, stashInitialSize: 128 * 1024 }
+        )
+        player.on(flvjs.Events.ERROR, (...args: unknown[]) => {
+          if (cancelled) return
+          console.warn('FLV playback error', ...args)
+          if (renewPlaybackUrl && !mediaErrorRetriedRef.current) {
+            mediaErrorRetriedRef.current = true
+            void renewPlayback()
+          } else {
+            toast.error(t('playbackPlayer.flvPlayFailed'))
+          }
+        })
+        const mediaElement = videoRef.current
+        if (cancelled || !mediaElement) return
+        player.attachMediaElement(mediaElement)
+        player.load()
+        if (restoreAfterSrcChangeRef.current?.playing) {
+          player.play().catch(() => {})
+        }
+      } catch (error) {
+        console.error('Failed to initialize FLV playback:', error)
+        if (!cancelled) toast.error(t('playbackPlayer.flvPlayFailed'))
+      }
+    }
+
+    void start()
+    return () => {
+      cancelled = true
+      if (player) {
+        try {
+          player.pause()
+          player.unload()
+          player.detachMediaElement()
+          player.destroy()
+        } catch {
+          // The element may already be detached while the dialog closes.
+        }
+      }
+      const element = videoRef.current
+      if (element) {
+        element.removeAttribute('src')
+        element.load()
+      }
+    }
+  }, [activeSrc, isFlvPlayback, preview, renewPlayback, renewPlaybackUrl, showAudioOnlyPlayback, t])
+
   useEffect(() => {
     if (!renewPlaybackUrl || renewAtMs <= 0) return
     const delay = renewAtMs - Date.now() - PLAYBACK_RENEW_MARGIN_MS
@@ -2077,7 +2153,7 @@ export function DanmakuVideoPlayer({
           <video
             ref={videoRef}
             slot="media"
-            {...(preview ? {} : { src: activeSrc })}
+            {...(preview || isFlvPlayback ? {} : { src: activeSrc })}
             playsInline
             preload="metadata"
             disablePictureInPicture
