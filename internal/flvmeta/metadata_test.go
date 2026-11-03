@@ -200,7 +200,7 @@ func TestRecordingInfoFields(t *testing.T) {
 		StreamHost:      "example.bilivideo.com",
 		StreamHostFull:  "example.bilivideo.com [1.2.3.4]",
 		RecorderVersion: "v1.2.3",
-		RecordedBy:      "bilirec",
+		RecordedBy:      "BeyondandSharp/bilirec",
 		StartTime:       time.Date(2026, 11, 4, 1, 2, 3, 456000000, time.FixedZone("CST", 8*3600)),
 	})
 	builder.SetDuration(5000)
@@ -221,13 +221,13 @@ func TestRecordingInfoFields(t *testing.T) {
 		t.Fatalf("Artist = %v", body["Artist"])
 	}
 	comment := body["Comment"].(string)
-	for _, want := range []string{"bilirec", "123456", "主播", "直播标题", "虚拟主播·虚拟日常", "example.bilivideo.com"} {
+	for _, want := range []string{"BeyondandSharp/bilirec", "https://github.com/BeyondandSharp/bilirec", "123456", "主播", "直播标题", "虚拟主播·虚拟日常", "example.bilivideo.com"} {
 		if !strings.Contains(comment, want) {
 			t.Fatalf("Comment missing %q: %s", want, comment)
 		}
 	}
 	recorder := body["BililiveRecorder"].(map[string]any)
-	if recorder["RecordedBy"].(string) != "bilirec" || recorder["RecorderVersion"].(string) != "v1.2.3" {
+	if recorder["RecordedBy"].(string) != "BeyondandSharp/bilirec" || recorder["RecorderVersion"].(string) != "v1.2.3" {
 		t.Fatalf("BililiveRecorder = %v", recorder)
 	}
 	if recorder["RoomId"].(string) != "123456" || recorder["ShortId"].(string) != "42" {

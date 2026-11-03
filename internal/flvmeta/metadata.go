@@ -27,8 +27,8 @@ const (
 // AppIdentity is written into the BLR-compatible "BililiveRecorder" metadata
 // object. It identifies the recorder rather than the stream source.
 const (
-	RecordedBy   = "bilirec"
-	RecorderSite = "https://app.bilirec.org"
+	RecordedBy   = "BeyondandSharp/bilirec"
+	RecorderSite = "https://github.com/BeyondandSharp/bilirec"
 )
 
 // RecordingInfo carries the per-segment room/stream information that
@@ -100,7 +100,7 @@ func (info RecordingInfo) comment() string {
 		return info.Comment
 	}
 	return fmt.Sprintf(
-		"bilirec 直播间 %d 的直播录像\n"+
+		"%s 直播间 %d 的直播录像\n"+
 			"主播名: %s\n"+
 			"直播标题: %s\n"+
 			"直播分区: %s·%s\n"+
@@ -108,10 +108,10 @@ func (info RecordingInfo) comment() string {
 			"直播服务器:\n"+
 			"%s\n"+
 			"\n"+
-			"使用 bilirec 录制 %s\n"+
-			"bilirec 版本: %s\n",
-		info.RoomID, info.Name, info.streamTitle(), info.AreaNameParent, info.AreaNameChild,
-		info.startTime().Format(time.RFC3339Nano), info.StreamHostFull, RecorderSite, info.version(),
+			"使用 %s 录制 %s\n"+
+			"%s 版本: %s\n",
+		info.recordedBy(), info.RoomID, info.Name, info.streamTitle(), info.AreaNameParent, info.AreaNameChild,
+		info.startTime().Format(time.RFC3339Nano), info.StreamHostFull, info.recordedBy(), RecorderSite, info.recordedBy(), info.version(),
 	)
 }
 

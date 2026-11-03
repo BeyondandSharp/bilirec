@@ -215,6 +215,8 @@ returning a **relative path under OUTPUT_DIR**:
   `Comment`（房间号/主播/标题/分区/录制时间/直播服务器/版本），以及 `BililiveRecorder`
   对象（`RecordedBy`、`RecordedFrom`、`StreamServers`、`RecorderVersion`、`StartTime`、
   `RoomId`、`ShortId`、`Name`、`StreamTitle`、`AreaNameParent`、`AreaNameChild`）；
+  元数据中的录制器标识统一写为 **BeyondandSharp/bilirec**（`RecordedBy`、Comment、项目 URL），
+  不使用单独缩写 `bilirec`；
 - `duration`：以最后一个数据 tag 的时间戳（毫秒）/1000 写入秒数，**录制过程中原地回写**
   （关键帧/至少每 5 秒刷新一次，close 时写最终值）；
 - `keyframes`：`times`（秒）、`filepositions`（绝对字节偏移）、`spacer`（NaN 填充）；
