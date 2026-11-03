@@ -2175,7 +2175,7 @@ export function DanmakuVideoPlayer({
             )}
             style={MEDIA_CHROME_VARS}
             lang={mediaLang}
-            noAutoSeekToLive={preview ? true : undefined}
+            noAutoSeekToLive
           >
           <video
             ref={videoRef}
