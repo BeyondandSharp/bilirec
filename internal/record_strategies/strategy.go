@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bilirec/bilirec/internal/flvmeta"
 	"github.com/bilirec/bilirec/internal/modules/bilibili"
 	"github.com/bilirec/bilirec/internal/modules/config"
 	"github.com/bilirec/bilirec/internal/processors"
@@ -25,11 +26,16 @@ type PipelineHooks struct {
 	OnTimestampJump flv.TimestampJumpReporter
 
 	// WriteMetadata enables the fork's complete FLV onMetaData writing
-	// (duration + keyframes/filepositions, rewritten while recording). It is
-	// resolved from FLV_WRITE_METADATA at session start. Zero value keeps the
-	// legacy behavior (no generated metadata) for tests/callers that build a
-	// pipeline directly.
+	// (Title/Artist/Comment, duration and keyframes/filepositions, rewritten
+	// while recording). It is resolved from FLV_WRITE_METADATA at session
+	// start. Zero value keeps the legacy behavior (no generated metadata) for
+	// tests/callers that build a pipeline directly.
 	WriteMetadata bool
+
+	// Metadata returns the room/stream fields written into onMetaData. It is
+	// evaluated once per segment so the title reflects the segment start.
+	// May be nil in tests; the builder then falls back to source metadata only.
+	Metadata func() flvmeta.RecordingInfo
 }
 
 // RotationState carries format-specific state across segment rotations.

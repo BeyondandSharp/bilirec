@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
 	"sync"
+	"time"
 )
 
 const (
@@ -21,6 +23,97 @@ const (
 	// MaxDataCount is kept as an alias for readers familiar with BLR naming.
 	MaxDataCount = MaxKeyframes
 )
+
+// AppIdentity is written into the BLR-compatible "BililiveRecorder" metadata
+// object. It identifies the recorder rather than the stream source.
+const (
+	RecordedBy   = "bilirec"
+	RecorderSite = "https://app.bilirec.org"
+)
+
+// RecordingInfo carries the per-segment room/stream information that
+// BililiveRecorder writes into onMetaData (Title/Artist/Comment and the
+// BililiveRecorder object). Zero-value fields are omitted from the output.
+type RecordingInfo struct {
+	// Title is the live title at file open. StreamTitle defaults to Title.
+	Title       string
+	StreamTitle string
+	// Artist overrides the generated "<anchor> (<roomId>)" value.
+	Artist string
+	// Comment overrides the generated multi-line description.
+	Comment string
+
+	Name           string // anchor name (BLR RoomInfo.Name)
+	RoomID         int64
+	ShortID        int64
+	AreaNameParent string
+	AreaNameChild  string
+
+	StreamHost      string // hostname of the connected stream server
+	StreamHostFull  string // connected server description (BLR StreamServers)
+	RecorderVersion string
+	RecordedBy      string
+	StartTime       time.Time
+}
+
+func (info RecordingInfo) hasContent() bool {
+	return info.RoomID != 0 || info.Title != "" || info.Name != "" || info.StreamHost != ""
+}
+
+func (info RecordingInfo) recordedBy() string {
+	if info.RecordedBy != "" {
+		return info.RecordedBy
+	}
+	return RecordedBy
+}
+
+func (info RecordingInfo) version() string {
+	if info.RecorderVersion != "" {
+		return info.RecorderVersion
+	}
+	return "dev"
+}
+
+func (info RecordingInfo) startTime() time.Time {
+	if info.StartTime.IsZero() {
+		return time.Now()
+	}
+	return info.StartTime
+}
+
+func (info RecordingInfo) streamTitle() string {
+	if info.StreamTitle != "" {
+		return info.StreamTitle
+	}
+	return info.Title
+}
+
+func (info RecordingInfo) artist() string {
+	if info.Artist != "" {
+		return info.Artist
+	}
+	return fmt.Sprintf("%s (%d)", info.Name, info.RoomID)
+}
+
+func (info RecordingInfo) comment() string {
+	if info.Comment != "" {
+		return info.Comment
+	}
+	return fmt.Sprintf(
+		"bilirec 直播间 %d 的直播录像\n"+
+			"主播名: %s\n"+
+			"直播标题: %s\n"+
+			"直播分区: %s·%s\n"+
+			"录制时间: %s\n"+
+			"直播服务器:\n"+
+			"%s\n"+
+			"\n"+
+			"使用 bilirec 录制 %s\n"+
+			"bilirec 版本: %s\n",
+		info.RoomID, info.Name, info.streamTitle(), info.AreaNameParent, info.AreaNameChild,
+		info.startTime().Format(time.RFC3339Nano), info.StreamHostFull, RecorderSite, info.version(),
+	)
+}
 
 // Keyframe is one entry of the onMetaData.keyframes index. Time is in
 // milliseconds (serialized as seconds by the builder) and FilePosition is the
@@ -61,6 +154,7 @@ type Builder struct {
 	frozen     bool
 	durationMS int64
 	keyframes  []Keyframe
+	info       RecordingInfo
 	version    int64
 	fixedLen   int
 }
@@ -96,6 +190,18 @@ func (b *Builder) SetBaseFromScript(payload []byte) bool {
 	b.base = filtered
 	b.hasBase = true
 	return true
+}
+
+// SetRecordingInfo stores the room/stream information written as Title,
+// Artist, Comment and the BililiveRecorder object. It must be called before
+// the first BuildTag.
+func (b *Builder) SetRecordingInfo(info RecordingInfo) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.frozen {
+		return
+	}
+	b.info = info
 }
 
 // SetDuration updates the duration field in milliseconds. It is serialized as
@@ -160,9 +266,29 @@ func (b *Builder) BuildTag() ([]byte, error) {
 
 	body := make([]byte, 0, 1024+len(b.base)*24+2*MaxKeyframes*18)
 	body = appendString(body, "onMetaData")
+	info := b.info
+	includeInfo := info.hasContent()
+	base := b.base
+	if includeInfo {
+		base = filterKeys(base, "Title", "Artist", "Comment", "BililiveRecorder")
+	}
+	extra := 2
+	if includeInfo {
+		extra += 4
+	}
 	body = append(body, amfECMAArray)
-	body = binary.BigEndian.AppendUint32(body, uint32(len(b.base)+2))
-	body = appendProperties(body, b.base)
+	body = binary.BigEndian.AppendUint32(body, uint32(len(base)+extra))
+	body = appendProperties(body, base)
+	if includeInfo {
+		body = appendPropertyKey(body, "Title")
+		body = appendValue(body, newStringValue(info.Title))
+		body = appendPropertyKey(body, "Artist")
+		body = appendValue(body, newStringValue(info.artist()))
+		body = appendPropertyKey(body, "Comment")
+		body = appendValue(body, newStringValue(info.comment()))
+		body = appendPropertyKey(body, "BililiveRecorder")
+		body = appendValue(body, newObjectValue(bililiveRecorderProps(info)))
+	}
 	body = appendPropertyKey(body, "duration")
 	body = appendNumber(body, float64(b.durationMS)/1000.0)
 
@@ -224,6 +350,45 @@ func ParseMetadataTagBody(payload []byte) (map[string]any, error) {
 		out[prop.key] = toAny(prop.value)
 	}
 	return out, nil
+}
+
+func filterKeys(props []amfProperty, keys ...string) []amfProperty {
+	out := make([]amfProperty, 0, len(props))
+	for _, prop := range props {
+		skip := false
+		for _, key := range keys {
+			if prop.key == key {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			out = append(out, prop)
+		}
+	}
+	return out
+}
+
+func bililiveRecorderProps(info RecordingInfo) []amfProperty {
+	start := info.startTime()
+	return []amfProperty{
+		{key: "RecordedBy", value: newStringValue(info.recordedBy())},
+		{key: "RecordedFrom", value: newStringValue(info.StreamHost)},
+		{key: "StreamServers", value: newStringValue(info.StreamHostFull)},
+		{key: "RecorderVersion", value: newStringValue(info.version())},
+		{key: "StartTime", value: newDateValue(start)},
+		{key: "RoomId", value: newStringValue(strconv.FormatInt(info.RoomID, 10))},
+		{key: "ShortId", value: newStringValue(strconv.FormatInt(info.ShortID, 10))},
+		{key: "Name", value: newStringValue(info.Name)},
+		{key: "StreamTitle", value: newStringValue(info.streamTitle())},
+		{key: "AreaNameParent", value: newStringValue(info.AreaNameParent)},
+		{key: "AreaNameChild", value: newStringValue(info.AreaNameChild)},
+	}
+}
+
+func newDateValue(t time.Time) amfValue {
+	_, offset := t.Zone()
+	return amfValue{kind: amfDate, dateMS: float64(t.UnixNano()) / 1e6, tz: int16(offset / 60)}
 }
 
 func toAny(v amfValue) any {

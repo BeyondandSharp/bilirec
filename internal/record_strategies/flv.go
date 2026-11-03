@@ -104,6 +104,9 @@ func (s *FlvStrategy) BuildPipeline(ctx context.Context, outputPath string, stat
 		// onMetaData tag and collects its fields, then the writer inserts a
 		// complete fixed-size onMetaData tag right after the FLV file header.
 		metadataBuilder = flvmeta.NewBuilder()
+		if hooks.Metadata != nil {
+			metadataBuilder.SetRecordingInfo(hooks.Metadata())
+		}
 		procList = append(procList, processors.NewFlvMetadataExtractor(metadataBuilder))
 	}
 

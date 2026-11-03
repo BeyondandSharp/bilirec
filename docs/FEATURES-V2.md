@@ -211,6 +211,10 @@ returning a **relative path under OUTPUT_DIR**:
 
 - 保留源流 onMetaData 的字段（编码器、日期、宽高等）；源 tag 被提取器移除，输出只有一份
   元数据，不会重复；
+- 写入录播姬等价的房间字段（覆盖源值）：`Title`、`Artist`（`主播名 (房间号)`）、
+  `Comment`（房间号/主播/标题/分区/录制时间/直播服务器/版本），以及 `BililiveRecorder`
+  对象（`RecordedBy`、`RecordedFrom`、`StreamServers`、`RecorderVersion`、`StartTime`、
+  `RoomId`、`ShortId`、`Name`、`StreamTitle`、`AreaNameParent`、`AreaNameChild`）；
 - `duration`：以最后一个数据 tag 的时间戳（毫秒）/1000 写入秒数，**录制过程中原地回写**
   （关键帧/至少每 5 秒刷新一次，close 时写最终值）；
 - `keyframes`：`times`（秒）、`filepositions`（绝对字节偏移）、`spacer`（NaN 填充）；

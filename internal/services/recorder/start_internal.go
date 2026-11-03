@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -167,6 +168,10 @@ func (r *Service) internalStart(p internalStartParams) error {
 		info.SetStream(streamInfo.Qn, streamInfo.IsAudioOnly, actualFormat)
 		info.SetSessionSource(string(usedDownloader), streamInfo.Format, repairState)
 		info.effective = effective
+		if streamURL, parseErr := url.Parse(streamInfo.URL); parseErr == nil && streamURL.Host != "" {
+			info.streamHost = streamURL.Host
+			info.streamHostFull = streamURL.Host
+		}
 		l.Infof("session stream connected: downloader=%s repair=%s source_format=%s format=%s qn=%d audio_only=%t",
 			usedDownloader, repairState, streamInfo.Format, actualFormat, streamInfo.Qn, streamInfo.IsAudioOnly)
 

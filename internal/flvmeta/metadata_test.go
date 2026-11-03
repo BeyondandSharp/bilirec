@@ -5,7 +5,9 @@ package flvmeta
 import (
 	"encoding/binary"
 	"math"
+	"strings"
 	"testing"
+	"time"
 )
 
 func appendTestProperty(dst []byte, key string, value amfValue) []byte {
@@ -182,5 +184,90 @@ func TestParseMetadataRejectsOtherScript(t *testing.T) {
 	body = append(body, amfECMAArray, 0, 0, 0, 0, 0x00, 0x00, 0x09)
 	if _, err := ParseMetadataTagBody(body); err == nil {
 		t.Fatal("expected error for non-onMetaData script")
+	}
+}
+
+func TestRecordingInfoFields(t *testing.T) {
+	builder := NewBuilder()
+	builder.SetRecordingInfo(RecordingInfo{
+		Title:           "直播标题",
+		StreamTitle:     "直播标题",
+		Name:            "主播",
+		RoomID:          123456,
+		ShortID:         42,
+		AreaNameParent:  "虚拟主播",
+		AreaNameChild:   "虚拟日常",
+		StreamHost:      "example.bilivideo.com",
+		StreamHostFull:  "example.bilivideo.com [1.2.3.4]",
+		RecorderVersion: "v1.2.3",
+		RecordedBy:      "bilirec",
+		StartTime:       time.Date(2026, 11, 4, 1, 2, 3, 456000000, time.FixedZone("CST", 8*3600)),
+	})
+	builder.SetDuration(5000)
+	builder.AddKeyframe(2000, 1234)
+	tag, err := builder.BuildTag()
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := int(tag[1])<<16 | int(tag[2])<<8 | int(tag[3])
+	body, err := ParseMetadataTagBody(tag[11 : 11+size])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["Title"].(string) != "直播标题" {
+		t.Fatalf("Title = %v", body["Title"])
+	}
+	if body["Artist"].(string) != "主播 (123456)" {
+		t.Fatalf("Artist = %v", body["Artist"])
+	}
+	comment := body["Comment"].(string)
+	for _, want := range []string{"bilirec", "123456", "主播", "直播标题", "虚拟主播·虚拟日常", "example.bilivideo.com"} {
+		if !strings.Contains(comment, want) {
+			t.Fatalf("Comment missing %q: %s", want, comment)
+		}
+	}
+	recorder := body["BililiveRecorder"].(map[string]any)
+	if recorder["RecordedBy"].(string) != "bilirec" || recorder["RecorderVersion"].(string) != "v1.2.3" {
+		t.Fatalf("BililiveRecorder = %v", recorder)
+	}
+	if recorder["RoomId"].(string) != "123456" || recorder["ShortId"].(string) != "42" {
+		t.Fatalf("BililiveRecorder ids = %v", recorder)
+	}
+	if recorder["StreamTitle"].(string) != "直播标题" || recorder["Name"].(string) != "主播" {
+		t.Fatalf("BililiveRecorder names = %v", recorder)
+	}
+	start, ok := recorder["StartTime"].(float64)
+	if !ok || start <= 0 {
+		t.Fatalf("StartTime = %v", recorder["StartTime"])
+	}
+}
+
+func TestRecordingInfoOverridesSourceFields(t *testing.T) {
+	source := appendString(nil, "onMetaData")
+	source = append(source, amfECMAArray)
+	source = binary.BigEndian.AppendUint32(source, 3)
+	source = appendTestProperty(source, "Title", newStringValue("旧标题"))
+	source = appendTestProperty(source, "Comment", newStringValue("旧注释"))
+	source = appendTestProperty(source, "encoder", newStringValue("obs"))
+	source = append(source, 0x00, 0x00, 0x09)
+	builder := NewBuilder()
+	if !builder.SetBaseFromScript(source) {
+		t.Fatal("SetBaseFromScript failed")
+	}
+	builder.SetRecordingInfo(RecordingInfo{Title: "新标题", Name: "主播", RoomID: 1})
+	tag, err := builder.BuildTag()
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := int(tag[1])<<16 | int(tag[2])<<8 | int(tag[3])
+	body, err := ParseMetadataTagBody(tag[11 : 11+size])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body["Title"].(string) != "新标题" || body["encoder"].(string) != "obs" {
+		t.Fatalf("body = %v", body)
+	}
+	if strings.Contains(body["Comment"].(string), "旧注释") {
+		t.Fatal("source Comment leaked into output")
 	}
 }

@@ -349,6 +349,11 @@ combined 镜像中 nginx 不重启，只重启 bilirec 子进程；Android/嵌�
 - 元数据字段：保留源流 onMetaData 的字段（编码器/日期/宽高等）；`duration` 取最后一个
   数据 tag 的时间戳；`keyframes` 写 `times`（秒）、`filepositions`（绝对字节偏移）、
   `spacer`（NaN 填充），`MaxDataCount=6300`、`MinInterval=1900`（与录播姬一致）；
+- 房间/录制器字段与录播姬对齐：`Title`、`Artist`（`主播名 (房间号)`）、`Comment`
+  （房间号/主播/标题/分区/录制时间/直播服务器/版本），以及 `BililiveRecorder` 对象
+  （`RecordedBy`=bilirec、`RecordedFrom`/`StreamServers`=连接服务器、`RecorderVersion`、
+  `StartTime`(AMF Date)、`RoomId`/`ShortId`/`Name`/`StreamTitle`/`AreaNameParent`/
+  `AreaNameChild`）；每段打开时由 `PipelineHooks.Metadata` 取当前房间和标题；
 - 长度固定（约 114 KiB），录制过程中通过 `WriteAt` 原地回写；写入后立即 flush 一次，之后
   的 patch 不会与缓冲写冲突；关键帧/每 5 秒/close 时刷新；
 - 源 onMetaData 由 `FlvMetadataExtractor` 在 header writer 之前解析并移除，避免重复；若源
