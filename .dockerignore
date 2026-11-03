@@ -1,0 +1,10 @@
+.git
+test
+dist
+refs
+web/node_modules
+web/dist
+rust/target
+internal/services/recorder/records
+*.log
+docker-backup
