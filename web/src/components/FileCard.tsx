@@ -65,7 +65,8 @@ export function FileCard({
   const extension = file.name.split('.').pop()?.toUpperCase()
   const isMp4 = extension?.toLowerCase() === 'mp4'
   const isM4a = extension?.toLowerCase() === 'm4a'
-  const canPlayback = isMp4 || isM4a
+  const isFlv = extension?.toLowerCase() === 'flv'
+  const canPlayback = isMp4 || isM4a || isFlv
   const isDanmakuSidecar = isDanmakuSidecarFile(name)
   const isRecordingMedia = isRecordingMediaFilename(name)
   const canConvertFile = isConvertibleVideoFile(name)

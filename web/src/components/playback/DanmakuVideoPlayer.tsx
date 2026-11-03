@@ -1514,6 +1514,18 @@ export function DanmakuVideoPlayer({
     if (!video) return
     let cancelled = false
     let player: any = null
+    let alignTimer: number | undefined
+    let alignCleanupTimer: number | undefined
+    const alignEvents = ['loadedmetadata', 'loadeddata', 'canplay', 'progress'] as const
+    const alignTimeline = () => {
+      const element = videoRef.current
+      if (!element || !element.buffered.length) return
+      if (restoreAfterSrcChangeRef.current) return // keep renewal position
+      const start = element.buffered.start(0)
+      if (start > 0.05 && element.currentTime + 0.05 < start) {
+        element.currentTime = start + 0.001
+      }
+    }
 
     const start = async () => {
       try {
@@ -1549,6 +1561,18 @@ export function DanmakuVideoPlayer({
         if (cancelled || !mediaElement) return
         player.attachMediaElement(mediaElement)
         player.load()
+
+        // MSE timestamps may start above 0 (normal FLV segments can start at
+        // 433ms; corrupted/absolute-timestamp files start much later). In that
+        // case the element stays at currentTime=0 outside the buffered range
+        // and never advances. Seek to the first buffered position once known.
+        for (const event of alignEvents) mediaElement.addEventListener(event, alignTimeline)
+        alignTimer = window.setTimeout(alignTimeline, 1000)
+        alignCleanupTimer = window.setTimeout(() => {
+          for (const event of alignEvents) mediaElement.removeEventListener(event, alignTimeline)
+        }, 10000)
+        alignTimeline()
+
         if (restoreAfterSrcChangeRef.current?.playing) {
           player.play().catch(() => {})
         }
@@ -1561,6 +1585,9 @@ export function DanmakuVideoPlayer({
     void start()
     return () => {
       cancelled = true
+      if (alignTimer) window.clearTimeout(alignTimer)
+      if (alignCleanupTimer) window.clearTimeout(alignCleanupTimer)
+      for (const event of alignEvents) video.removeEventListener(event, alignTimeline)
       if (player) {
         try {
           player.pause()

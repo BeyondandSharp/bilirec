@@ -34,6 +34,7 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
 
     let cancelled = false
     let dispose: (() => void) | undefined
+    let alignTimer: number | undefined
 
     void (async () => {
       try {
@@ -71,6 +72,25 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
         })
         player.attachMediaElement(videoRef.current)
         player.load()
+
+        // Some recordings do not start at timestamp 0 (e.g. 433ms, or an
+        // absolute Bilibili timestamp). MSE then buffers [start,end] while the
+        // element stays at currentTime=0, so playback never advances. Seek to
+        // the first buffered position as soon as it exists.
+        const alignTimeline = () => {
+          const element = videoRef.current
+          if (!element || !element.buffered.length) return
+          const start = element.buffered.start(0)
+          if (start > 0.05 && element.currentTime + 0.05 < start) {
+            element.currentTime = start + 0.001
+            void element.play().catch(() => {})
+          }
+        }
+        const events = ['loadedmetadata', 'loadeddata', 'canplay', 'progress'] as const
+        for (const event of events) video.addEventListener(event, alignTimeline)
+        alignTimer = window.setTimeout(alignTimeline, 1000)
+        alignTimeline()
+
         // Autoplay can be blocked; the native controls remain available.
         void player.play()
         dispose = () => {
@@ -93,6 +113,7 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
 
     return () => {
       cancelled = true
+      if (alignTimer) window.clearTimeout(alignTimer)
       dispose?.()
       const element = videoRef.current
       if (element) {
