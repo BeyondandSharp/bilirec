@@ -153,6 +153,7 @@ import {
   fitBoxToVideoAspect,
 } from "@/lib/document-pip"
 import { cn } from "@/lib/utils"
+import { probeFlvDurationMs } from "@/lib/flv-duration"
 import { toast } from "sonner"
 import type { DanmakuListItem } from "n-danmaku"
 import { getCurrentLanguage } from "@/i18n"
@@ -1535,6 +1536,8 @@ export function DanmakuVideoPlayer({
           toast.error(t('playbackPlayer.flvUnsupported'))
           return
         }
+        const durationMs = await probeFlvDurationMs(activeSrc, videoPath)
+        if (cancelled || !videoRef.current) return
         player = flvjs.createPlayer(
           {
             type: 'flv',
@@ -1542,6 +1545,7 @@ export function DanmakuVideoPlayer({
             isLive: false,
             hasAudio: true,
             hasVideo: !showAudioOnlyPlayback,
+            duration: durationMs ?? undefined,
             cors: true,
             withCredentials: true,
           },

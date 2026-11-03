@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { apiClient } from '@/lib/api'
+import { probeFlvDurationMs } from '@/lib/flv-duration'
 
 interface FlvPlayerDialogProps {
   open: boolean
@@ -55,6 +56,8 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
           // Keep the cookie URL.
         }
         if (cancelled || !videoRef.current) return
+        const durationMs = await probeFlvDurationMs(url, path)
+        if (cancelled || !videoRef.current) return
         const player = flvjs.createPlayer(
           {
             type: 'flv',
@@ -62,6 +65,7 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
             isLive: false,
             hasAudio: true,
             hasVideo: true,
+            duration: durationMs ?? undefined,
             cors: true,
             withCredentials: true,
           },
