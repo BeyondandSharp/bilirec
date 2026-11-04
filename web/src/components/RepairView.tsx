@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import {
   ArrowCounterClockwiseIcon,
+  BroomIcon,
+  CheckSquareIcon,
   PlayIcon,
   TrashSimpleIcon,
   WrenchIcon,
@@ -205,59 +207,81 @@ export function RepairView() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="sticky top-0 z-10 border-b border-border bg-background p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-bold">{t('repairView.title')}</h2>
-          <span className="text-xs text-muted-foreground">{t('repairView.description')}</span>
+      <div className="relative z-10 border-b border-border bg-background p-3 sm:sticky sm:top-0 sm:p-4">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <h2 className="text-lg font-bold sm:text-xl">{t('repairView.title')}</h2>
+          <span className="min-w-0 text-xs text-muted-foreground">{t('repairView.description')}</span>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 sm:mt-3 sm:flex-wrap sm:overflow-visible sm:pb-0">
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             disabled={selectable.length === 0 || busy}
             onClick={toggleAll}
+            aria-label={allSelected ? t('repairView.clearSelection') : t('repairView.selectAll')}
+            title={allSelected ? t('repairView.clearSelection') : t('repairView.selectAll')}
           >
-            {allSelected ? t('repairView.clearSelection') : t('repairView.selectAll')}
+            <CheckSquareIcon size={16} />
+            <span className="hidden sm:inline">
+              {allSelected ? t('repairView.clearSelection') : t('repairView.selectAll')}
+            </span>
           </Button>
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             disabled={selectable.length === 0 || busy}
             onClick={invertSelection}
+            aria-label={t('repairView.invertSelection')}
+            title={t('repairView.invertSelection')}
           >
             <ArrowCounterClockwiseIcon size={16} />
-            {t('repairView.invertSelection')}
+            <span className="hidden sm:inline">{t('repairView.invertSelection')}</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0"
             disabled={doneItems.length === 0 || busy}
             onClick={() => void deleteCompleted()}
+            aria-label={t('repairView.deleteCompleted')}
+            title={t('repairView.deleteCompleted')}
           >
-            <TrashSimpleIcon size={16} />
-            {t('repairView.deleteCompleted')}
+            <BroomIcon size={16} />
+            <span className="hidden sm:inline">{t('repairView.deleteCompleted')}</span>
           </Button>
-          <span className="text-xs text-muted-foreground">
+          <span className="shrink-0 text-xs text-muted-foreground">
             {t('repairView.selectedCount', { count: selectedItems.length })}
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
             <Button
               variant="outline"
               size="sm"
+              className="shrink-0"
               disabled={!canDelete}
               onClick={() => void deleteSelected()}
+              aria-label={t('repairView.delete')}
+              title={t('repairView.delete')}
             >
               <TrashSimpleIcon size={16} />
-              {t('repairView.delete')}
+              <span className="hidden sm:inline">{t('repairView.delete')}</span>
             </Button>
-            <Button size="sm" disabled={!canRepair} onClick={() => void runSelected()}>
+            <Button
+              size="sm"
+              className="shrink-0"
+              disabled={!canRepair}
+              onClick={() => void runSelected()}
+              aria-label={t('repairView.repair')}
+              title={t('repairView.repair')}
+            >
               <PlayIcon size={16} weight="fill" />
-              {t('repairView.repair')}
+              <span className="hidden sm:inline">{t('repairView.repair')}</span>
             </Button>
           </div>
         </div>
         {data.items.length > 0 && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-2 space-y-2 sm:mt-3">
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-2 text-xs">
                 <span className="min-w-0 truncate text-muted-foreground">
@@ -289,7 +313,7 @@ export function RepairView() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 pb-20">
+      <div className="flex-1 overflow-y-auto p-3 pb-20 sm:p-4">
         {isLoading ? (
           <LoadingScreen />
         ) : data.items.length === 0 ? (
@@ -346,7 +370,7 @@ function RepairRow({
   return (
     <div
       className={cn(
-        'flex items-start gap-3 rounded-lg border border-border bg-card p-3 transition-colors',
+        'flex items-start gap-2 rounded-lg border border-border bg-card p-2.5 transition-colors sm:gap-3 sm:p-3',
         !disabled && 'cursor-pointer hover:bg-muted/30',
         checked && 'border-primary/40 bg-primary/5',
       )}
@@ -378,13 +402,13 @@ function RepairRow({
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="min-w-0 break-all text-sm font-medium">{item.path}</span>
+          <span className="min-w-0 truncate text-sm font-medium" title={item.path}>{item.path}</span>
           <Badge variant="outline" className={cn('shrink-0', STATUS_CLASS[item.status])}>
             {t(STATUS_KEY[item.status])}
             {runningPercent != null ? ` ${runningPercent}%` : ''}
           </Badge>
         </div>
-        <p className="mt-1 break-all text-xs text-muted-foreground">
+        <p className="mt-1 line-clamp-2 break-all text-xs text-muted-foreground">
           {t('repairView.output', { path: item.output_path })}
         </p>
         {item.error && <p className="mt-1 break-all text-xs text-destructive">{item.error}</p>}

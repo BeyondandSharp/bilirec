@@ -154,7 +154,7 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="w-[calc(100%-1.5rem)] max-w-5xl p-3 sm:p-6">
         <DialogHeader>
           <DialogTitle className="break-all">{name}</DialogTitle>
         </DialogHeader>
@@ -163,7 +163,7 @@ export function FlvPlayerDialog({ open, onOpenChange, path, name }: FlvPlayerDia
           controls
           autoPlay
           playsInline
-          className="aspect-video w-full rounded-md bg-black"
+          className="max-h-[72dvh] w-full rounded-md bg-black"
         />
       </DialogContent>
     </Dialog>

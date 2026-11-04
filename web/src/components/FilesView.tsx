@@ -544,115 +544,38 @@ export function FilesView() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="sticky top-0 bg-background z-10 p-4 border-b border-border">
-        <div className="mb-2 flex items-center gap-2">
-          <div className="flex items-center gap-2">
+      <div className="relative z-10 border-b border-border bg-background p-3 sm:sticky sm:top-0 sm:p-4">
+        <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             {currentPath && (
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon"
+                className="size-8 shrink-0 sm:size-9"
                 onClick={handleBack}
+                aria-label={t('filesView.back')}
+                title={t('filesView.back')}
               >
                 <CaretLeftIcon size={20} />
               </Button>
             )}
-            <h2 className="text-xl font-bold">{t('filesView.title')}</h2>
+            <h2 className="truncate text-lg font-bold sm:text-xl">{t('filesView.title')}</h2>
           </div>
 
-          {selectionMode && !isReadOnly && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={selectableFiles.length === 0}
-                onClick={toggleSelectAll}
-              >
-                {allSelected ? t('filesView.clearSelection') : t('filesView.selectAll')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={selectableFiles.length === 0}
-                onClick={invertSelection}
-              >
-                <ArrowCounterClockwiseIcon size={16} />
-                {t('filesView.invertSelection')}
-              </Button>
-              {selectedFlvPaths.length > 0 && (
-                <Button size="sm" onClick={() => void addSelectedToRepair()}>
-                  <WrenchIcon size={16} />
-                  {t('filesView.addToRepair', { count: selectedFlvPaths.length })}
-                </Button>
-              )}
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={selectedFiles.length === 0 || isBatchDeleting}
-                onClick={() => setDeleteDialogOpen(true)}
-              >
-                <TrashSimpleIcon size={16} />
-                {t('filesView.deleteSelected', { count: selectedFiles.length })}
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {t('filesView.selectedCount', { count: selectedFiles.length })}
-              </span>
-            </>
-          )}
-
-          <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             {!isReadOnly && (
               <Button
                 variant={selectionMode ? 'secondary' : 'outline'}
-                size="default"
-                className="h-9 shrink-0"
+                size="icon"
+                className="size-9 shrink-0"
                 onClick={toggleSelectionMode}
+                aria-label={selectionMode ? t('filesView.exitMultiSelect') : t('filesView.multiSelect')}
+                title={selectionMode ? t('filesView.exitMultiSelect') : t('filesView.multiSelect')}
               >
-                <CheckSquareIcon size={16} />
-                {selectionMode ? t('filesView.exitMultiSelect') : t('filesView.multiSelect')}
+                <CheckSquareIcon size={18} />
               </Button>
             )}
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
-            <SortControl
-              id="files-sort"
-              label={t('viewControls.sortBy')}
-              value={sortField}
-              options={[
-                { value: 'mtime', label: t('viewControls.sortMtime') },
-                { value: 'name', label: t('viewControls.sortName') },
-              ]}
-              direction={sortDirection}
-              onValueChange={(value) => setSortField(value as 'name' | 'mtime')}
-              onDirectionChange={setSortDirection}
-            />
-            {currentPath ? (
-              <>
-                <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-                  <Label
-                    htmlFor="files-only-media"
-                    className="cursor-pointer text-xs text-muted-foreground sm:text-sm whitespace-nowrap"
-                  >
-                    <span className="hidden min-[420px]:inline">{t('filesView.onlyMedia')}</span>
-                    <span className="min-[420px]:hidden">{t('filesView.onlyMediaShort')}</span>
-                  </Label>
-                  <Switch
-                    id="files-only-media"
-                    checked={onlyMedia}
-                    onCheckedChange={(checked) => {
-                      setOnlyMedia(checked)
-                      saveOnlyMediaFiles(checked)
-                    }}
-                    aria-label={t('filesView.onlyMedia')}
-                  />
-                </div>
-                <RecordingBrowseTimeRange
-                  startValue={rangeStartInput}
-                  endValue={rangeEndInput}
-                  onStartChange={setRangeStartInput}
-                  onEndChange={setRangeEndInput}
-                  onClear={clearRangeFilter}
-                />
-              </>
-            ) : null}
             <SearchBar
               value={searchInput}
               onChange={setSearchInput}
@@ -661,14 +584,120 @@ export function FilesView() {
               searchingLabel={t('filesView.searching')}
               searchLabel={t('actions.search')}
               dialogTitle={t('filesView.searchPlaceholder')}
-              inputWidth="w-[200px] sm:w-[280px]"
+              inputWidth="w-[180px] sm:w-[240px]"
             />
           </div>
         </div>
 
+        {selectionMode && !isReadOnly && (
+          <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={selectableFiles.length === 0}
+              onClick={toggleSelectAll}
+              aria-label={allSelected ? t('filesView.clearSelection') : t('filesView.selectAll')}
+              title={allSelected ? t('filesView.clearSelection') : t('filesView.selectAll')}
+            >
+              <CheckSquareIcon size={16} />
+              <span className="hidden sm:inline">
+                {allSelected ? t('filesView.clearSelection') : t('filesView.selectAll')}
+              </span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={selectableFiles.length === 0}
+              onClick={invertSelection}
+              aria-label={t('filesView.invertSelection')}
+              title={t('filesView.invertSelection')}
+            >
+              <ArrowCounterClockwiseIcon size={16} />
+              <span className="hidden sm:inline">{t('filesView.invertSelection')}</span>
+            </Button>
+            {selectedFlvPaths.length > 0 && (
+              <Button
+                size="sm"
+                className="shrink-0"
+                onClick={() => void addSelectedToRepair()}
+                aria-label={t('filesView.addToRepair', { count: selectedFlvPaths.length })}
+                title={t('filesView.addToRepair', { count: selectedFlvPaths.length })}
+              >
+                <WrenchIcon size={16} />
+                <span className="hidden sm:inline">
+                  {t('filesView.addToRepair', { count: selectedFlvPaths.length })}
+                </span>
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              size="sm"
+              className="shrink-0"
+              disabled={selectedFiles.length === 0 || isBatchDeleting}
+              onClick={() => setDeleteDialogOpen(true)}
+              aria-label={t('filesView.deleteSelected', { count: selectedFiles.length })}
+              title={t('filesView.deleteSelected', { count: selectedFiles.length })}
+            >
+              <TrashSimpleIcon size={16} />
+              <span className="hidden sm:inline">
+                {t('filesView.deleteSelected', { count: selectedFiles.length })}
+              </span>
+            </Button>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {t('filesView.selectedCount', { count: selectedFiles.length })}
+            </span>
+          </div>
+        )}
+
+        <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+          <SortControl
+            id="files-sort"
+            label={t('viewControls.sortBy')}
+            value={sortField}
+            options={[
+              { value: 'mtime', label: t('viewControls.sortMtime') },
+              { value: 'name', label: t('viewControls.sortName') },
+            ]}
+            direction={sortDirection}
+            onValueChange={(value) => setSortField(value as 'name' | 'mtime')}
+            onDirectionChange={setSortDirection}
+          />
+          {currentPath ? (
+            <>
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+                <Label
+                  htmlFor="files-only-media"
+                  className="cursor-pointer whitespace-nowrap text-xs text-muted-foreground sm:text-sm"
+                >
+                  <span className="hidden min-[420px]:inline">{t('filesView.onlyMedia')}</span>
+                  <span className="min-[420px]:hidden">{t('filesView.onlyMediaShort')}</span>
+                </Label>
+                <Switch
+                  id="files-only-media"
+                  checked={onlyMedia}
+                  onCheckedChange={(checked) => {
+                    setOnlyMedia(checked)
+                    saveOnlyMediaFiles(checked)
+                  }}
+                  aria-label={t('filesView.onlyMedia')}
+                />
+              </div>
+              <RecordingBrowseTimeRange
+                startValue={rangeStartInput}
+                endValue={rangeEndInput}
+                onStartChange={setRangeStartInput}
+                onEndChange={setRangeEndInput}
+                onClear={clearRangeFilter}
+              />
+            </>
+          ) : null}
+        </div>
+
         {currentPath ? (
-          <div className="space-y-1">
-            <p className="text-sm text-muted-foreground truncate">{currentPath}</p>
+          <div className="mt-1 space-y-1">
+            <p className="truncate text-sm text-muted-foreground">{currentPath}</p>
             {rangeInvalid ? (
               <p className="text-xs text-destructive">{t('filesView.timeRangeInvalid')}</p>
             ) : null}

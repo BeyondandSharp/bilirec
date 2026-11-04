@@ -146,6 +146,7 @@ export const common = {
     checkFailed: "Update check failed, please try again later"
   },
   filesView: {
+    back: "Back",
     title: "Recorded files",
     searchPlaceholder: "Search file names...",
     searching: "Searching",

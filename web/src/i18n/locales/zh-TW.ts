@@ -144,6 +144,7 @@ export const common = {
     "checkFailed": "檢查更新失敗，請稍後再試"
   },
   "filesView": {
+    back: "後退",
     "title": "錄製檔案",
     "searchPlaceholder": "搜尋檔名...",
     "searching": "搜尋中",
