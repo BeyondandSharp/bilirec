@@ -1,0 +1,23 @@
+# Frozen entry — promote on merge to main/master.
+#
+# 合并进 main/master 不会触发 tag 事件，所以提升由分支推送触发：入口把 mode
+# 交给 reusable workflow，由它挑出最新的 tag 并提升（幂等，没有可提升的就绿色跳过）。
+#
+# `on:` 里不能用仓库变量，所以 main/master 是硬编码；`RELEASE_BRANCHES` 仍由
+# workflow 内的门禁判断，自定义发布分支需要同时改这里的 `branches:`。
+name: release (promote)
+
+on:
+  push:
+    branches: [main, master]
+
+concurrency:
+  group: release-promote-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    uses: BeyondandSharp/action-template/.forgejo/workflows/release.yml@main
+    secrets: inherit
+    with:
+      mode: promote
