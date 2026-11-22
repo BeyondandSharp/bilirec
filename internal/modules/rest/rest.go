@@ -105,6 +105,10 @@ func provider(ls fx.Lifecycle, cfg *config.Config) *fiber.App {
 		}))
 	} else {
 		log.Warn("swagger 文件未找到，禁用 swagger 路由")
+		// androidlib 未提供 swagger，根路由不存在；客戶端健康探測會持續產生 404 日誌。
+		app.Get("/", func(c fiber.Ctx) error {
+			return c.SendString("OK")
+		})
 	}
 
 	activeCORSOrigins.Store(newCORSOrigins(cfg))

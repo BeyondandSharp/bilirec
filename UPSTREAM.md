@@ -2,18 +2,21 @@
 
 - Bilirec fork: **the repository root** (Go module root)
   - Upstream: https://github.com/bilirec/bilirec
-  - Pinned tag: `v0.4.0`
-  - Pinned commit: `7d51ba907361218825253407cfd59f2f6d537385`
-  - `v0.4.0` was synced with a real Git merge (`git merge --no-ff v0.4.0`, 14 upstream
-    commits since `v0.3.2`) so the upstream commits and their original authorship remain in
+  - Pinned tag: `v0.4.1`
+  - Pinned commit: `9e9fd62703d6a52948134cfa8c1f39d0f49aff90`
+  - `v0.4.1` was synced with a real Git merge (`git merge --no-ff v0.4.1`, 8 upstream
+    commits since `v0.4.0`) so the upstream commits and their original authorship remain in
     the fork history; no cherry-pick / squash / rebase. Conflict resolution is recorded in
-    `docs/DECISIONS.md` D022. The previous `v0.3.1` → `v0.3.2` sync used the same method (D021).
+    `docs/DECISIONS.md` D025. The previous `v0.4.0` sync used the same method (D022), as did
+    `v0.3.1` → `v0.3.2` (D021).
   - License: MIT (see `LICENSES/Bilirec-MIT.txt`; upstream notice preserved in NOTICE)
   - The upstream tree is overlaid at the root (`.git` removed) so the whole workspace is one git repo;
     our additions live in `rust/`, `web/`, `deploy/`, `scripts/`, `testdata/`, `docs/`.
   - The old root `Dockerfile` and `.github/` are intentionally not restored; this fork uses
     `deploy/` and `.forgejo/` instead. `.github/workflows/test.yaml` stays deleted during the
-    `v0.4.0` merge (the upstream file is not brought back); CI lives in `.forgejo/`.
+    `v0.4.1` merge (the upstream file is not brought back); CI lives in `.forgejo/`.
+    Upstream's root `.cursor/skills` are not vendored either, matching the existing exclusion
+    of the web upstream's `.cursor/` rules.
   - To re-sync: fetch upstream `main` and merge the desired release tag into `dev`;
     resolve conflicts in favor of the fork's deploy/CI layout, then update this file.
 

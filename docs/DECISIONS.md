@@ -368,3 +368,46 @@ buffered_stream_writer.go`（注入与 flush 时机）；`internal/record_strate
 WriteMetadata` 由 `pipelineHooks` 从 effective 设置传入。测试覆盖 AMF 往返、固定长度、
 keyframe 间隔/上限、源字段保留、writer 注入/最终元数据/录制中回写；`FLV_WRITE_METADATA=
 false` 保持旧行为。
+
+## D025 (2026-11-22, Lead) — 用 Git merge 同步 upstream v0.4.1（P0-P2）
+
+上游 `v0.4.1`（`9e9fd62`）在 `v0.4.0` 之后有 8 个提交。本次在 `dev` 上用
+`git merge --no-ff v0.4.1` 合并，保留上游作者、提交时间和提交信息；不 cherry-pick、
+不 squash、不 rebase。合并范围以用户指定的 P0-P2 为准：
+
+- **P0** `668179c`：AAC sequence header 跨分段轮转。`pkg/flv.HeaderChangeDetector` 新增
+  `SeedAudioHeader`；seeded 检测器同时接收视频/音频序列头，`record_strategies/flv.go`
+  把轮转状态里的 `audioHdr` 传给检测器，避免从第三个文件起丢失 AAC 头导致音画时长漂移。
+- **P1** `93322a1` + `cafa971`：AI 字幕时间轴按容器锚定、TS PMT 偏移修正、过期句末重发
+  拒绝、FLV 文件前导重同步。
+- **P1** `5e3b3cc`：崩溃转储落盘（`pkg/logger/crash*.go`、`RecoverPanic`）与录制/写入/
+  HLS/subcheck 等长循环 panic 防护；Android 崩溃写入 `bootstrap.log`，本地日志启用时
+  写入主日志文件并跟随 lumberjack 轮转。
+- **P2** `40788dd`：无 swagger 时 `GET /` 返回 200；preview/notify 的 SSE `Locals`
+  类型断言改为 comma-ok。
+- `9e9fd62`（仅测试：内存断言从 runtime Sys 改为 retained heap）随 tag 一并带入；
+  无生产影响。
+- 上游 `08f4c51`/`616e63e` 的 `.cursor/skills` 不随合并收录，继续沿用 fork 对 `.cursor/`
+  的排除约定。
+
+### 冲突解决
+
+- `internal/modules/logging/logger_local.go`：保留 fork 的自定义 async sink 与按来源拆分
+  日志；`newLocalSink` 用 `crashFollowWriter` 包住 lumberjack，非拆分与拆分模式都在主日志
+  路径上启用崩溃捕获，并在 fx StopHook 中关闭。
+- `internal/processors/flv_header_split_detector.go`：fork 的 `SeededWithHook` 构造器增加
+  `audioHeaderTag` 参数并 seed 音频头；上游的 `Seeded` 两参数签名保持不变。
+- `internal/record_strategies/flv.go`：保留 fork 的 split detector、metadata、writer
+  options 管线，仅把 `audioHdr` 传入 seeded 检测器。
+- `internal/testutil/recording/integration.go`：保留 fork 额外注册的 cover/repair/
+  subscribe/configfile/settings 服务，采用上游的 HeapHeld 内存统计与预算逻辑。
+
+### 验证
+
+- `go build ./...` 通过；
+- `go test -short -count=1 -timeout 20m ./...` 通过；
+- 目标包 `pkg/flv`、`internal/processors`、`internal/services/subtitle`、`pkg/logger`、
+  `pkg/hls`、`subcheck`、`rest`、`preview`、`notify`、`logging`、`testutil/recording`
+  的短测试通过；
+- `go vet ./...` 通过（若本机 Go 版本对历史代码有既存告警，以 build/test 为准记录）。
+- 未新增依赖，`go.mod`/`go.sum` 未变化。

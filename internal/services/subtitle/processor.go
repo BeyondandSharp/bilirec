@@ -2,6 +2,7 @@ package subtitle
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sync/atomic"
 
@@ -17,7 +18,11 @@ const subtitleQueueMaxBytes = 4 << 20
 // NALs 的封装格式因来源而异，后续 SEI 扫描会先判断 AVCC 还是 Annex-B。
 type accessUnit struct {
 	PTSMs int64
-	Codec flv.VideoKind
+	// ptsKnown 標示 PTSMs 是否來自真實解析（目前只有 .ts 會是 false：PES 頭尚未到達，
+	// 或嵌入式字幕 chunk 還沒有可依附的 PTS）。FLV/fMP4 的時間戳總是由 tag/trun 給出，
+	// 維持 false 不影響它們的 baseMs=0 行為。
+	ptsKnown bool
+	Codec    flv.VideoKind
 	// AVCC：4 字节大端长度 + NAL 体，可连续多个 NAL。
 	// Annex-B：0x000001 / 0x00000001 起始码分隔的 NAL（HLS TS 的 PES 负载常见）。
 	NALs []byte
@@ -56,6 +61,7 @@ type tsScratch struct {
 	codec    flv.VideoKind
 	pesBuf   []byte
 	pesPTS   uint64
+	ptsKnown bool
 	havePES  bool
 }
 
@@ -66,6 +72,8 @@ type queuedChunk struct {
 
 func applyChunkGap(sc *tsScratch) {
 	sc.pesBuf = nil
+	sc.pesPTS = 0
+	sc.ptsKnown = false
 	sc.havePES = false
 }
 
@@ -111,10 +119,11 @@ func (p *segmentProcessor) Close() error {
 func (p *segmentProcessor) consume(q *ds.ChunkQueue[queuedChunk]) {
 	var fmp4 fmp4Scratch
 	var ts tsScratch
+	// cleanup 每次退出（正常/panic）都要执行；defer LIFO：RecoverPanic 先于
+	// cleanup 运行，先接住 panic 记录堆栈，再让 cleanup 在已恢复状态下执行。
+	// 注意 RecoverPanic 必须是“被 defer 的函数”直接调用，不能包进下面的
+	// closure 里，否则 recover() 取不到 panic。
 	defer func() {
-		if rec := recover(); rec != nil {
-			log.Errorf("subtitle scan panicked path=%s err=%v", p.videoPath, rec)
-		}
 		if p.ext == ".ts" {
 			if au, ok := flushTSPES(&ts); ok {
 				p.seg.enqueueFromAccessUnit(au)
@@ -128,6 +137,7 @@ func (p *segmentProcessor) consume(q *ds.ChunkQueue[queuedChunk]) {
 		p.svc.untrack(p.videoPath, p.done)
 		p.svc.idle.Done()
 	}()
+	defer log.RecoverPanic(fmt.Sprintf("subtitle scan（path=%s）", p.videoPath))
 	for {
 		item, ok := q.Pop()
 		if !ok {

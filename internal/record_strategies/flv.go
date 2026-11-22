@@ -90,7 +90,7 @@ func (s *FlvStrategy) BuildPipeline(ctx context.Context, outputPath string, stat
 
 	procList := []*pipeline.ProcessorInfo[[]byte]{
 		processors.NewFlvStreamFixerWithFixer(s.sharedFixer),
-		processors.NewFlvHeaderSplitDetectorSeededWithHook(videoHdr, s.observeHeaders),
+		processors.NewFlvHeaderSplitDetectorSeededWithHook(videoHdr, audioHdr, s.observeHeaders),
 	}
 	if s.splitOptions.SplitOnScriptTag {
 		procList = append(procList, processors.NewFlvScriptTagSplitDetector())

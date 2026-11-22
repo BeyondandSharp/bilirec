@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,7 +72,9 @@ func newLocalSink(cfg *config.Config, path string) (*logsink.AsyncBufferedSink, 
 		MaxBackups: cfg.LocalLogsMaxBackups,
 		Compress:   cfg.LocalLogsCompress,
 	}
-	tr := logsink.NewFileTransport(fileWriter)
+	// crashFollowWriter re-registers the runtime crash output when lumberjack
+	// rotates this file, so fatal dumps keep landing in the current log file.
+	tr := logsink.NewFileTransport(crashFollowWriter{path: path, w: fileWriter})
 	return logsink.NewAsyncBufferedSink(tr, logsink.Options{
 		BufferSize:    cfg.LocalLogsBufferSize,
 		BatchBytes:    cfg.LocalLogsBatchBytes,
@@ -97,11 +100,21 @@ func wireLocalLogger(lc fx.Lifecycle, cfg *config.Config) {
 		return
 	}
 
+	logPath := LocalLogFilePath(cfg)
 	if cfg.LocalLogsSplit {
 		set := newSourceLoggerSet(cfg)
 		activateSourceSet(set)
 		logger.SetLocalCore(newSourceRouterCore(set))
+		// Split mode still has a main aggregate file at logPath; crash dumps
+		// land there even though normal entries are routed to per-source files.
+		// The main sink is created lazily, so make its directory now.
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+			log.Warnf("创建本地日志目录失败，无法启用崩溃输出：%v", err)
+		} else if err := logger.EnableCrashCapture(logPath); err != nil {
+			log.Warnf("启用崩溃输出到本地日志失败：%v", err)
+		}
 		lc.Append(fx.StopHook(func(ctx context.Context) error {
+			logger.DisableCrashCapture()
 			_ = set.Sync()
 			logger.ClearLocalCore()
 			return set.Close(ctx)
@@ -110,15 +123,34 @@ func wireLocalLogger(lc fx.Lifecycle, cfg *config.Config) {
 		return
 	}
 
-	logPath := LocalLogFilePath(cfg)
 	sink, err := newLocalSink(cfg, logPath)
 	if err != nil {
 		log.Warnf("初始化本地日志失败，已跳过：%v", err)
 		return
 	}
 	logger.SetLocalCore(newLocalCoreForFormat(cfg.LocalLogsFormat, sink))
+	if err := logger.EnableCrashCapture(logPath); err != nil {
+		log.Warnf("启用崩溃输出到本地日志失败：%v", err)
+	}
 	lc.Append(fx.StopHook(func(ctx context.Context) error {
+		logger.DisableCrashCapture()
 		return shutdownSink(logger.ClearLocalCore, sink, ctx)
 	}))
 	log.Infof("本地日志已启用：%s format=%s", logPath, cfg.LocalLogsFormat)
 }
+
+// crashFollowWriter 在每次批次写入后让崩溃转储跟随当前日志文件。
+// lumberjack 按大小换档后，runtime 仍持有旧 inode 的 fd；这里发现路径指向
+// 新文件时重新注册（同一文件时是廉价的 SameFile 检查）。
+type crashFollowWriter struct {
+	path string
+	w    io.WriteCloser
+}
+
+func (f crashFollowWriter) Write(p []byte) (int, error) {
+	n, err := f.w.Write(p)
+	logger.NoteCrashLogWrite(f.path)
+	return n, err
+}
+
+func (f crashFollowWriter) Close() error { return f.w.Close() }
